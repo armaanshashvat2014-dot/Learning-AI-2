@@ -9,6 +9,10 @@ from io import BytesIO
 from google import genai
 from google.genai import types
 
+# Firebase Firestore Imports
+from google.cloud import firestore
+from google.oauth2 import service_account
+
 # ReportLab PDF
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -30,7 +34,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 # -----------------------------
 st.set_page_config(page_title="helix.ai", page_icon="📚", layout="centered")
 
-# Load CSS theme first so the login screen looks good
 st.markdown("""
 <style>
 .stApp { background: radial-gradient(800px circle at 50% 0%, rgba(0, 212, 255, 0.08), rgba(0, 212, 255, 0.00) 60%), var(--background-color); color: var(--text-color); }
@@ -47,38 +50,84 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------
-# 2) NATIVE GOOGLE LOGIN
+# 2) GUEST MODE & NATIVE GOOGLE LOGIN
 # -----------------------------
-# Safely figure out which version of Streamlit we are using
+# Safely get authentication object based on Streamlit version
 if hasattr(st, "user"):
     auth_object = st.user
 elif hasattr(st, "experimental_user"):
     auth_object = st.experimental_user
 else:
-    st.error("Your Streamlit version is too old for Google Login. Please upgrade Streamlit.")
+    st.error("Your Streamlit version is too old for Google Login.")
     st.stop()
 
-# Check if the user is logged in
 is_authenticated = getattr(auth_object, "is_logged_in", False)
 
+# Initialize Firestore Connection
+@st.cache_resource
+def get_firestore_client():
+    if "firebase" in st.secrets:
+        key_dict = dict(st.secrets["firebase"])
+        creds = service_account.Credentials.from_service_account_info(key_dict)
+        return firestore.Client(credentials=creds)
+    return None
+
+db = get_firestore_client()
+
+# Firebase Helper Functions
+def get_user_doc_ref():
+    if is_authenticated and hasattr(auth_object, "email") and db is not None:
+        return db.collection("chats").document(auth_object.email)
+    return None
+
+def load_chat_history():
+    doc_ref = get_user_doc_ref()
+    if doc_ref:
+        try:
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict().get("messages", [])
+        except Exception as e:
+            st.toast(f"⚠️ Failed to load chat history: {e}")
+            
+    # Default greeting if no database record exists or user is logged out (Guest Mode)
+    return [{
+        "role": "assistant",
+        "content": "👋 **Hey there! I'm Helix!**\n\nI'm your friendly CIE tutor here to help you ace your CIE exams! 📖\n\nI can answer your doubts, draw diagrams, and create quizzes!\nYou can also **attach photos, PDFs, or text files directly in the chat box below!** 📸📄\n\n**Quick Reminder:** In the Cambridge system, your **Stage** is usually your **Grade + 1**.\n*(Example: If you are in Grade 7, you are studying Stage 8 content!)*\n\nWhat are we learning today?",
+        "is_greeting": True,
+    }]
+
+def save_chat_history():
+    doc_ref = get_user_doc_ref()
+    # ONLY save if they are logged in. Guests do not get saved!
+    if doc_ref:
+        try:
+            safe_messages = []
+            for msg in st.session_state.messages:
+                # Ensure strict typing so Firestore doesn't silently crash
+                safe_messages.append({
+                    "role": str(msg.get("role", "assistant")), 
+                    "content": str(msg.get("content", "")),
+                    "is_greeting": bool(msg.get("is_greeting", False))
+                })
+            # merge=True forces the overwrite to succeed
+            doc_ref.set({"messages": safe_messages}, merge=True)
+        except Exception as e:
+            st.toast(f"⚠️ Database Error: Could not save chat - {e}")
+
+# Sidebar Login UI
+st.sidebar.title("Account Settings")
 if not is_authenticated:
-    st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
-    st.markdown("<div class='subtitle'>Please log in with Google to continue.</div>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.login(provider="google")
-    
-    st.stop() # Stops the rest of the app from running until logged in
+    st.sidebar.markdown("👋 **You are chatting as a Guest!**\n\n*Log in with Google to save your chat history permanently!*")
+    st.sidebar.login(provider="google")
+else:
+    user_name = auth_object.get("name", "Student") if hasattr(auth_object, "get") else "Student"
+    st.sidebar.success(f"Welcome back, **{user_name}**! 📚")
+    st.sidebar.markdown("*Your chat history is being safely backed up!*")
+    if st.sidebar.button("Log out"):
+        st.logout()
 
-# If logged in, show user info and logout button in sidebar
-user_name = auth_object.get("name", "Student") if hasattr(auth_object, "get") else "Student"
-st.sidebar.write(f"Welcome back, **{user_name}**! 📚")
-
-if st.sidebar.button("Log out"):
-    st.logout()
-
-# Main app title
+# Main app title (Friendly for everyone!)
 st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>Your CIE Tutor for Grade 6-8!</div>", unsafe_allow_html=True)
 
@@ -132,16 +181,12 @@ def safe_response_text(resp) -> str:
 def md_inline_to_rl(text: str) -> str:
     if text is None: return ""
     s = str(text)
-    
-    # Clean up LaTeX
     s = s.replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '')
     s = s.replace(r'\times', ' x ').replace(r'\div', ' ÷ ').replace(r'\circ', '°')
     s = s.replace(r'\pm', '±').replace(r'\leq', '≤').replace(r'\geq', '≥')
     s = s.replace(r'\neq', '≠').replace(r'\approx', '≈').replace(r'\pi', 'π').replace(r'\sqrt', '√')
     s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', s)
     s = s.replace('\\', '')
-
-    # Standard Formatting
     s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
     s = re.sub(r"(?<!\*)\*(\S.+?)\*(?!\*)", r"<i>\1</i>", s)
@@ -504,11 +549,7 @@ def select_relevant_books(query, file_dict):
 # 10) SESSION INIT & CHAT
 # -----------------------------
 if "messages" not in st.session_state:
-    st.session_state.messages = [{
-        "role": "assistant",
-        "content": "👋 **Hey there! I'm Helix!**\n\nI'm your friendly CIE tutor here to help you ace your CIE exams! 📖\n\nI can answer your doubts, draw diagrams, and create quizzes!\nYou can also **attach photos, PDFs, or text files directly in the chat box below!** 📸📄\n\n**Quick Reminder:** In the Cambridge system, your **Stage** is usually your **Grade + 1**.\n*(Example: If you are in Grade 7, you are studying Stage 8 content!)*\n\nWhat are we learning today?",
-        "is_greeting": True,
-    }]
+    st.session_state.messages = load_chat_history()
 
 if "textbook_handles" not in st.session_state:
     st.session_state.textbook_handles = upload_textbooks()
@@ -562,6 +603,7 @@ if chat_input_data:
         user_msg["user_attachment_name"] = file_name
 
     st.session_state.messages.append(user_msg)
+    save_chat_history() # Save user message to Firebase
 
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -654,7 +696,9 @@ if chat_input_data:
 
             is_downloadable = "[PDF_READY]" in bot_text
             bot_msg = {"role": "assistant", "content": bot_text, "is_downloadable": is_downloadable, "images": generated_images}
+            
             st.session_state.messages.append(bot_msg)
+            save_chat_history() # Save bot message to Firebase
 
             display_text = bot_text.replace("[PDF_READY]", "").strip()
             st.markdown(display_text)
