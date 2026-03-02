@@ -49,8 +49,17 @@ st.markdown("""
 # -----------------------------
 # 2) NATIVE GOOGLE LOGIN
 # -----------------------------
-# Safely check if the user is logged in without throwing an AttributeError
-is_authenticated = getattr(st.experimental_user, "is_logged_in", False)
+# Safely figure out which version of Streamlit we are using
+if hasattr(st, "user"):
+    auth_object = st.user
+elif hasattr(st, "experimental_user"):
+    auth_object = st.experimental_user
+else:
+    st.error("Your Streamlit version is too old for Google Login. Please upgrade Streamlit.")
+    st.stop()
+
+# Check if the user is logged in
+is_authenticated = getattr(auth_object, "is_logged_in", False)
 
 if not is_authenticated:
     st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
@@ -63,7 +72,7 @@ if not is_authenticated:
     st.stop() # Stops the rest of the app from running until logged in
 
 # If logged in, show user info and logout button in sidebar
-user_name = st.experimental_user.get("name", "Student")
+user_name = auth_object.get("name", "Student") if hasattr(auth_object, "get") else "Student"
 st.sidebar.write(f"Welcome back, **{user_name}**! 📚")
 
 if st.sidebar.button("Log out"):
@@ -675,3 +684,4 @@ if chat_input_data:
                 if "temp_pdf_path" in locals() and temp_pdf_path and os.path.exists(temp_pdf_path):
                     os.remove(temp_pdf_path)
             except Exception: pass
+
