@@ -422,41 +422,51 @@ def clean_visual_tags_for_display(text: str) -> str:
 # -----------------------------
 # 7) VISUAL GENERATORS
 # -----------------------------
-def _maybe_b64_to_bytes(x):
-    if x is None:
-        return None
-    if isinstance(x, (bytes, bytearray)):
-        return bytes(x)
-    if isinstance(x, str):
-        try:
-            return base64.b64decode(x)
-        except Exception:
-            return None
-    return None
-
 def generate_single_image(desc: str):
     try:
         clean_desc = re.sub(r"\s+", " ", (desc or "")).strip()
 
+        # In the new SDK, you MUST declare the TEXT and IMAGE modalities and the aspect ratio
         img_resp = client.models.generate_content(
             model="gemini-3-pro-image-preview",
             contents=[clean_desc],
-            # Do NOT use response_modalities config here, the new SDK prefers it without for this model
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+                image_config=types.ImageConfig(
+                    aspect_ratio="16:9"
+                )
+            )
         )
 
-        # The new Google GenAI SDK stores generated image parts directly in resp.parts
+        # The new official way to extract the image according to Google's SDK docs
         if hasattr(img_resp, "parts") and img_resp.parts:
-            for part in img_resp.parts:
-                if hasattr(part, "inline_data") and part.inline_data:
-                    return _maybe_b64_to_bytes(part.inline_data.data)
+            # Filter for parts that have inline_data
+            image_parts = [part for part in img_resp.parts if getattr(part, "inline_data", None) is not None]
+            
+            if image_parts:
+                # Use the new .as_image() helper method and get the raw bytes
+                gen_image = image_parts[0].as_image()
+                if hasattr(gen_image, "image_bytes"):
+                    return gen_image.image_bytes
                     
-        # Fallback to checking candidates
+        # Ultimate Fallback for nested candidate structures
         if hasattr(img_resp, "candidates") and img_resp.candidates:
             for cand in img_resp.candidates:
                 if hasattr(cand, "content") and hasattr(cand.content, "parts"):
                     for part in cand.content.parts:
-                        if hasattr(part, "inline_data") and part.inline_data:
-                            return _maybe_b64_to_bytes(part.inline_data.data)
+                        if getattr(part, "inline_data", None) is not None:
+                            # Try the helper first
+                            if hasattr(part, "as_image"):
+                                gen_image = part.as_image()
+                                if hasattr(gen_image, "image_bytes"):
+                                    return gen_image.image_bytes
+                            # Direct byte fallback
+                            data = part.inline_data.data
+                            if isinstance(data, (bytes, bytearray)):
+                                return bytes(data)
+                            elif isinstance(data, str):
+                                import base64
+                                return base64.b64decode(data)
 
     except Exception as e:
         print(f"Image gen error: {e}")
