@@ -4,6 +4,7 @@ import time
 import re
 import uuid
 import concurrent.futures
+import base64
 from pathlib import Path
 from io import BytesIO
 
@@ -47,17 +48,6 @@ st.markdown("""
 .thinking-dot:nth-child(2){ animation-delay: 0.2s; }
 .thinking-dot:nth-child(3){ animation-delay: 0.4s; }
 @keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1.2); } }
-
-/* Fix Sidebar Button Heights */
-div[data-testid="stVerticalBlock"] div[data-testid="column"] button {
-    height: 42px !important;
-    min-height: 42px !important;
-    padding-top: 0px !important;
-    padding-bottom: 0px !important;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -100,8 +90,8 @@ def get_all_threads():
             for doc in docs:
                 data = doc.to_dict()
                 threads.append({
-                    "id": doc.id, 
-                    "title": data.get("title", "New Chat"), 
+                    "id": doc.id,
+                    "title": data.get("title", "New Chat"),
                     "updated_at": data.get("updated_at", 0),
                     "metadata": data.get("metadata", {"subjects": [], "grades": []}),
                     "user_edited_title": data.get("user_edited_title", False)
@@ -131,37 +121,41 @@ def load_chat_history(thread_id):
 
 def save_chat_history():
     coll_ref = get_threads_collection()
-    if not coll_ref: return # Skip if Guest Mode
+    if not coll_ref:
+        return  # Skip if Guest Mode
 
     current_id = st.session_state.current_thread_id
-    
+
     safe_messages = []
-    
-    # Metadata Trackers
+
     detected_subjects = set()
     detected_grades = set()
 
     for msg in st.session_state.messages:
         content_str = str(msg.get("content", ""))
         role = msg.get("role")
-        
+
         if role == "user":
             q = content_str.lower()
-            if any(k in q for k in ["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"]): detected_subjects.add("Math")
-            if any(k in q for k in ["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"]): detected_subjects.add("Science")
-            if any(k in q for k in ["english", "poem", "story", "essay", "writing", "grammar", "noun", "verb"]): detected_subjects.add("English")
-            if any(k in q for k in ["stage 7", "grade 6", "year 7"]): detected_grades.add("Stage 7")
-            if any(k in q for k in ["stage 8", "grade 7", "year 8"]): detected_grades.add("Stage 8")
-            if any(k in q for k in ["stage 9", "grade 8", "year 9"]): detected_grades.add("Stage 9")
-            
-        # Do not save raw image bytes to Firestore, only text and metadata
-        safe_msg = {
-            "role": str(role), 
+            if any(k in q for k in ["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"]):
+                detected_subjects.add("Math")
+            if any(k in q for k in ["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"]):
+                detected_subjects.add("Science")
+            if any(k in q for k in ["english", "poem", "story", "essay", "writing", "grammar", "noun", "verb"]):
+                detected_subjects.add("English")
+            if any(k in q for k in ["stage 7", "grade 6", "year 7"]):
+                detected_grades.add("Stage 7")
+            if any(k in q for k in ["stage 8", "grade 7", "year 8"]):
+                detected_grades.add("Stage 8")
+            if any(k in q for k in ["stage 9", "grade 8", "year 9"]):
+                detected_grades.add("Stage 9")
+
+        safe_messages.append({
+            "role": str(role),
             "content": content_str,
             "is_greeting": bool(msg.get("is_greeting", False)),
-            "is_downloadable": bool(msg.get("is_downloadable", False))
-        }
-        safe_messages.append(safe_msg)
+            "is_downloadable": bool(msg.get("is_downloadable", False)),
+        })
 
     data = {
         "messages": safe_messages,
@@ -180,15 +174,38 @@ def save_chat_history():
 # -----------------------------
 # 2.5) AUTO-TITLE GENERATOR
 # -----------------------------
+def safe_response_text(resp) -> str:
+    try:
+        t = getattr(resp, "text", None)
+        if t:
+            return str(t)
+    except Exception:
+        pass
+    try:
+        cands = getattr(resp, "candidates", None) or []
+        if cands:
+            content = getattr(cands[0], "content", None)
+            parts = getattr(content, "parts", None) or []
+            texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+            if texts:
+                return "\n".join(texts)
+    except Exception:
+        pass
+    return ""
+
 def generate_chat_title(client, messages):
     try:
         user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
         if not user_msgs:
             return "New Chat"
-            
+
         context_text = "\n".join(user_msgs[-3:])
-        prompt = f"Summarize this conversation context into a very short, punchy chat title (maximum 4 words). Do not use quotes or punctuation. Context: {context_text}"
-        
+        prompt = (
+            "Summarize this conversation context into a very short, punchy chat title "
+            "(maximum 4 words). Do not use quotes or punctuation. Context: "
+            f"{context_text}"
+        )
+
         response = client.models.generate_content(
             model="gemini-2.5-flash-lite",
             contents=[prompt],
@@ -197,7 +214,7 @@ def generate_chat_title(client, messages):
                 max_output_tokens=15
             ),
         )
-        
+
         title = safe_response_text(response).strip().replace('"', '').replace("'", "")
         return title if title else "New Chat"
     except Exception as e:
@@ -224,7 +241,7 @@ def confirm_new_chat_dialog(oldest_thread_id):
     st.write("You have hit the maximum limit of **15 saved chats**.")
     st.write("If you create a new chat, your oldest chat will be permanently deleted.")
     st.write("Are you sure you want to do this?")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Cancel", use_container_width=True):
@@ -235,7 +252,7 @@ def confirm_new_chat_dialog(oldest_thread_id):
             if coll_ref:
                 try:
                     coll_ref.document(oldest_thread_id).delete()
-                except:
+                except Exception:
                     pass
             st.session_state.current_thread_id = str(uuid.uuid4())
             st.session_state.messages = get_default_greeting()
@@ -245,7 +262,7 @@ def confirm_new_chat_dialog(oldest_thread_id):
 def confirm_delete_chat_dialog(thread_id_to_delete):
     st.write("Are you sure you want to permanently delete this chat?")
     st.write("*This action cannot be undone.*")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Cancel", use_container_width=True):
@@ -257,8 +274,9 @@ def confirm_delete_chat_dialog(thread_id_to_delete):
             if coll_ref:
                 try:
                     coll_ref.document(thread_id_to_delete).delete()
-                except: pass
-            
+                except Exception:
+                    pass
+
             if st.session_state.current_thread_id == thread_id_to_delete:
                 st.session_state.current_thread_id = str(uuid.uuid4())
                 st.session_state.messages = get_default_greeting()
@@ -272,9 +290,9 @@ def chat_settings_dialog(thread_data):
     grds = ", ".join(thread_data.get("metadata", {}).get("grades", [])) or "None"
     st.caption(f"📚 **Subjects:** {subs}")
     st.caption(f"🎓 **Grades:** {grds}")
-    
+
     st.divider()
-    
+
     new_title = st.text_input("Rename Chat", value=thread_data["title"], key=f"ren_in_{thread_data['id']}")
     if st.button("💾 Save Name", key=f"ren_btn_{thread_data['id']}", use_container_width=True):
         coll_ref = get_threads_collection()
@@ -284,9 +302,9 @@ def chat_settings_dialog(thread_data):
                 "user_edited_title": True
             }, merge=True)
         st.rerun()
-        
+
     st.divider()
-    
+
     if st.button("🗑️ Delete Chat", key=f"del_btn_set_{thread_data['id']}", type="primary", use_container_width=True):
         st.session_state.delete_requested_for = thread_data["id"]
         st.rerun()
@@ -305,11 +323,11 @@ with st.sidebar:
         st.success(f"Welcome back, **{user_name}**! 📚")
         if st.button("Log out"):
             st.logout()
-            
+
     st.divider()
-    
+
     sidebar_threads = get_all_threads() if is_authenticated else []
-    
+
     if st.button("➕ New Chat", use_container_width=True):
         if is_authenticated and len(sidebar_threads) >= 15:
             oldest_id = sidebar_threads[-1]["id"]
@@ -318,29 +336,28 @@ with st.sidebar:
             st.session_state.current_thread_id = str(uuid.uuid4())
             st.session_state.messages = get_default_greeting()
             st.rerun()
-        
+
     if is_authenticated:
         st.subheader("Recent Chats")
         if not sidebar_threads:
             st.caption("*Your saved chats will appear here.*")
-            
+
         for t in sidebar_threads:
-            col1, col2 = st.columns([0.85, 0.15], gap="small", vertical_alignment="center")
-            
+            col1, col2 = st.columns([0.85, 0.15], vertical_alignment="center")
+
             with col1:
                 icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
                 if st.button(f"{icon} {t['title']}", key=f"btn_{t['id']}", use_container_width=True):
                     st.session_state.current_thread_id = t["id"]
                     st.session_state.messages = load_chat_history(t["id"])
                     st.rerun()
-                    
+
             with col2:
                 if st.button("", icon=":material/more_vert:", key=f"set_btn_{t['id']}", use_container_width=True):
                     chat_settings_dialog(t)
 
 if st.session_state.delete_requested_for:
     confirm_delete_chat_dialog(st.session_state.delete_requested_for)
-
 
 # Main app title
 st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
@@ -364,37 +381,26 @@ except Exception as e:
     st.stop()
 
 # -----------------------------
-# 6) HELPERS & LATEX CLEANER
+# 6) HELPERS
 # -----------------------------
 def get_friendly_name(filename: str) -> str:
-    if not filename: return "Cambridge Textbook"
+    if not filename:
+        return "Cambridge Textbook"
     name = filename.replace(".pdf", "").replace(".PDF", "")
     parts = name.split("_")
-    if len(parts) < 3 or parts[0] != "CIE": return filename
+    if len(parts) < 3 or parts[0] != "CIE":
+        return filename
     grade = parts[1]
     book_type = "Workbook" if "WB" in parts else "Textbook"
-    if "ANSWERS" in parts: book_type += " Answers"
+    if "ANSWERS" in parts:
+        book_type += " Answers"
     subject = "Science" if "Sci" in parts else "Math" if "Math" in parts else "English" if "Eng" in parts else "Subject"
     part_str = " (Part 1)" if "1" in parts[2:] else " (Part 2)" if "2" in parts[2:] else ""
     return f"Cambridge {subject} {book_type} {grade}{part_str}"
 
-def safe_response_text(resp) -> str:
-    try:
-        t = getattr(resp, "text", None)
-        if t: return str(t)
-    except Exception: pass
-    try:
-        cands = getattr(resp, "candidates", None) or []
-        if cands:
-            content = getattr(cands[0], "content", None)
-            parts = getattr(content, "parts", None) or []
-            texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
-            if texts: return "\n".join(texts)
-    except Exception: pass
-    return ""
-
 def md_inline_to_rl(text: str) -> str:
-    if text is None: return ""
+    if text is None:
+        return ""
     s = str(text)
     s = s.replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '')
     s = s.replace(r'\times', ' x ').replace(r'\div', ' ÷ ').replace(r'\circ', '°')
@@ -408,26 +414,74 @@ def md_inline_to_rl(text: str) -> str:
     return s
 
 def clean_visual_tags_for_display(text: str) -> str:
-    """Removes the raw IMAGE_GEN and PIE_CHART tags so the user doesn't see them."""
-    cleaned = re.sub(r"IMAGE_GEN:\s*\[.*?\]", "", text)
-    cleaned = re.sub(r"PIE_CHART:\s*\[.*?\]", "", cleaned)
+    cleaned = re.sub(r"IMAGE_GEN:\s*\[.*?\]", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"PIE_CHART:\s*\[.*?\]", "", cleaned, flags=re.DOTALL)
     cleaned = cleaned.replace("[PDF_READY]", "")
     return cleaned.strip()
 
 # -----------------------------
 # 7) VISUAL GENERATORS
 # -----------------------------
+def _maybe_b64_to_bytes(x):
+    if x is None:
+        return None
+    if isinstance(x, (bytes, bytearray)):
+        return bytes(x)
+    if isinstance(x, str):
+        try:
+            return base64.b64decode(x)
+        except Exception:
+            return None
+    return None
+
+def _extract_inline_image_bytes(gen_resp):
+    found = []
+
+    # Path A: resp.parts
+    try:
+        parts = getattr(gen_resp, "parts", None) or []
+        for part in parts:
+            inline = getattr(part, "inline_data", None)
+            if inline and getattr(inline, "data", None) is not None:
+                b = _maybe_b64_to_bytes(inline.data)
+                if b:
+                    found.append(b)
+    except Exception:
+        pass
+
+    # Path B: resp.candidates[0].content.parts
+    try:
+        cands = getattr(gen_resp, "candidates", None) or []
+        for cand in cands:
+            content = getattr(cand, "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                inline = getattr(part, "inline_data", None)
+                if inline and getattr(inline, "data", None) is not None:
+                    b = _maybe_b64_to_bytes(inline.data)
+                    if b:
+                        found.append(b)
+    except Exception:
+        pass
+
+    return found
+
 def generate_single_image(desc: str):
     try:
+        clean_desc = re.sub(r"\s+", " ", (desc or "")).strip()
+
         img_resp = client.models.generate_content(
             model="gemini-3-pro-image-preview",
-            contents=[desc],
-            config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+            contents=[clean_desc],
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+            ),
         )
-        for part in (img_resp.parts or []):
-            if getattr(part, "inline_data", None):
-                return part.inline_data.data
-    except Exception as e: print(f"Image gen error: {e}")
+
+        imgs = _extract_inline_image_bytes(img_resp)
+        return imgs[0] if imgs else None
+    except Exception as e:
+        print(f"Image gen error: {e}")
     return None
 
 def generate_pie_chart(data_str: str):
@@ -439,42 +493,83 @@ def generate_pie_chart(data_str: str):
                 labels.append(k.strip())
                 sizes.append(float(re.sub(r"[^\d\.]", "", v)))
 
-        if not labels or not sizes or len(labels) != len(sizes): return None
+        if not labels or not sizes or len(labels) != len(sizes):
+            return None
 
         fig = Figure(figsize=(5, 5), dpi=200)
         FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         theme_colors = ["#00d4ff", "#fc8404", "#2ecc71", "#9b59b6", "#f1c40f", "#e74c3c"]
-        ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=140, colors=theme_colors[: len(labels)], textprops={"color": "black", "fontsize": 9})
+        ax.pie(
+            sizes,
+            labels=labels,
+            autopct="%1.1f%%",
+            startangle=140,
+            colors=theme_colors[: len(labels)],
+            textprops={"color": "black", "fontsize": 9},
+        )
         ax.axis("equal")
 
         buf = BytesIO()
         fig.savefig(buf, format="png", bbox_inches="tight", transparent=True)
         return buf.getvalue()
-    except Exception as e: print(f"Pie chart error: {e}")
+    except Exception as e:
+        print(f"Pie chart error: {e}")
     return None
 
 def process_visual(prompt_data):
     trigger_type, data = prompt_data
-    if trigger_type == "IMAGE_GEN": return generate_single_image(data)
-    if trigger_type == "PIE_CHART": return generate_pie_chart(data)
+    if trigger_type == "IMAGE_GEN":
+        return generate_single_image(data)
+    if trigger_type == "PIE_CHART":
+        return generate_pie_chart(data)
     return None
 
 # -----------------------------
-# 8) PDF EXPORT 
+# 8) PDF EXPORT
 # -----------------------------
 def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch, topMargin=0.75*inch, bottomMargin=0.75*inch)
-    
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=0.75 * inch,
+        leftMargin=0.75 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch,
+    )
+
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontSize=18, textColor=colors.HexColor("#00d4ff"), spaceAfter=12, alignment=TA_CENTER, fontName="Helvetica-Bold")
-    heading_style = ParagraphStyle("CustomHeading", parent=styles["Heading2"], fontSize=14, spaceAfter=10, spaceBefore=10, fontName="Helvetica-Bold")
-    body_style = ParagraphStyle("CustomBody", parent=styles["BodyText"], fontSize=11, spaceAfter=8, alignment=TA_LEFT, fontName="Helvetica")
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Heading1"],
+        fontSize=18,
+        textColor=colors.HexColor("#00d4ff"),
+        spaceAfter=12,
+        alignment=TA_CENTER,
+        fontName="Helvetica-Bold",
+    )
+    heading_style = ParagraphStyle(
+        "CustomHeading",
+        parent=styles["Heading2"],
+        fontSize=14,
+        spaceAfter=10,
+        spaceBefore=10,
+        fontName="Helvetica-Bold",
+    )
+    body_style = ParagraphStyle(
+        "CustomBody",
+        parent=styles["BodyText"],
+        fontSize=11,
+        spaceAfter=8,
+        alignment=TA_LEFT,
+        fontName="Helvetica",
+    )
 
     story = []
-    if not content: content = "⚠️ No content to export."
+    if not content:
+        content = "⚠️ No content to export."
 
     lines = str(content).split("\n")
     start_index = 0
@@ -488,12 +583,14 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     skip_sources = False
     for line in lines:
         stripped = line.strip()
-        if "[PDF_READY]" in stripped: continue
+        if "[PDF_READY]" in stripped:
+            continue
         if stripped.startswith("Source(s):") or stripped.startswith("**Source(s):**"):
             skip_sources = True
             continue
         if skip_sources:
-            if not stripped or stripped.startswith("*") or stripped.startswith("-"): continue
+            if not stripped or stripped.startswith("*") or stripped.startswith("-"):
+                continue
             skip_sources = False
         clean_line = re.sub(r"\s*\(Source:.*?\)", "", line)
         cleaned_lines.append(clean_line)
@@ -503,23 +600,28 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
 
     def render_pending_table():
         nonlocal table_rows
-        if not table_rows: return
+        if not table_rows:
+            return
         ncols = max(len(r) for r in table_rows)
         norm_rows = []
         for r in table_rows:
             r2 = list(r) + [""] * (ncols - len(r))
             norm_rows.append([Paragraph(md_inline_to_rl(c), body_style) for c in r2])
         t = Table(norm_rows, colWidths=[doc.width / max(1, ncols)] * ncols)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#00d4ff")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ]))
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#00d4ff")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ]
+            )
+        )
         story.append(t)
         story.append(Spacer(1, 0.18 * inch))
         table_rows = []
@@ -530,7 +632,8 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
 
         if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
             cells = [c.strip() for c in s.split("|")[1:-1]]
-            if all(re.fullmatch(r":?-+:?", c) for c in cells if c): continue
+            if all(re.fullmatch(r":?-+:?", c) for c in cells if c):
+                continue
             table_rows.append(cells)
             continue
         else:
@@ -548,9 +651,10 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
                     iw, ih = rl_reader.getSize()
                     aspect = ih / float(iw)
                     story.append(Spacer(1, 0.12 * inch))
-                    story.append(RLImage(img_stream, width=4.6*inch, height=4.6*inch*aspect))
+                    story.append(RLImage(img_stream, width=4.6 * inch, height=4.6 * inch * aspect))
                     story.append(Spacer(1, 0.12 * inch))
-                except Exception: pass
+                except Exception:
+                    pass
             img_idx += 1
             continue
 
@@ -559,10 +663,14 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
             story.append(Paragraph(md_inline_to_rl(re.sub(r"^#+\s*", "", s)), title_style))
             continue
 
-        if s.startswith("# "): story.append(Paragraph(md_inline_to_rl(s[2:].strip()), title_style))
-        elif s.startswith("## "): story.append(Paragraph(md_inline_to_rl(s[3:].strip()), heading_style))
-        elif s.startswith("### "): story.append(Paragraph(f"<b>{md_inline_to_rl(s[4:].strip())}</b>", body_style))
-        else: story.append(Paragraph(md_inline_to_rl(line), body_style))
+        if s.startswith("# "):
+            story.append(Paragraph(md_inline_to_rl(s[2:].strip()), title_style))
+        elif s.startswith("## "):
+            story.append(Paragraph(md_inline_to_rl(s[3:].strip()), heading_style))
+        elif s.startswith("### "):
+            story.append(Paragraph(f"<b>{md_inline_to_rl(s[4:].strip())}</b>", body_style))
+        else:
+            story.append(Paragraph(md_inline_to_rl(line), body_style))
 
     render_pending_table()
     story.append(Spacer(1, 0.28 * inch))
@@ -583,12 +691,12 @@ You are Helix, a friendly CIE Science/Math/English Tutor for Stage 7-9 students.
 - STEP 2: If the textbooks do not contain the answer, explicitly state: "I couldn't find this in your textbook, but here is what I found:"
 
 ### RULE 2: MATH ACCURACY (CRITICAL)
-- When generating math questions and mark schemes, you MUST solve the equations step-by-step internally before writing the final mark scheme. 
+- When generating math questions and mark schemes, you MUST solve the equations step-by-step internally before writing the final mark scheme.
 - Ensure the variables in the mark scheme EXACTLY match the variables used in the questions. Do not hallucinate numbers.
 
 ### RULE 3: QUESTION PAPERS (CRITICAL FORMATTING)
 - SUBJECT RELEVANCE: NEVER put Science diagrams or questions in a Math paper, and vice versa!
-- NO LATEX MATH: DO NOT use LaTeX for math formatting. NEVER use backslashes (\) or commands like \frac, \times, \div.
+- NO LATEX MATH: DO NOT use LaTeX for math formatting. NEVER use backslashes (\\) or commands like \\frac, \\times, \\div.
 - PLAIN TEXT MATH ONLY: Use standard characters (/, x, *, ÷, ^).
 - Tables: ALWAYS use standard Markdown tables. Do NOT use IMAGE_GEN for tables.
 - Visuals: Use IMAGE_GEN for diagrams, PIE_CHART for pie charts.
@@ -596,75 +704,6 @@ You are Helix, a friendly CIE Science/Math/English Tutor for Stage 7-9 students.
 - MARKS: Put marks at end of the SAME LINE like "... [3]".
 - CITATION RULE: List the source(s) only once at the very bottom.
 - PDF TRIGGER: If, and ONLY IF, you generated a full formal question paper, append [PDF_READY] at the very end.
-
-### RULE 4: STAGE 9 ENGLISH TB/WB
-Chapter 1 • Writing to explore and reflect
-1.1 What is travel writing?
-1.2 Selecting and noting key information in travel texts
-1.3 Comparing tone and register in travel texts
-1.4 Responding to travel writing
-1.5 Understanding grammatical choices in travel writing
-1.6 Varying sentences for effect
-1.7 Boost your vocabulary
-1.8 Creating a travel account
-
-Chapter 2 • Writing to inform and explain
-2.1 Matching informative texts to audience and purpose
-2.2 Using formal and informal language in information texts
-2.3 Comparing information texts
-2.4 Using discussion to prepare for a written assignment
-2.5 Planning information texts to suit different audiences
-2.6 Shaping paragraphs to suit audience and purpose
-2.7 Crafting sentences for a range of effects
-2.8 Making explanations precise and concise
-2.9 Writing encyclopedia entries
-
-Chapter 3 • Writing to argue and persuade
-3.1 Reviewing persuasive techniques
-3.2 Commenting on use of language to persuade
-3.3 Exploring layers of persuasive language
-3.4 Responding to the use of persuasive language
-3.5 Adapting grammar choices to create effects in argument writing
-3.6 Organising a whole argument effectively
-3.7 Organising an argument within each paragraph
-3.8 Presenting and responding to a question
-3.9 Producing an argumentative essay
-
-Chapter 4 • Descriptive writing
-4.1 Analysing how atmospheres are created
-4.2 Developing analysis of a description
-4.3 Analysing atmospheric descriptions
-4.4 Using images to inspire description
-4.5 Using language to develop an atmosphere
-4.6 Sustaining a cohesive atmosphere
-4.7 Creating atmosphere through punctuation
-4.8 Using structural devices to build up atmosphere
-4.9 Producing a powerful description
-
-Chapter 5 • Narrative writing
-5.1 Understanding story openings
-5.2 Exploring setting and atmosphere
-5.3 Introducing characters in stories
-5.4 Responding to powerful narrative
-5.5 Pitching a story
-5.6 Creating narrative suspense and climax
-5.7 Creating character
-5.8 Using tenses in narrative
-5.9 Using pronouns and sentence order for effect
-5.10 Creating a thriller
-
-Chapter 6 • Writing to analyse and compare
-6.1 Analysing implicit meaning in non-fiction texts
-6.2 Analysing how a play's key elements create different effects
-6.3 Using discussion skills to analyse carefully
-6.4 Comparing effectively through punctuation and grammar
-6.5 Analysing two texts
-
-Chapter 7 • Testing your skills
-7.1 Reading and writing questions on non-fiction texts
-7.2 Reading and writing questions on fiction texts
-7.3 Assessing your progress: non-fiction reading and writing
-7.4 Assessing your progress: fiction reading and writing
 
 ### RULE 5: VISUAL SYNTAX (STRICT)
 - For diagrams:
@@ -709,27 +748,39 @@ def upload_textbooks():
         if t in existing_server_files:
             server_file = existing_server_files[t]
             if server_file.state.name == "ACTIVE":
-                if "sci" in t: active_files["sci"].append(server_file)
-                elif "math" in t: active_files["math"].append(server_file)
-                elif "eng" in t: active_files["eng"].append(server_file)
+                if "sci" in t:
+                    active_files["sci"].append(server_file)
+                elif "math" in t:
+                    active_files["math"].append(server_file)
+                elif "eng" in t:
+                    active_files["eng"].append(server_file)
                 continue
 
         found_path = pdf_map.get(t)
-        if not found_path: continue
+        if not found_path:
+            continue
 
         try:
-            uploaded = client.files.upload(file=str(found_path), config={"mime_type": "application/pdf", "display_name": found_path.name})
+            uploaded = client.files.upload(
+                file=str(found_path),
+                config={"mime_type": "application/pdf", "display_name": found_path.name},
+            )
             start = time.time()
             while uploaded.state.name == "PROCESSING":
-                if time.time() - start > 180: break
+                if time.time() - start > 180:
+                    break
                 time.sleep(3)
                 uploaded = client.files.get(name=uploaded.name)
 
             if uploaded.state.name == "ACTIVE":
-                if "sci" in t: active_files["sci"].append(uploaded)
-                elif "math" in t: active_files["math"].append(uploaded)
-                elif "eng" in t: active_files["eng"].append(uploaded)
-        except Exception: continue
+                if "sci" in t:
+                    active_files["sci"].append(uploaded)
+                elif "math" in t:
+                    active_files["math"].append(uploaded)
+                elif "eng" in t:
+                    active_files["eng"].append(uploaded)
+        except Exception:
+            continue
 
     msg_placeholder.empty()
     return active_files
@@ -744,26 +795,33 @@ def select_relevant_books(query, file_dict):
     is_math = any(k in q for k in ["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"])
     is_sci = any(k in q for k in ["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"])
     is_eng = any(k in q for k in ["english", "poem", "story", "essay", "writing", "grammar", "noun", "verb"])
-    
+
     stage_7 = any(k in q for k in ["stage 7", "grade 6", "year 7"])
     stage_8 = any(k in q for k in ["stage 8", "grade 7", "year 8"])
     stage_9 = any(k in q for k in ["stage 9", "grade 8", "year 9"])
-    
+
     has_subject = is_math or is_sci or is_eng
     has_stage = stage_7 or stage_8 or stage_9
 
-    if not has_subject and not has_stage: return [] 
+    if not has_subject and not has_stage:
+        return []
 
-    if has_stage and not has_subject: is_math = is_sci = is_eng = True
-    if has_subject and not has_stage: stage_8 = True
+    if has_stage and not has_subject:
+        is_math = is_sci = is_eng = True
+    if has_subject and not has_stage:
+        stage_8 = True
 
     def add_books(subject_key, active):
-        if not active: return
+        if not active:
+            return
         for book in file_dict.get(subject_key, []):
             name = (book.display_name or "").lower()
-            if stage_7 and "cie_7" in name: selected.append(book)
-            if stage_8 and "cie_8" in name: selected.append(book)
-            if stage_9 and "cie_9" in name: selected.append(book)
+            if stage_7 and "cie_7" in name:
+                selected.append(book)
+            if stage_8 and "cie_8" in name:
+                selected.append(book)
+            if stage_9 and "cie_9" in name:
+                selected.append(book)
 
     add_books("math", is_math)
     add_books("sci", is_sci)
@@ -778,21 +836,23 @@ if "textbook_handles" not in st.session_state:
 
 for idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
-        # Use the cleaner function to hide the raw IMAGE_GEN tags from the text
         display_content = clean_visual_tags_for_display(message.get("content") or "")
         st.markdown(display_content)
 
-        # Render images explicitly
         if message.get("images"):
             for img_bytes in message["images"]:
-                if img_bytes: st.image(img_bytes, width=420)
+                if img_bytes:
+                    st.image(img_bytes, width=420)
 
         if message.get("user_attachment_bytes"):
             mime = message.get("user_attachment_mime", "")
             name = message.get("user_attachment_name", "File")
-            if "image" in mime: st.image(message["user_attachment_bytes"], width=320)
-            elif "pdf" in mime: st.caption(f"📄 *Attached PDF Document: {name}*")
-            elif "text" in mime or name.endswith(".txt"): st.caption(f"📝 *Attached Text Document: {name}*")
+            if "image" in mime:
+                st.image(message["user_attachment_bytes"], width=320)
+            elif "pdf" in mime:
+                st.caption(f"📄 *Attached PDF Document: {name}*")
+            elif "text" in mime or name.endswith(".txt"):
+                st.caption(f"📝 *Attached Text Document: {name}*")
 
         if message["role"] == "assistant" and message.get("is_downloadable"):
             try:
@@ -804,12 +864,17 @@ for idx, message in enumerate(st.session_state.messages):
                     mime="application/pdf",
                     key=f"download_{st.session_state.current_thread_id}_{idx}",
                 )
-            except Exception: pass
+            except Exception:
+                pass
 
 # -----------------------------
 # 13) MAIN LOOP
 # -----------------------------
-chat_input_data = st.chat_input("Ask Helix... (Click the paperclip to upload a file!)", accept_file=True, file_type=["jpg", "jpeg", "png", "webp", "avif", "svg", "pdf", "txt"])
+chat_input_data = st.chat_input(
+    "Ask Helix... (Click the paperclip to upload a file!)",
+    accept_file=True,
+    file_type=["jpg", "jpeg", "png", "webp", "avif", "svg", "pdf", "txt"],
+)
 
 if chat_input_data:
     prompt = chat_input_data.text or ""
@@ -832,27 +897,27 @@ if chat_input_data:
     with st.chat_message("user"):
         st.markdown(prompt)
         if file_bytes:
-            if "image" in (file_mime or ""): st.image(file_bytes, width=320)
-            elif "pdf" in (file_mime or ""): st.caption(f"📄 *Attached: {file_name}*")
-            elif "text/plain" in (file_mime or "") or (file_name or "").endswith(".txt"): st.caption(f"📝 *Attached: {file_name}*")
+            if "image" in (file_mime or ""):
+                st.image(file_bytes, width=320)
+            elif "pdf" in (file_mime or ""):
+                st.caption(f"📄 *Attached: {file_name}*")
+            elif "text/plain" in (file_mime or "") or (file_name or "").endswith(".txt"):
+                st.caption(f"📝 *Attached: {file_name}*")
 
     with st.chat_message("assistant"):
         thinking_placeholder = st.empty()
         try:
             has_attachment = file_bytes is not None
-            if has_attachment:
-                 relevant_books = select_relevant_books(prompt + " science stage 8", st.session_state.textbook_handles)
-            else:
-                 relevant_books = select_relevant_books(prompt, st.session_state.textbook_handles)
+            relevant_books = select_relevant_books(prompt, st.session_state.textbook_handles)
 
             if relevant_books:
                 book_names = [get_friendly_name(b.display_name) for b in relevant_books]
                 st.caption(f"🔍 *Scanning Curriculum: {', '.join(book_names)}*")
             else:
                 if has_attachment:
-                     st.caption("🔍 *Analyzing attached file...*")
+                    st.caption("🔍 *Analyzing attached file...*")
                 else:
-                     st.caption("⚡ *Quick reply (General Knowledge)*")
+                    st.caption("⚡ *Quick reply (General Knowledge)*")
 
             thinking_placeholder.markdown("""
                 <div class="thinking-container">
@@ -869,7 +934,8 @@ if chat_input_data:
                     current_prompt_parts.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
                 elif "pdf" in (file_mime or ""):
                     temp_pdf_path = f"temp_user_upload_{int(time.time())}.pdf"
-                    with open(temp_pdf_path, "wb") as f: f.write(file_bytes)
+                    with open(temp_pdf_path, "wb") as f:
+                        f.write(file_bytes)
                     user_uploaded_pdf = client.files.upload(file=temp_pdf_path)
                     while user_uploaded_pdf.state.name == "PROCESSING":
                         time.sleep(1)
@@ -911,7 +977,8 @@ if chat_input_data:
 
             thinking_placeholder.empty()
 
-            visual_prompts = re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", bot_text)
+            # FIX 1: DOTALL so multi-line prompts inside [...] still match
+            visual_prompts = re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", bot_text, flags=re.DOTALL)
             generated_images = []
 
             if visual_prompts:
@@ -927,11 +994,15 @@ if chat_input_data:
                 img_thinking.empty()
 
             is_downloadable = "[PDF_READY]" in bot_text
-            bot_msg = {"role": "assistant", "content": bot_text, "is_downloadable": is_downloadable, "images": generated_images}
-            
+            bot_msg = {
+                "role": "assistant",
+                "content": bot_text,
+                "is_downloadable": is_downloadable,
+                "images": generated_images,
+            }
+
             st.session_state.messages.append(bot_msg)
-            
-            # --- AUTO-TITLE LOGIC ---
+
             if is_authenticated:
                 user_msg_count = sum(1 for m in st.session_state.messages if m.get("role") == "user")
                 if user_msg_count > 0 and (user_msg_count - 1) % 5 == 0:
@@ -941,11 +1012,11 @@ if chat_input_data:
                         user_edited = False
                         if thread_doc.exists:
                             user_edited = thread_doc.to_dict().get("user_edited_title", False)
-                        
+
                         if not user_edited:
                             new_title = generate_chat_title(client, st.session_state.messages)
                             coll_ref.document(st.session_state.current_thread_id).set({"title": new_title}, merge=True)
-            
+
             save_chat_history()
             st.rerun()
 
@@ -957,4 +1028,5 @@ if chat_input_data:
             try:
                 if "temp_pdf_path" in locals() and temp_pdf_path and os.path.exists(temp_pdf_path):
                     os.remove(temp_pdf_path)
-            except Exception: pass
+            except Exception:
+                pass
