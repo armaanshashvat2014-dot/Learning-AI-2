@@ -47,6 +47,8 @@ st.markdown("""
 .thinking-dot:nth-child(2){ animation-delay: 0.2s; }
 .thinking-dot:nth-child(3){ animation-delay: 0.4s; }
 @keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1.2); } }
+/* Hide some padding in popovers for a cleaner look */
+div[data-testid="stPopover"] button { padding: 0.25rem 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -88,7 +90,13 @@ def get_all_threads():
             threads = []
             for doc in docs:
                 data = doc.to_dict()
-                threads.append({"id": doc.id, "title": data.get("title", "New Chat"), "updated_at": data.get("updated_at", 0)})
+                threads.append({
+                    "id": doc.id, 
+                    "title": data.get("title", "New Chat"), 
+                    "updated_at": data.get("updated_at", 0),
+                    "metadata": data.get("metadata", {"subjects": [], "grades": []}),
+                    "user_edited_title": data.get("user_edited_title", False)
+                })
             return threads
         except Exception:
             pass
@@ -117,37 +125,72 @@ def save_chat_history():
     if not coll_ref: return # Skip if Guest Mode
 
     current_id = st.session_state.current_thread_id
-    threads = get_all_threads()
-    thread_ids = [t["id"] for t in threads]
     
-    is_new_thread = current_id not in thread_ids
-
-    # Extract first user message to use as the Thread Title
-    first_user_msg = "New Chat"
     safe_messages = []
+    
+    # Metadata Trackers
+    detected_subjects = set()
+    detected_grades = set()
+
     for msg in st.session_state.messages:
         content_str = str(msg.get("content", ""))
-        if msg.get("role") == "user" and first_user_msg == "New Chat":
-            first_user_msg = content_str[:25] + "..." if len(content_str) > 25 else content_str
+        role = msg.get("role")
+        
+        if role == "user":
+            q = content_str.lower()
+            if any(k in q for k in ["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"]): detected_subjects.add("Math")
+            if any(k in q for k in ["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"]): detected_subjects.add("Science")
+            if any(k in q for k in ["english", "poem", "story", "essay", "writing", "grammar", "noun", "verb"]): detected_subjects.add("English")
+            if any(k in q for k in ["stage 7", "grade 6", "year 7"]): detected_grades.add("Stage 7")
+            if any(k in q for k in ["stage 8", "grade 7", "year 8"]): detected_grades.add("Stage 8")
+            if any(k in q for k in ["stage 9", "grade 8", "year 9"]): detected_grades.add("Stage 9")
             
         safe_messages.append({
-            "role": str(msg.get("role", "assistant")), 
+            "role": str(role), 
             "content": content_str,
             "is_greeting": bool(msg.get("is_greeting", False))
         })
 
     data = {
         "messages": safe_messages,
-        "updated_at": time.time() # This helps sort the sidebar by most recent
+        "updated_at": time.time(),
+        "metadata": {
+            "subjects": list(detected_subjects),
+            "grades": list(detected_grades)
+        }
     }
-
-    if is_new_thread:
-        data["title"] = first_user_msg
 
     try:
         coll_ref.document(current_id).set(data, merge=True)
     except Exception as e:
         st.toast(f"⚠️ Database Error: Could not save chat - {e}")
+
+# -----------------------------
+# 2.5) AUTO-TITLE GENERATOR
+# -----------------------------
+def generate_chat_title(client, messages):
+    try:
+        user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
+        if not user_msgs:
+            return "New Chat"
+            
+        context_text = "\n".join(user_msgs[-3:])
+        prompt = f"Summarize this conversation context into a very short, punchy chat title (maximum 4 words). Do not use quotes or punctuation. Context: {context_text}"
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=15
+            ),
+        )
+        
+        title = safe_response_text(response).strip().replace('"', '').replace("'", "")
+        return title if title else "New Chat"
+    except Exception as e:
+        print(f"Title Gen Error: {e}")
+        return "New Chat"
 
 # -----------------------------
 # 3) INITIALIZE SESSION STATE
@@ -170,7 +213,7 @@ def confirm_new_chat_dialog(oldest_thread_id):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Cancel", use_container_width=True):
-            st.rerun() # Closes modal
+            st.rerun()
     with col2:
         if st.button("Yes, Create New", type="primary", use_container_width=True):
             coll_ref = get_threads_collection()
@@ -190,7 +233,6 @@ with st.sidebar:
     st.title("Account Settings")
     if not is_authenticated:
         st.markdown("👋 **You are chatting as a Guest!**\n\n*Log in with Google to save your chat history permanently!*")
-        # Wrapped in a button so it doesn't auto-redirect on startup!
         if st.button("Log in with Google", type="primary", use_container_width=True):
             st.login(provider="google")
     else:
@@ -218,11 +260,49 @@ with st.sidebar:
             st.caption("*Your saved chats will appear here.*")
             
         for t in sidebar_threads:
-            icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
-            if st.button(f"{icon} {t['title']}", key=f"btn_{t['id']}", use_container_width=True):
-                st.session_state.current_thread_id = t["id"]
-                st.session_state.messages = load_chat_history(t["id"])
-                st.rerun()
+            col1, col2 = st.columns([0.85, 0.15])
+            
+            with col1:
+                icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
+                if st.button(f"{icon} {t['title']}", key=f"btn_{t['id']}", use_container_width=True):
+                    st.session_state.current_thread_id = t["id"]
+                    st.session_state.messages = load_chat_history(t["id"])
+                    st.rerun()
+                    
+            with col2:
+                with st.popover("⋮", use_container_width=True):
+                    st.markdown("**Chat Metadata**")
+                    subs = ", ".join(t.get("metadata", {}).get("subjects", [])) or "None"
+                    grds = ", ".join(t.get("metadata", {}).get("grades", [])) or "None"
+                    st.caption(f"📚 **Subjects:** {subs}")
+                    st.caption(f"🎓 **Grades:** {grds}")
+                    
+                    st.divider()
+                    
+                    new_title = st.text_input("Rename Chat", value=t["title"], key=f"ren_in_{t['id']}")
+                    if st.button("Save Name", key=f"ren_btn_{t['id']}", use_container_width=True):
+                        coll_ref = get_threads_collection()
+                        if coll_ref:
+                            # User edits the title, flip the safety flag so AI ignores it
+                            coll_ref.document(t["id"]).set({
+                                "title": new_title,
+                                "user_edited_title": True
+                            }, merge=True)
+                        st.rerun()
+                        
+                    st.divider()
+                    
+                    if st.button("🗑️ Delete Chat", key=f"del_btn_{t['id']}", use_container_width=True):
+                        coll_ref = get_threads_collection()
+                        if coll_ref:
+                            try:
+                                coll_ref.document(t["id"]).delete()
+                            except: pass
+                        
+                        if st.session_state.current_thread_id == t["id"]:
+                            st.session_state.current_thread_id = str(uuid.uuid4())
+                            st.session_state.messages = get_default_greeting()
+                        st.rerun()
 
 # Main app title
 st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
@@ -803,8 +883,25 @@ if chat_input_data:
             bot_msg = {"role": "assistant", "content": bot_text, "is_downloadable": is_downloadable, "images": generated_images}
             
             st.session_state.messages.append(bot_msg)
-            save_chat_history()
             
+            # --- AUTO-TITLE LOGIC ---
+            if is_authenticated:
+                user_msg_count = sum(1 for m in st.session_state.messages if m.get("role") == "user")
+                
+                # Trigger on the 1st, 6th, 11th, 16th, etc. user message
+                if user_msg_count > 0 and (user_msg_count - 1) % 5 == 0:
+                    coll_ref = get_threads_collection()
+                    if coll_ref and st.session_state.current_thread_id:
+                        thread_doc = coll_ref.document(st.session_state.current_thread_id).get()
+                        user_edited = False
+                        if thread_doc.exists:
+                            user_edited = thread_doc.to_dict().get("user_edited_title", False)
+                        
+                        if not user_edited:
+                            new_title = generate_chat_title(client, st.session_state.messages)
+                            coll_ref.document(st.session_state.current_thread_id).set({"title": new_title}, merge=True)
+            
+            save_chat_history()
             st.rerun()
 
         except Exception as e:
