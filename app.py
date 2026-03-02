@@ -47,6 +47,17 @@ st.markdown("""
 .thinking-dot:nth-child(2){ animation-delay: 0.2s; }
 .thinking-dot:nth-child(3){ animation-delay: 0.4s; }
 @keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1.2); } }
+
+/* Fix Sidebar Button Heights */
+div[data-testid="stVerticalBlock"] div[data-testid="column"] button {
+    height: 42px !important;
+    min-height: 42px !important;
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -143,11 +154,14 @@ def save_chat_history():
             if any(k in q for k in ["stage 8", "grade 7", "year 8"]): detected_grades.add("Stage 8")
             if any(k in q for k in ["stage 9", "grade 8", "year 9"]): detected_grades.add("Stage 9")
             
-        safe_messages.append({
+        # Do not save raw image bytes to Firestore, only text and metadata
+        safe_msg = {
             "role": str(role), 
             "content": content_str,
-            "is_greeting": bool(msg.get("is_greeting", False))
-        })
+            "is_greeting": bool(msg.get("is_greeting", False)),
+            "is_downloadable": bool(msg.get("is_downloadable", False))
+        }
+        safe_messages.append(safe_msg)
 
     data = {
         "messages": safe_messages,
@@ -274,7 +288,6 @@ def chat_settings_dialog(thread_data):
     st.divider()
     
     if st.button("🗑️ Delete Chat", key=f"del_btn_set_{thread_data['id']}", type="primary", use_container_width=True):
-        # Set the state variable to trigger the delete dialog, then refresh to close this one
         st.session_state.delete_requested_for = thread_data["id"]
         st.rerun()
 
@@ -312,7 +325,7 @@ with st.sidebar:
             st.caption("*Your saved chats will appear here.*")
             
         for t in sidebar_threads:
-            col1, col2 = st.columns([0.85, 0.15], vertical_alignment="center")
+            col1, col2 = st.columns([0.85, 0.15], gap="small", vertical_alignment="center")
             
             with col1:
                 icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
@@ -322,11 +335,9 @@ with st.sidebar:
                     st.rerun()
                     
             with col2:
-                # Using a plain button with just an icon means NO DROPDOWN ARROW!
                 if st.button("", icon=":material/more_vert:", key=f"set_btn_{t['id']}", use_container_width=True):
                     chat_settings_dialog(t)
 
-# 🚨 Trigger the delete dialog outside the sidebar loop so Streamlit renders it properly
 if st.session_state.delete_requested_for:
     confirm_delete_chat_dialog(st.session_state.delete_requested_for)
 
@@ -395,6 +406,13 @@ def md_inline_to_rl(text: str) -> str:
     s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
     s = re.sub(r"(?<!\*)\*(\S.+?)\*(?!\*)", r"<i>\1</i>", s)
     return s
+
+def clean_visual_tags_for_display(text: str) -> str:
+    """Removes the raw IMAGE_GEN and PIE_CHART tags so the user doesn't see them."""
+    cleaned = re.sub(r"IMAGE_GEN:\s*\[.*?\]", "", text)
+    cleaned = re.sub(r"PIE_CHART:\s*\[.*?\]", "", cleaned)
+    cleaned = cleaned.replace("[PDF_READY]", "")
+    return cleaned.strip()
 
 # -----------------------------
 # 7) VISUAL GENERATORS
@@ -760,9 +778,11 @@ if "textbook_handles" not in st.session_state:
 
 for idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
-        display_content = (message.get("content") or "").replace("[PDF_READY]", "").strip()
+        # Use the cleaner function to hide the raw IMAGE_GEN tags from the text
+        display_content = clean_visual_tags_for_display(message.get("content") or "")
         st.markdown(display_content)
 
+        # Render images explicitly
         if message.get("images"):
             for img_bytes in message["images"]:
                 if img_bytes: st.image(img_bytes, width=420)
