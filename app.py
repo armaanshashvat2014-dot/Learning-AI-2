@@ -47,8 +47,14 @@ st.markdown("""
 .thinking-dot:nth-child(2){ animation-delay: 0.2s; }
 .thinking-dot:nth-child(3){ animation-delay: 0.4s; }
 @keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1.2); } }
-/* Hide some padding in popovers for a cleaner look */
-div[data-testid="stPopover"] button { padding: 0.25rem 0.5rem; }
+
+/* 🚨 POPOVER FIXES 🚨 */
+/* 1. Hide the downward chevron arrow on the popover button */
+div[data-testid="stPopover"] button svg { display: none !important; }
+/* 2. Shrink the padding and make the button perfectly square/centered */
+div[data-testid="stPopover"] button { padding: 0.2rem 0rem !important; min-height: 2.5rem !important; }
+/* 3. Make the actual dropdown menu smaller and tighter */
+div[data-testid="stPopoverBody"] { padding: 1rem !important; min-width: 200px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -226,6 +232,29 @@ def confirm_new_chat_dialog(oldest_thread_id):
             st.session_state.messages = get_default_greeting()
             st.rerun()
 
+@st.dialog("🗑️ Delete Chat")
+def confirm_delete_chat_dialog(thread_id_to_delete):
+    st.write("Are you sure you want to permanently delete this chat?")
+    st.write("*This action cannot be undone.*")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+    with col2:
+        if st.button("Yes, Delete", type="primary", use_container_width=True):
+            coll_ref = get_threads_collection()
+            if coll_ref:
+                try:
+                    coll_ref.document(thread_id_to_delete).delete()
+                except: pass
+            
+            # If we deleted the chat we are currently looking at, start fresh
+            if st.session_state.current_thread_id == thread_id_to_delete:
+                st.session_state.current_thread_id = str(uuid.uuid4())
+                st.session_state.messages = get_default_greeting()
+            st.rerun()
+
 # -----------------------------
 # 4) SIDEBAR UI (MULTIPLE CHATS)
 # -----------------------------
@@ -260,7 +289,7 @@ with st.sidebar:
             st.caption("*Your saved chats will appear here.*")
             
         for t in sidebar_threads:
-            col1, col2 = st.columns([0.85, 0.15])
+            col1, col2 = st.columns([0.88, 0.12], vertical_alignment="center")
             
             with col1:
                 icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
@@ -293,16 +322,7 @@ with st.sidebar:
                     st.divider()
                     
                     if st.button("🗑️ Delete Chat", key=f"del_btn_{t['id']}", use_container_width=True):
-                        coll_ref = get_threads_collection()
-                        if coll_ref:
-                            try:
-                                coll_ref.document(t["id"]).delete()
-                            except: pass
-                        
-                        if st.session_state.current_thread_id == t["id"]:
-                            st.session_state.current_thread_id = str(uuid.uuid4())
-                            st.session_state.messages = get_default_greeting()
-                        st.rerun()
+                        confirm_delete_chat_dialog(t["id"])
 
 # Main app title
 st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
@@ -887,8 +907,6 @@ if chat_input_data:
             # --- AUTO-TITLE LOGIC ---
             if is_authenticated:
                 user_msg_count = sum(1 for m in st.session_state.messages if m.get("role") == "user")
-                
-                # Trigger on the 1st, 6th, 11th, 16th, etc. user message
                 if user_msg_count > 0 and (user_msg_count - 1) % 5 == 0:
                     coll_ref = get_threads_collection()
                     if coll_ref and st.session_state.current_thread_id:
