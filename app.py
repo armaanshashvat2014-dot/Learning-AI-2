@@ -414,43 +414,39 @@ def md_inline_to_rl(text: str) -> str:
     return s
 
 # -----------------------------
-# 7) VISUAL GENERATORS (Imagen 3 Primary)
+# 7) VISUAL GENERATORS (Gemini Native Image Cascade)
 # -----------------------------
 def generate_single_image(desc: str):
     clean_desc = re.sub(r"\s+", " ", (desc or "")).strip()
-
-    # Try Imagen 3 FIRST, as it is the stable production model for images
-    try:
-        response = client.models.generate_images(
-            model='imagen-3.0-generate-002',  # Standard API string for Imagen 3
-            prompt=clean_desc,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="16:9" 
-            )
-        )
-        for generated_image in response.generated_images:
-            if generated_image.image.image_bytes:
-                return generated_image.image.image_bytes
-                
-    except Exception as imagen_e:
-        print(f"Imagen 3 failed. Error: {imagen_e}")
-        
-        # Fall back to Gemini 3 Preview if Imagen fails
+    
+    # We will try the models in descending order of quality/capability
+    models_to_try = [
+        "gemini-3-pro-image-preview",    # Highest quality, slow, often overloaded
+        "gemini-3.1-flash-image-preview", # High efficiency, fast
+        "gemini-2.5-flash-image"          # Fallback, highest availability
+    ]
+    
+    for model_name in models_to_try:
         try:
+            print(f"Trying to generate image with {model_name}...")
             img_resp = client.models.generate_content(
-                model="gemini-3-pro-image-preview",
+                model=model_name,
                 contents=[clean_desc],
                 config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
             )
+            
+            # Extract the raw bytes from the response parts
             for part in (img_resp.parts or []):
                 if getattr(part, "inline_data", None):
                     return part.inline_data.data
                     
-        except Exception as gemini_e:
-            print(f"Gemini 3 also failed: {gemini_e}")
+        except Exception as e:
+            print(f"{model_name} failed: {e}")
+            continue # Try the next model in the list
             
+    # If all three models fail, return None so the chat shows the warning
     return None
+
 
 def generate_pie_chart(data_str: str):
     try:
