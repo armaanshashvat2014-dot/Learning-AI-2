@@ -466,9 +466,9 @@ with st.sidebar:
 
         st.divider()
 
-    if user_role == "student":
-        assigned_teacher = user_profile.get("teacher_id", None)
-        if not assigned_teacher:
+        if user_role == "student":
+            assigned_teacher = user_profile.get("teacher_id", None)
+            if not assigned_teacher:
                 with st.expander("🎓 Are you a Teacher?"):
                     st.caption("Enter your school's verification code to unlock the Teacher Dashboard.")
                     code_input = st.text_input("Teacher Code", type="password")
@@ -481,21 +481,18 @@ with st.sidebar:
                         else:
                             st.error("Invalid Code.")
             else:
-                # NEW: Find the actual Class Name instead of showing the Teacher's Email
+                # Find the actual Class Name instead of showing the Teacher's Email
                 student_class_name = "Unknown Class"
                 if db is not None:
-                    # Search classes where this student's email is in the 'students' array
                     class_query = db.collection("classes").where(
                         filter=firestore.FieldFilter("students", "array_contains", user_email)
                     ).limit(1).stream()
                     
                     for c in class_query:
-                        student_class_name = c.id  # This will be "6A", "7B", etc.
+                        student_class_name = c.id
                         break
                         
                 st.info(f"🏫 Connected to class:\n**{student_class_name}**")
-
-
 
     sidebar_threads = get_all_threads() if is_authenticated else []
 
@@ -633,9 +630,6 @@ if user_role == "teacher":
     student_docs_raw = db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream()
     roster = list(student_docs_raw)
 
-    # -----------------------------
-    # FIXED: Replaced tabs with a Radio menu to strictly isolate the AI Chat UI
-    # -----------------------------
     teacher_menu = st.radio(
         "Teacher Menu",
         ["⚙️ Class Management", "📊 Student Analytics", "📝 Assign Papers", "💬 AI Chat"],
@@ -847,17 +841,14 @@ if user_role == "teacher":
         """
 
         if st.button("🤖 Generate with Helix AI", use_container_width=True, type="primary"):
-            # 1. Load books if missing
             if "textbook_handles" not in st.session_state:
                 st.session_state.textbook_handles = upload_textbooks()
                 
             with st.spinner(f"Reading {assign_grade} {assign_subject} curriculum and writing paper..."):
                 try:
-                    # 2. Get specific textbooks
                     query_for_books = f"{assign_subject} {assign_grade}"
                     relevant_books = select_relevant_books(query_for_books, st.session_state.textbook_handles)
                     
-                    # 3. Build Payload
                     paper_contents = []
                     for book in relevant_books:
                         friendly = get_friendly_name(book.display_name)
@@ -873,7 +864,6 @@ if user_role == "teacher":
                     )
                     paper_contents.append(types.Part.from_text(text=gen_prompt))
 
-                    # 4. Generate with Pro and low temperature to prevent hallucinations
                     gen_resp = client.models.generate_content(
                         model="gemini-2.5-pro",
                         contents=paper_contents,
@@ -1194,7 +1184,7 @@ Chapter 7 • Testing your skills
                     book_names = [get_friendly_name(b.display_name) for b in relevant_books]
                     st.caption(f"🔍 *Scanning Curriculum: {', '.join(book_names)}*")
                 else:
-                    st.caption("🔍 *Analyzing attached file...*" if has_attachment else "⚡ General Knowledge")
+                    st.caption("🔍 *Analyzing attached file...*" if has_attachment else "⚡ *Quick reply (General Knowledge)*")
 
                 thinking_placeholder.markdown("""<div class="thinking-container"><span class="thinking-text">🧠 Reading & Looking...</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div></div>""", unsafe_allow_html=True)
 
@@ -1263,9 +1253,7 @@ Chapter 7 • Testing your skills
                 if visual_prompts:
                     img_thinking = st.empty()
                     img_thinking.markdown("""<div class="thinking-container"><span class="thinking-text">🖌️ Processing diagrams & charts...</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div></div>""", unsafe_allow_html=True)
-                    # Helper function processing needed to be defined earlier; relying on previously provided ones
                     def process_visual_wrapper(vp):
-                        # Simple wrapper for concurrency
                         try:
                             v_type, v_data = vp
                             if v_type == "IMAGE_GEN":
@@ -1336,3 +1324,4 @@ Chapter 7 • Testing your skills
                 try:
                     if "temp_pdf_path" in locals() and temp_pdf_path and os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
                 except Exception: pass
+
