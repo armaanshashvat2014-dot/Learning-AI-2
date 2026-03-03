@@ -3,6 +3,7 @@ import os
 import time
 import re
 import uuid
+import json
 import concurrent.futures
 import base64
 from pathlib import Path
@@ -380,112 +381,163 @@ with st.sidebar:
                     else:
                         st.error("Invalid Code.")
 
-    # Show Chat History ONLY for Students
-    if user_role != "teacher":
-        sidebar_threads = get_all_threads() if is_authenticated else []
+    # CHAT HISTORY (Visible to both Students and Teachers)
+    sidebar_threads = get_all_threads() if is_authenticated else []
 
-        if st.button("➕ New Chat", use_container_width=True):
-            if is_authenticated and len(sidebar_threads) >= 15:
-                oldest_id = sidebar_threads[-1]["id"]
-                confirm_new_chat_dialog(oldest_id)
-            else:
-                st.session_state.current_thread_id = str(uuid.uuid4())
-                st.session_state.messages = get_default_greeting()
-                st.rerun()
+    if st.button("➕ New Chat", use_container_width=True):
+        if is_authenticated and len(sidebar_threads) >= 15:
+            oldest_id = sidebar_threads[-1]["id"]
+            confirm_new_chat_dialog(oldest_id)
+        else:
+            st.session_state.current_thread_id = str(uuid.uuid4())
+            st.session_state.messages = get_default_greeting()
+            st.rerun()
 
-        if is_authenticated:
-            st.subheader("Recent Chats")
-            if not sidebar_threads:
-                st.caption("*Your saved chats will appear here.*")
+    if is_authenticated:
+        st.subheader("Recent Chats")
+        if not sidebar_threads:
+            st.caption("*Your saved chats will appear here.*")
 
-            for t in sidebar_threads:
-                col1, col2 = st.columns([0.85, 0.15], vertical_alignment="center")
-                with col1:
-                    icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
-                    if st.button(f"{icon} {t['title']}", key=f"btn_{t['id']}", use_container_width=True):
-                        st.session_state.current_thread_id = t["id"]
-                        st.session_state.messages = load_chat_history(t["id"])
-                        st.rerun()
-                with col2:
-                    if st.button("", icon=":material/more_vert:", key=f"set_btn_{t['id']}", use_container_width=True):
-                        chat_settings_dialog(t)
+        for t in sidebar_threads:
+            col1, col2 = st.columns([0.85, 0.15], vertical_alignment="center")
+            with col1:
+                icon = "🟢" if t["id"] == st.session_state.current_thread_id else "💬"
+                if st.button(f"{icon} {t['title']}", key=f"btn_{t['id']}", use_container_width=True):
+                    st.session_state.current_thread_id = t["id"]
+                    st.session_state.messages = load_chat_history(t["id"])
+                    st.rerun()
+            with col2:
+                if st.button("", icon=":material/more_vert:", key=f"set_btn_{t['id']}", use_container_width=True):
+                    chat_settings_dialog(t)
 
 if st.session_state.delete_requested_for:
     confirm_delete_chat_dialog(st.session_state.delete_requested_for)
 
 # ==========================================
-# APP ROUTING: TEACHER DASHBOARD
+# APP ROUTING: TEACHER DASHBOARD (Expander Mode)
 # ==========================================
 if user_role == "teacher":
     st.markdown("<div class='big-title' style='color:#fc8404;'>👨‍🏫 helix.ai / Teacher</div>", unsafe_allow_html=True)
-    st.markdown("<div class='subtitle'>Classroom Analytics & Assignments</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>Classroom Management & AI Assistant</div>", unsafe_allow_html=True)
     
-    tab1, tab2, tab3 = st.tabs(["⚙️ Class Management", "📊 Student Analytics", "📝 Assign Papers"])
-    
-    # --- TAB 1: Add/Remove Students ---
-    with tab1:
-        st.subheader("Manage Your Students")
-        st.caption("Manually add students by their Google login email. This links their chat data to your dashboard.")
+    with st.expander("🛠️ Open Teacher Dashboard", expanded=False):
+        tab1, tab2, tab3 = st.tabs(["⚙️ Class Management", "📊 Student Analytics", "📝 Assign Papers"])
         
-        # Add Student form
-        with st.form("add_student_form", clear_on_submit=True):
-            col_email, col_btn = st.columns([0.8, 0.2])
-            with col_email:
-                new_student_email = st.text_input("Student Email Address")
-            with col_btn:
-                st.write("") # spacing
-                submit_student = st.form_submit_button("➕ Add Student", use_container_width=True)
-            
-            if submit_student and new_student_email:
-                clean_email = new_student_email.strip().lower()
-                # Initialize them in DB if they don't exist, and link to this teacher
-                db.collection("users").document(clean_email).set({
-                    "role": "student",
-                    "teacher_id": user_email
-                }, merge=True)
-                st.success(f"Added {clean_email} to your classroom!")
-                time.sleep(1)
-                st.rerun()
-
-        st.divider()
-        
-        # List Current Students
-        st.subheader("Current Roster")
-        # Query Firestore for users who have this teacher_id
+        # We need the roster for both Tab 1 and Tab 2, so query it here
         student_docs = db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream()
-        
         roster = list(student_docs)
-        if not roster:
-            st.info("You haven't added any students yet.")
-        else:
-            for student in roster:
-                s_email = student.id
-                c1, c2 = st.columns([0.85, 0.15])
-                with c1:
-                    st.write(f"🎓 **{s_email}**")
-                with c2:
-                    if st.button("Remove", key=f"rem_{s_email}", use_container_width=True):
-                        # Unlink them by setting teacher_id to None
-                        db.collection("users").document(s_email).update({"teacher_id": None})
-                        st.rerun()
+        
+        with tab1:
+            st.subheader("Manage Your Students")
+            st.caption("Manually add students by their Google login email. This links their chat data to your dashboard.")
+            
+            with st.form("add_student_form", clear_on_submit=True):
+                col_email, col_btn = st.columns([0.8, 0.2])
+                with col_email:
+                    new_student_email = st.text_input("Student Email Address")
+                with col_btn:
+                    st.write("") 
+                    submit_student = st.form_submit_button("➕ Add", use_container_width=True)
+                
+                if submit_student and new_student_email:
+                    clean_email = new_student_email.strip().lower()
+                    db.collection("users").document(clean_email).set({
+                        "role": "student",
+                        "teacher_id": user_email
+                    }, merge=True)
+                    st.success(f"Added {clean_email} to your classroom!")
+                    time.sleep(1)
+                    st.rerun()
 
-    # --- TAB 2: Analytics (Placeholder for Phase 2) ---
-    with tab2:
-        st.subheader("Student Insights")
-        st.info("Coming Soon: View individual student weak points, most asked questions, and AI accuracy evaluations based on their chat history.")
-        
-    # --- TAB 3: Assignments (Placeholder for Phase 3) ---
-    with tab3:
-        st.subheader("Assignment Creator")
-        st.info("Coming Soon: Generate AI practice papers and push them directly to your students' chat interfaces.")
-        
-    st.stop() # Halts execution here so teachers don't see the chat interface below
+            st.divider()
+            
+            st.subheader("Current Roster")
+            if not roster:
+                st.info("You haven't added any students yet.")
+            else:
+                for student in roster:
+                    s_email = student.id
+                    c1, c2 = st.columns([0.85, 0.15])
+                    with c1:
+                        st.write(f"🎓 **{s_email}**")
+                    with c2:
+                        if st.button("Remove", key=f"rem_{s_email}", use_container_width=True):
+                            db.collection("users").document(s_email).update({"teacher_id": None})
+                            st.rerun()
+
+        with tab2:
+            st.subheader("Student Insights & Learning Gaps")
+            st.caption("AI automatically tracks your students' questions and evaluates their conceptual weaknesses during chats.")
+            
+            if not roster:
+                st.info("Add students in the Class Management tab to view their analytics.")
+            else:
+                selected_student = st.selectbox("Select Student:", [s.id for s in roster])
+                
+                if selected_student:
+                    # Fetch student's analytics history
+                    analytics_docs = db.collection("users").document(selected_student).collection("analytics").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(20).stream()
+                    
+                    recent_weaknesses = set()
+                    recent_questions = []
+                    poor_count = 0
+                    good_count = 0
+                    
+                    for doc in analytics_docs:
+                        data = doc.to_dict()
+                        if data.get("understanding_level") == "Poor": poor_count += 1
+                        elif data.get("understanding_level") == "Good": good_count += 1
+                        
+                        wp = data.get("weak_point")
+                        if wp and wp != "None":
+                            recent_weaknesses.add(f"{data.get('topic')}: {wp}")
+                            
+                        qa = data.get("question_asked")
+                        if qa and qa != "None":
+                            recent_questions.append(qa)
+
+                    if poor_count == 0 and good_count == 0 and not recent_questions:
+                        st.info(f"{selected_student} hasn't had any academic interactions with Helix yet.")
+                    else:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Questions Asked", len(recent_questions))
+                        with col2:
+                            total = poor_count + good_count
+                            health = int((good_count / total) * 100) if total > 0 else 100
+                            st.metric("Concept Mastery Score", f"{health}%")
+                            
+                        st.divider()
+                        col3, col4 = st.columns(2)
+                        with col3:
+                            st.markdown("🚨 **Identified Weak Points**")
+                            if recent_weaknesses:
+                                for w in list(recent_weaknesses)[:5]:
+                                    st.error(w)
+                            else:
+                                st.success("No major weak points identified yet!")
+                                
+                        with col4:
+                            st.markdown("💬 **Recently Asked Questions**")
+                            if recent_questions:
+                                for q in recent_questions[:5]:
+                                    st.info(q)
+                            else:
+                                st.write("No direct questions asked recently.")
+            
+        with tab3:
+            st.subheader("Assignment Creator")
+            st.info("Coming Soon: Generate AI practice papers and push them directly to your students' chat interfaces.")
+            
+    st.divider()
+else:
+    # If student or guest, just show the standard headers
+    st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtitle'>Your CIE Tutor for Grade 6-8!</div>", unsafe_allow_html=True)
 
 # ==========================================
-# STUDENT CHAT VIEW (Runs if role is Student/Guest)
+# UNIVERSAL CHAT VIEW (Runs for Everyone)
 # ==========================================
-st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Your CIE Tutor for Grade 6-8!</div>", unsafe_allow_html=True)
 
 # -----------------------------
 # 5) INITIALIZE GEMINI
@@ -728,6 +780,12 @@ You are Helix, a friendly CIE Science/Math/English Tutor for Stage 7-9 students.
 
 ### RULE 6: MARK SCHEME
 - Put "## Mark Scheme" at the very bottom. No citations inside mark scheme.
+
+### RULE 7: STUDENT ANALYTICS (HIDDEN)
+If the user asks a question about a concept or attempts to answer a question, you must evaluate their understanding. 
+At the VERY END of your response, output a hidden JSON block exactly like this:
+[ANALYTICS: {"topic": "Topic Name", "understanding_level": "Good/Average/Poor", "weak_point": "Specific gap, or None", "question_asked": "The user's question, or None"}]
+Never mention this analytics block in your natural language response.
 """
 
 # -----------------------------
@@ -978,6 +1036,27 @@ if chat_input_data:
             bot_text = safe_response_text(text_response)
             if not bot_text.strip():
                 bot_text = "⚠️ *Helix couldn't generate a text response this time.* Try rephrasing your question."
+
+            # --- NEW: EXTRACT HIDDEN ANALYTICS ---
+            analytics_match = re.search(r"\[ANALYTICS:\s*({.*?})\s*\]", bot_text, flags=re.IGNORECASE | re.DOTALL)
+            if analytics_match:
+                try:
+                    analytics_str = analytics_match.group(1)
+                    analytics_data = json.loads(analytics_str)
+                    
+                    # Remove the hidden block from the visible chat
+                    bot_text = bot_text[:analytics_match.start()].strip()
+                    
+                    if is_authenticated and db is not None:
+                        db.collection("users").document(auth_object.email).collection("analytics").add({
+                            "timestamp": time.time(),
+                            "topic": analytics_data.get("topic", "General"),
+                            "understanding_level": analytics_data.get("understanding_level", "Unknown"),
+                            "weak_point": analytics_data.get("weak_point", "None"),
+                            "question_asked": analytics_data.get("question_asked", "None")
+                        })
+                except Exception as e:
+                    print(f"Analytics extraction error: {e}")
 
             thinking_placeholder.empty()
 
