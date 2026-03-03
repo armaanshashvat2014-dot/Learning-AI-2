@@ -100,6 +100,15 @@ def get_firestore_client():
 
 db = get_firestore_client()
 
+def get_student_class_data(student_email):
+    if not db: return None
+    class_query = db.collection("classes").where(
+        filter=firestore.FieldFilter("students", "array_contains", student_email)
+    ).limit(1).stream()
+    for c in class_query:
+        return c.to_dict()
+    return None
+
 def get_user_profile(email):
     if not db: return {"role": "student"}
     doc_ref = db.collection("users").document(email)
@@ -481,7 +490,6 @@ with st.sidebar:
                         else:
                             st.error("Invalid Code.")
             else:
-                # Find the actual Class Name instead of showing the Teacher's Email
                 student_class_name = "Unknown Class"
                 if db is not None:
                     class_query = db.collection("classes").where(
@@ -925,13 +933,27 @@ else:
     st.markdown("<div class='subtitle'>Your CIE Tutor for Grade 6-8!</div>", unsafe_allow_html=True)
 
     if is_authenticated and user_role == "student":
-        current_grade = user_profile.get("grade", "Grade 6")
-        GRADE_OPTIONS = ["Grade 6", "Grade 7", "Grade 8"]
-        with st.expander("🎓 Set Your Grade", expanded=(current_grade not in GRADE_OPTIONS)):
-            selected_grade = st.selectbox("Which grade are you in?", options=GRADE_OPTIONS, index=GRADE_OPTIONS.index(current_grade) if current_grade in GRADE_OPTIONS else 0)
-            if st.button("Save Grade"):
-                db.collection("users").document(user_email).update({"grade": selected_grade})
-                st.success(f"Grade set to {selected_grade}!"); time.sleep(0.8); st.rerun()
+        student_class = get_student_class_data(user_email)
+        
+        if student_class and "grade" in student_class:
+            class_grade = student_class["grade"]
+            if user_profile.get("grade") != class_grade:
+                db.collection("users").document(user_email).update({"grade": class_grade})
+                user_profile["grade"] = class_grade
+        else:
+            current_grade = user_profile.get("grade", "Grade 6")
+            GRADE_OPTIONS = ["Grade 6", "Grade 7", "Grade 8"]
+            with st.expander("🎓 Set Your Grade", expanded=(current_grade not in GRADE_OPTIONS)):
+                selected_grade = st.selectbox(
+                    "Which grade are you in?", 
+                    options=GRADE_OPTIONS, 
+                    index=GRADE_OPTIONS.index(current_grade) if current_grade in GRADE_OPTIONS else 0
+                )
+                if st.button("Save Grade"):
+                    db.collection("users").document(user_email).update({"grade": selected_grade})
+                    st.success(f"Grade set to {selected_grade}!")
+                    time.sleep(0.8)
+                    st.rerun()
 
 # ==========================================
 # UNIVERSAL CHAT VIEW (Only renders if allowed)
@@ -961,122 +983,6 @@ if render_chat_interface:
     - CITATION RULE: List the source(s) only once at the very bottom.
     - PDF TRIGGER: If, and ONLY IF, you generated a full formal question paper, append [PDF_READY] at the very end.
 
-    ### RULE 4: STAGE 9 ENGLISH SYLLABUS:
-    Chapter 1 • Writing to explore and reflect
-1.1 What is travel writing?
-
-1.2 Selecting and noting key information in travel texts
-
-1.3 Comparing tone and register in travel texts
-
-1.4 Responding to travel writing
-
-1.5 Understanding grammatical choices in travel writing
-
-1.6 Varying sentences for effect
-
-1.7 Boost your vocabulary
-
-1.8 Creating a travel account
-
-Chapter 2 • Writing to inform and explain
-2.1 Matching informative texts to audience and purpose
-
-2.2 Using formal and informal language in information texts
-
-2.3 Comparing information texts
-
-2.4 Using discussion to prepare for a written assignment
-
-2.5 Planning information texts to suit different audiences
-
-2.6 Shaping paragraphs to suit audience and purpose
-
-2.7 Crafting sentences for a range of effects
-
-2.8 Making explanations precise and concise
-
-2.9 Writing encyclopedia entries
-
-Chapter 3 • Writing to argue and persuade
-3.1 Reviewing persuasive techniques
-
-3.2 Commenting on use of language to persuade
-
-3.3 Exploring layers of persuasive language
-
-3.4 Responding to the use of persuasive language
-
-3.5 Adapting grammar choices to create effects in argument writing
-
-3.6 Organising a whole argument effectively
-
-3.7 Organising an argument within each paragraph
-
-3.8 Presenting and responding to a question
-
-3.9 Producing an argumentative essay
-
-Chapter 4 • Descriptive writing
-4.1 Analysing how atmospheres are created
-
-4.2 Developing analysis of a description
-
-4.3 Analysing atmospheric descriptions
-
-4.4 Using images to inspire description
-
-4.5 Using language to develop an atmosphere
-
-4.6 Sustaining a cohesive atmosphere
-
-4.7 Creating atmosphere through punctuation
-
-4.8 Using structural devices to build up atmosphere
-
-4.9 Producing a powerful description
-
-Chapter 5 • Narrative writing
-5.1 Understanding story openings
-
-5.2 Exploring setting and atmosphere
-
-5.3 Introducing characters in stories
-
-5.4 Responding to powerful narrative
-
-5.5 Pitching a story
-
-5.6 Creating narrative suspense and climax
-
-5.7 Creating character
-
-5.8 Using tenses in narrative
-
-5.9 Using pronouns and sentence order for effect
-
-5.10 Creating a thriller
-
-Chapter 6 • Writing to analyse and compare
-6.1 Analysing implicit meaning in non-fiction texts
-
-6.2 Analysing how a play's key elements create different effects
-
-6.3 Using discussion skills to analyse carefully
-
-6.4 Comparing effectively through punctuation and grammar
-
-6.5 Analysing two texts
-
-Chapter 7 • Testing your skills
-7.1 Reading and writing questions on non-fiction texts
-
-7.2 Reading and writing questions on fiction texts
-
-7.3 Assessing your progress: non-fiction reading and writing
-
-7.4 Assessing your progress: fiction reading and writing
-    
     ### RULE 5: VISUAL SYNTAX (STRICT)
     - For diagrams: IMAGE_GEN: [Detailed description of the image, educational, white background]
     - For pie charts: PIE_CHART: [Label1:Value1, Label2:Value2]
@@ -1089,9 +995,6 @@ Chapter 7 • Testing your skills
     At the VERY END of your response, output a hidden JSON block exactly like this:
     [ANALYTICS: {"topic": "Topic Name", "understanding_level": "Good/Average/Poor", "weak_point": "Specific gap, or None", "question_asked": "The user's question, or None"}]
     Never mention this analytics block in your natural language response.
-
-    ### RULE 8: BOOKS NAME:
-    The books are 1 grade ahead, so if the user gives grade 6, you have to search stage 7 books. Grade 7, stage 8 books. Grade 8, stage 9 books. Remember to always mention the grade not stage, even if the book you're searching is state seven, mention grade six in the papers or in the reply. I made an error while renaming, and now I can't rename them all.
     """
 
     if is_authenticated and user_role == "student" and db is not None:
