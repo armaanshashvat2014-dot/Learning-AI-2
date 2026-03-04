@@ -1084,6 +1084,7 @@ if user_role == "teacher":
         - Include '## Mark Scheme' at the end.
         - Append [PDF_READY] at the end.
         - Do not hallucinate adding school names or any of that. Just use the assignment title as the title of the paper.
+        - The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 correlates to grade 7. When it's mentioned 7 in the book name, that means it's grade 6. When it's mentioned 8 in the book name, that means it's grade 7. When it's mentioned 9 in the book name, that means it's grade 8. Follow this new naming scheme.
         """
 
         if st.button("🤖 Generate with Helix AI", use_container_width=True, type="primary"):
@@ -1371,6 +1372,7 @@ RULES FOR ANALYTICS:
 ### RULE 8: Very Important: Grade Scheme
 The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 correlates to grade 7. When it's mentioned 7 in the book name, that means it's grade 6. When it's mentioned 8 in the book name, that means it's grade 7. When it's mentioned 9 in the book name, that means it's grade 8. Follow this new naming scheme. 
 
+ALSO IMPORTANT: when you're creating questions for students, one by one on different queries/answers, ALWAYS check the book when creating questions, because sometimes you might find related topics but the syllabus might not be in the students' book. 
     """
 
     if is_authenticated and user_role == "student" and db is not None:
