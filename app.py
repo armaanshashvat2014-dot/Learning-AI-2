@@ -488,22 +488,39 @@ def log_audit(admin_email, action, target_type, target_id):
 def render_admin_panel():
     st.markdown(ADMIN_CSS, unsafe_allow_html=True)
     
-    # --- ADMIN LOGIN GATE ---
-    if not st.session_state.get("admin_authenticated"):
-        st.markdown('<div class="admin-login-box"><h2 style="color:#ff4d6d;margin-bottom:6px;">🔐 Admin Access</h2><p style="color:rgba(255,150,160,0.6);font-size:0.85rem;">Restricted to authorised administrators.</p></div>', unsafe_allow_html=True)
-        with st.form("admin_login"):
-            code = st.text_input("Admin Verification Code", type="password")
-            a_email = st.text_input("Your Admin Email")
-            if st.form_submit_button("🔓 Access Admin Panel"):
-                if code.strip() == ADMIN_VERIFICATION_CODE and a_email.strip():
-                    st.session_state["admin_authenticated"] = True
-                    st.session_state["admin_email"] = a_email.strip()
-                    log_audit(a_email.strip(), "ADMIN_LOGIN", "session", "login")
-                    st.rerun()
-                else: st.error("❌ Invalid code or email.")
+    # User must be authenticated via Google first
+    if not is_authenticated:
+        st.error("You must log in with Google first to access the Admin Panel.")
+        if st.button("Return Home"):
+            st.session_state["current_page"] = "chat"
+            st.rerun()
         return
 
-    admin_email = st.session_state["admin_email"]
+    admin_email = auth_object.email
+    allowed_admins = st.secrets.get("ADMIN_EMAILS", [])
+
+    # Double-check they are on the allowed list
+    if admin_email not in allowed_admins:
+        st.error("Your account is not authorized for Admin access.")
+        if st.button("Return Home"):
+            st.session_state["current_page"] = "chat"
+            st.rerun()
+        return
+
+    # --- ADMIN LOGIN GATE ---
+    if not st.session_state.get("admin_authenticated"):
+        st.markdown(f'<div class="admin-login-box"><h2 style="color:#ff4d6d;margin-bottom:6px;">🔐 Admin Access</h2><p style="color:rgba(255,150,160,0.6);font-size:0.85rem;">Welcome {admin_email}. Enter your verification code.</p></div>', unsafe_allow_html=True)
+        with st.form("admin_login"):
+            code = st.text_input("Admin Verification Code", type="password")
+            if st.form_submit_button("🔓 Access Admin Panel"):
+                if code.strip() == ADMIN_VERIFICATION_CODE:
+                    st.session_state["admin_authenticated"] = True
+                    st.session_state["admin_email"] = admin_email
+                    log_audit(admin_email, "ADMIN_LOGIN", "session", "login")
+                    st.rerun()
+                else: st.error("❌ Invalid code.")
+        return
+
     st.markdown(f'<div class="admin-header"><div class="admin-title">⚙️ Helix Admin Console</div><div style="color:rgba(255,150,160,0.6);font-size:0.85rem;margin-top:4px;">Logged in as {admin_email}</div></div>', unsafe_allow_html=True)
 
     with st.sidebar:
@@ -550,7 +567,7 @@ def render_admin_panel():
                     st.success(f"Deleted student {del_id}")
                 except Exception as e: st.error(str(e))
 
-    # --- TEACHERS & CLASSES (Similar structure) ---
+    # --- TEACHERS ---
     elif admin_page == "👩‍🏫 Teachers":
         st.markdown('<div class="section-header">👩‍🏫 Manage Teachers</div>', unsafe_allow_html=True)
         try:
@@ -564,6 +581,7 @@ def render_admin_panel():
             db.collection("teachers").document(del_t).delete()
             st.success("Deleted")
 
+    # --- CLASSES ---
     elif admin_page == "🏫 Classes":
         st.markdown('<div class="section-header">🏫 Manage Classes</div>', unsafe_allow_html=True)
         try:
@@ -580,7 +598,6 @@ def render_admin_panel():
     # --- AI DEBUG LAB ---
     elif admin_page == "🧪 AI Debug Lab":
         st.markdown('<div class="section-header">🧪 AI Debug Lab</div>', unsafe_allow_html=True)
-        st.write("Test Gemini prompts without polluting student analytics databases.")
         m_choice = st.selectbox("Model", ["gemini-2.5-flash-preview-04-17", "gemini-2.0-flash"])
         d_prompt = st.text_area("User Prompt")
         if st.button("▶️ Run Prompt"):
@@ -590,11 +607,8 @@ def render_admin_panel():
                     raw_out = getattr(resp, "text", "") or ""
                     st.markdown("#### 📄 Raw Output")
                     st.code(raw_out, language="markdown")
-                    
-                    if "ANALYTICS:" in raw_out: st.success("✅ Analytics JSON Block Detected")
-                    if "IMAGE_GEN:" in raw_out: st.info("🖼️ Image Generation Tag Detected")
-                    if "PDF_READY" in raw_out: st.info("📄 PDF Ready Tag Detected")
                 except Exception as e: st.error(f"Error: {e}")
+
 
 # --- THE ROUTER HOOK ---
 if st.session_state.get("current_page") == "admin":
@@ -609,9 +623,16 @@ if st.session_state.get("current_page") == "admin":
 with st.sidebar:
     st.title("Account Settings")
     
-    if st.button("⚙️ Admin Panel"):
-        st.session_state["current_page"] = "admin"
-        st.rerun()
+    allowed_admins = st.secrets.get("ADMIN_EMAILS", [])
+    
+    if is_authenticated and auth_object.email in allowed_admins:
+        if st.button("⚙️ Admin Panel"):
+            st.session_state["current_page"] = "admin"
+            st.rerun()
+
+    if not is_authenticated:
+        st.markdown("You are chatting as a Guest!\nLog in with Google to save history!")
+
 
     if not is_authenticated:
         st.markdown("👋 **You are chatting as a Guest!**\n\n*Log in with Google to save history!*")
