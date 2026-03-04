@@ -1237,6 +1237,8 @@ if render_chat_interface:
     - MARKS: Put marks at end of the SAME LINE like "... [3]".
     - When you are asked to create a question paper, the assignment title must be the TITLE of the paper. You should not use any other made-up name for the title. Do not hallucinate while creating the name of the paper. Do not mention the SCHOOL name either. Just mention the grade and the chapter this test is made for .
     - PDF TRIGGER: If, and ONLY IF, you generated a full formal question paper, append [PDF_READY] at the very end.
+    - SYLLABUS STRICTNESS: When generating a question paper, every single question MUST be sourced directly from the attached textbook context. If the user asks for "Chapter n", find Chapter n in the text and only use topics from that chapter.
+
 
     ### RULE 4: English, Grade 8/Stage 9:
     I could not find the book for stage 9/grade 8, so here is the syllabus:
@@ -1495,7 +1497,12 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
             thinking_placeholder = st.empty()
             try:
                 has_attachment = file_bytes is not None
-                relevant_books = select_relevant_books(prompt + " science stage 8" if has_attachment else prompt, st.session_state.textbook_handles)
+            
+                recent_context = prompt
+                for m in st.session_state.messages[-3:]:
+                    recent_context += " " + str(m.get("content", ""))
+                
+                relevant_books = select_relevant_books(recent_context + " science stage 8" if has_attachment else recent_context, st.session_state.textbook_handles)
 
 
                 thinking_placeholder.markdown("""<div class="thinking-container"><span class="thinking-text">Thinking</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div></div>""", unsafe_allow_html=True)
