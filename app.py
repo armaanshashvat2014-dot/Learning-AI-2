@@ -1217,7 +1217,7 @@ if render_chat_interface:
     - NO LATEX MATH: DO NOT use LaTeX for math formatting. NEVER use backslashes (\\) or commands like \\frac, \\times, \\div.
     - PLAIN TEXT MATH ONLY: Use standard characters (/, x, *, ÷, ^,-,+,=).
     - Tables: ALWAYS use standard Markdown tables. Do NOT use IMAGE_GEN for tables.
-    - Visuals: Use IMAGE_GEN for diagrams, PIE_CHART for pie charts.
+    - Visuals: Use IMAGE_GEN for diagrams, PIE_CHART for pie charts. When using IMAGE_GEN, ask for labels unless, let's say, you are making a question paper and your goal is to ask the student to label the thing, mention to leave empty squares for labelling as a question.
     - NUMBERING: Clean numbering 1., 2., 3. and always atleast 2-3 sub-questions (a), (b), (c).
     - MARKS: Put marks at end of the SAME LINE like "... [3]".
     - When you are asked to create a question paper, the assignment title must be the TITLE of the paper. You should not use any other made-up name for the title. Do not hallucinate while creating the name of the paper. Do not mention the SCHOOL name either. Just mention the grade and the chapter this test is made for .
