@@ -1078,7 +1078,7 @@ if user_role == "teacher":
         assign_extra = st.text_area("Additional Instructions (optional)", height=80)
         
         PAPER_SYSTEM = """
-        You generate formal school question papers.
+        You generate question papers for practice..
         - Plain text math (no LaTeX).
         - Clean numbering, marks like [3].
         - Include '## Mark Scheme' at the end.
