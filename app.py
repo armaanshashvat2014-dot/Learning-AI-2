@@ -1364,7 +1364,6 @@ RULES FOR ANALYTICS:
 - `chapter_name` AND `chapter_number`: You MUST search the provided textbook PDFs to find the EXACT chapter name and number where the current topic is taught. You already know the grade that the student is, so search those books and you must find the chapter name and the number. 
   - Do NOT guess or use general knowledge for the curriculum structure.
   - If the topic is "circuits", look at the Table of Contents in the provided PDF to find the exact chapter name (e.g., "Electricity") and its corresponding number.
-  - If you absolutely cannot find it in the provided documents, output "Unknown" for the name and 0 for the number.
 - `score` MUST be an integer from 0 to 100 representing their concept mastery. 
 - Never mention this block in your natural language response.
 
