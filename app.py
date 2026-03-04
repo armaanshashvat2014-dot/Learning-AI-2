@@ -455,14 +455,164 @@ def chat_settings_dialog(thread_data):
         st.rerun()
     st.divider()
     if st.button("🗑️ Delete Chat", key=f"del_btn_set_{thread_data['id']}", type="primary", use_container_width=True):
-        st.session_state.delete_requested_for = thread_data["id"]
+        st.session_state.delete_requested_for = thread_data['id']
         st.rerun()
+
+# =====================================================================
+# 🔴 HELIX ADMIN MODE (Paste right above `with st.sidebar:`)
+# =====================================================================
+ADMIN_VERIFICATION_CODE = st.secrets.get("ADMIN_VERIFICATION_CODE")
+
+ADMIN_CSS = """
+<style>
+[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }
+[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
+.admin-header { background: linear-gradient(135deg, rgba(225,29,72,0.18), rgba(153,0,30,0.12)); border: 1px solid rgba(225,29,72,0.35); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; }
+.admin-title { font-size: 1.9rem; font-weight: 800; background: linear-gradient(90deg, #ff4d6d, #ff8fa3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
+.stat-card { background: rgba(225,29,72,0.08); border: 1px solid rgba(225,29,72,0.2); border-radius: 14px; padding: 18px 20px; text-align: center; margin-bottom: 15px; }
+.stat-number { font-size: 2.2rem; font-weight: 800; color: #ff4d6d; }
+.stat-label { font-size: 0.78rem; color: rgba(255,150,160,0.6); text-transform: uppercase; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 20px; }
+.admin-table th { background: rgba(225,29,72,0.15); color: #ff8fa3; padding: 10px; text-align: left; }
+.admin-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: rgba(255,200,205,0.85); }
+.section-header { font-size: 1.1rem; font-weight: 700; color: #ff6b81; border-left: 3px solid #e11d48; padding-left: 12px; margin: 20px 0 14px; }
+.admin-login-box { max-width: 420px; margin: 80px auto; background: rgba(225,29,72,0.07); border: 1px solid rgba(225,29,72,0.25); border-radius: 20px; padding: 40px 36px; text-align: center; }
+</style>
+"""
+
+from datetime import datetime
+
+def log_audit(admin_email, action, target_type, target_id):
+    if db: db.collection("admin_audit").add({"admin_email": admin_email, "action": action, "target_type": target_type, "target_id": target_id, "timestamp": time.time()})
+
+def render_admin_panel():
+    st.markdown(ADMIN_CSS, unsafe_allow_html=True)
+    
+    # --- ADMIN LOGIN GATE ---
+    if not st.session_state.get("admin_authenticated"):
+        st.markdown('<div class="admin-login-box"><h2 style="color:#ff4d6d;margin-bottom:6px;">🔐 Admin Access</h2><p style="color:rgba(255,150,160,0.6);font-size:0.85rem;">Restricted to authorised administrators.</p></div>', unsafe_allow_html=True)
+        with st.form("admin_login"):
+            code = st.text_input("Admin Verification Code", type="password")
+            a_email = st.text_input("Your Admin Email")
+            if st.form_submit_button("🔓 Access Admin Panel"):
+                if code.strip() == ADMIN_VERIFICATION_CODE and a_email.strip():
+                    st.session_state["admin_authenticated"] = True
+                    st.session_state["admin_email"] = a_email.strip()
+                    log_audit(a_email.strip(), "ADMIN_LOGIN", "session", "login")
+                    st.rerun()
+                else: st.error("❌ Invalid code or email.")
+        return
+
+    admin_email = st.session_state["admin_email"]
+    st.markdown(f'<div class="admin-header"><div class="admin-title">⚙️ Helix Admin Console</div><div style="color:rgba(255,150,160,0.6);font-size:0.85rem;margin-top:4px;">Logged in as {admin_email}</div></div>', unsafe_allow_html=True)
+
+    with st.sidebar:
+        st.markdown("<b style='color:#ff4d6d'>ADMIN NAVIGATION</b>", unsafe_allow_html=True)
+        admin_page = st.radio("", ["📊 Dashboard", "🎓 Students", "👩‍🏫 Teachers", "🏫 Classes", "🧪 AI Debug Lab"], label_visibility="collapsed")
+        st.markdown("---")
+        if st.button("🚪 Exit Admin Mode", use_container_width=True):
+            st.session_state["admin_authenticated"] = False
+            st.session_state["current_page"] = "chat"
+            st.rerun()
+
+    # --- DASHBOARD ---
+    if admin_page == "📊 Dashboard":
+        st.markdown('<div class="section-header">📊 System Overview</div>', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        try:
+            c1.markdown(f'<div class="stat-card"><div class="stat-number">{len(list(db.collection("students").stream()))}</div><div class="stat-label">Students</div></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="stat-card"><div class="stat-number">{len(list(db.collection("teachers").stream()))}</div><div class="stat-label">Teachers</div></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="stat-card"><div class="stat-number">{len(list(db.collection("classes").stream()))}</div><div class="stat-label">Classes</div></div>', unsafe_allow_html=True)
+        except Exception as e: st.error(f"DB Error: {e}")
+
+    # --- STUDENTS ---
+    elif admin_page == "🎓 Students":
+        st.markdown('<div class="section-header">🎓 Manage Students</div>', unsafe_allow_html=True)
+        try:
+            students = [{"id": d.id, **d.to_dict()} for d in db.collection("students").stream()]
+            if students:
+                rows = "".join(f"<tr><td>{s.get('name','—')}</td><td>{s.get('email','—')}</td><td>{s.get('grade','—')}</td><td><code>{s['id']}</code></td></tr>" for s in students)
+                st.markdown(f'<table class="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Grade</th><th>Doc ID</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+        except Exception as e: st.error(str(e))
+        
+        st.markdown('<div class="section-header">🗑️ Delete Student</div>', unsafe_allow_html=True)
+        del_id = st.text_input("Enter Student Document ID or Email to Delete")
+        cascade = st.checkbox("Also delete their chat threads and analytics history", value=True)
+        if st.button("🗑️ Permanently Delete Student", type="primary"):
+            if del_id:
+                try:
+                    db.collection("students").document(del_id).delete()
+                    db.collection("users").document(del_id).delete()
+                    if cascade:
+                        for t in db.collection("users").document(del_id).collection("threads").stream(): t.reference.delete()
+                        for a in db.collection("users").document(del_id).collection("analytics").stream(): a.reference.delete()
+                    log_audit(admin_email, "DELETE_STUDENT", "student", del_id)
+                    st.success(f"Deleted student {del_id}")
+                except Exception as e: st.error(str(e))
+
+    # --- TEACHERS & CLASSES (Similar structure) ---
+    elif admin_page == "👩‍🏫 Teachers":
+        st.markdown('<div class="section-header">👩‍🏫 Manage Teachers</div>', unsafe_allow_html=True)
+        try:
+            teachers = [{"id": d.id, **d.to_dict()} for d in db.collection("teachers").stream()]
+            if teachers:
+                rows = "".join(f"<tr><td>{t.get('name','—')}</td><td>{t.get('email','—')}</td><td><code>{t['id']}</code></td></tr>" for t in teachers)
+                st.markdown(f'<table class="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Doc ID</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+        except Exception as e: st.error(str(e))
+        del_t = st.text_input("Teacher Doc ID to delete")
+        if st.button("Delete Teacher", type="primary") and del_t:
+            db.collection("teachers").document(del_t).delete()
+            st.success("Deleted")
+
+    elif admin_page == "🏫 Classes":
+        st.markdown('<div class="section-header">🏫 Manage Classes</div>', unsafe_allow_html=True)
+        try:
+            classes = [{"id": d.id, **d.to_dict()} for d in db.collection("classes").stream()]
+            if classes:
+                rows = "".join(f"<tr><td>{c.get('name','—')}</td><td>{c.get('stage','—')}</td><td><code>{c['id']}</code></td></tr>" for c in classes)
+                st.markdown(f'<table class="admin-table"><thead><tr><th>Name</th><th>Stage</th><th>Doc ID</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+        except Exception as e: st.error(str(e))
+        del_c = st.text_input("Class Doc ID to delete")
+        if st.button("Delete Class", type="primary") and del_c:
+            db.collection("classes").document(del_c).delete()
+            st.success("Deleted")
+
+    # --- AI DEBUG LAB ---
+    elif admin_page == "🧪 AI Debug Lab":
+        st.markdown('<div class="section-header">🧪 AI Debug Lab</div>', unsafe_allow_html=True)
+        st.write("Test Gemini prompts without polluting student analytics databases.")
+        m_choice = st.selectbox("Model", ["gemini-2.5-flash-preview-04-17", "gemini-2.0-flash"])
+        d_prompt = st.text_area("User Prompt")
+        if st.button("▶️ Run Prompt"):
+            with st.spinner("Running..."):
+                try:
+                    resp = client.models.generate_content(model=m_choice, contents=d_prompt)
+                    raw_out = getattr(resp, "text", "") or ""
+                    st.markdown("#### 📄 Raw Output")
+                    st.code(raw_out, language="markdown")
+                    
+                    if "ANALYTICS:" in raw_out: st.success("✅ Analytics JSON Block Detected")
+                    if "IMAGE_GEN:" in raw_out: st.info("🖼️ Image Generation Tag Detected")
+                    if "PDF_READY" in raw_out: st.info("📄 PDF Ready Tag Detected")
+                except Exception as e: st.error(f"Error: {e}")
+
+# --- THE ROUTER HOOK ---
+if st.session_state.get("current_page") == "admin":
+    render_admin_panel()
+    st.stop()
+# =====================================================================
+
 
 # -----------------------------
 # 4) SIDEBAR
 # -----------------------------
 with st.sidebar:
     st.title("Account Settings")
+    
+    if st.button("⚙️ Admin Panel"):
+        st.session_state["current_page"] = "admin"
+        st.rerun()
+
     if not is_authenticated:
         st.markdown("👋 **You are chatting as a Guest!**\n\n*Log in with Google to save history!*")
         if st.button("Log in with Google", type="primary", use_container_width=True):
