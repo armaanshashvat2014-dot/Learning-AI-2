@@ -1284,11 +1284,24 @@ Chapter 7 • Testing your skills
     ### RULE 6: MARK SCHEME
     - Put "## Mark Scheme" at the very bottom. No citations inside mark scheme.
 
-    ### RULE 7: STUDENT ANALYTICS (HIDDEN)
-    If the user asks a question about a concept or attempts to answer a question, evaluate their understanding.
-    At the VERY END of your response, output a hidden JSON block exactly like this:
-    [ANALYTICS: {"topic": "Topic Name", "understanding_level": "Good/Average/Poor", "weak_point": "Specific gap, or None", "question_asked": "The user's question, or None"}]
-    Never mention this analytics block in your natural language response.
+   If the user asks a question about a concept or attempts to answer a question, evaluate their understanding. 
+At the VERY END of your response, output a hidden JSON block EXACTLY like this:
+[ANALYTICS: {
+  "subject": "Math", 
+  "grade": "Grade 7",
+  "chapter_number": 4,
+  "chapter_name": "Fractions and Decimals",
+  "score": 85,
+  "weak_point": "Struggles with unlike denominators, or None",
+  "question_asked": "The user's exact question, or None"
+}]
+RULES FOR ANALYTICS:
+- "subject" MUST be exactly one of: Math, Biology, Chemistry, Physics, English.
+- "grade" MUST be exactly: Grade 6, Grade 7, Grade 8, Grade 9, or Grade 10.
+- "chapter_number" MUST be an integer representing the curriculum chapter number (e.g. 4). If unknown, output 0.
+- "score" MUST be an integer from 0 to 100 representing their concept mastery.
+- Never mention this block in your natural language response.
+
     """
 
     if is_authenticated and user_role == "student" and db is not None:
