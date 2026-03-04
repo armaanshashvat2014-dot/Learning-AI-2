@@ -624,18 +624,13 @@ if st.session_state.get("current_page") == "admin":
 with st.sidebar:
     st.title("Account Settings")
     
-    # 1. Safely grab allowed emails and force them to lowercase
     raw_admins = st.secrets.get("ADMIN_EMAILS", [])
     allowed_admins = [email.lower() for email in raw_admins]
     
     if is_authenticated and user_email:
-        # 2. Force the logged-in user email to lowercase
+
         current_user_lower = user_email.lower()
-        
-        # [DEBUG] Uncomment the line below to see exactly what Streamlit sees:
-        st.warning(f"Debug: My email is {current_user_lower}. Allowed: {allowed_admins}")
-        
-        # 3. Check if they are in the list
+
         if current_user_lower in allowed_admins:
             if st.button("⚙️ Admin Panel"):
                 st.session_state["current_page"] = "admin"
