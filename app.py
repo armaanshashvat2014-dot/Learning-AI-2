@@ -1735,4 +1735,48 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
 
                 if visual_prompts:
                     img_thinking = st.empty()
-                    img_thinking.markdown("""<div class="thinking-container"><span class="thinking-text">🖌️ Processing diagrams & charts...</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div clas
+                    img_thinking.markdown("""<div class="thinking-container"><span class="thinking-text">🖌️ Processing diagrams & charts...</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div></div>""", unsafe_allow_html=True)
+                    
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                        gen_results = list(executor.map(process_visual_wrapper, visual_prompts))
+                        generated_images = [res[0] for res in gen_results if res is not None]
+                        generated_models = [res[1] for res in gen_results if res is not None]
+
+                    img_thinking.empty()
+                    
+                    if any(res is None for res in gen_results):
+                        bot_text += "\n\n⚠️ *Helix tried to draw a diagram here, but the image generator is currently overloaded. Please try again later.*"
+
+                is_downloadable = ("[PDF_READY]" in bot_text or ("## Mark Scheme" in bot_text and re.search(r"\[\d+\]", bot_text) is not None))
+
+                bot_msg = {
+                    "role": "assistant", 
+                    "content": bot_text, 
+                    "is_downloadable": is_downloadable, 
+                    "images": generated_images,
+                    "image_models": generated_models
+                }
+                st.session_state.messages.append(bot_msg)
+
+                if is_authenticated:
+                    user_msg_count = sum(1 for m in st.session_state.messages if m.get("role") == "user")
+                    if user_msg_count == 1:
+                        coll_ref = get_threads_collection()
+                        if coll_ref and st.session_state.current_thread_id:
+                            thread_doc = coll_ref.document(st.session_state.current_thread_id).get()
+                            user_edited = thread_doc.to_dict().get("user_edited_title", False) if thread_doc.exists else False
+                            if not user_edited:
+                                new_title = generate_chat_title(client, st.session_state.messages)
+                                if new_title and new_title != "New Chat":
+                                    coll_ref.document(st.session_state.current_thread_id).set({"title": new_title}, merge=True)
+
+                save_chat_history()
+                st.rerun()
+
+            except Exception as e:
+                thinking_placeholder.empty()
+                st.error(f"Helix Error: {e}")
+            finally:
+                try:
+                    if "temp_pdf_path" in locals() and temp_pdf_path and os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
+                except Exception: pass
