@@ -90,7 +90,12 @@ else:
     st.error("Your Streamlit version is too old for Google Login.")
     st.stop()
 
+# -------------------------------------------------------------
+# SOFT LOGOUT WORKAROUND FOR STREAMLIT CLOUD
+# -------------------------------------------------------------
 is_authenticated = getattr(auth_object, "is_logged_in", False)
+if st.session_state.get("force_logout", False):
+    is_authenticated = False
 
 @st.cache_resource
 def get_firestore_client():
@@ -282,6 +287,7 @@ except Exception as e: st.error(f"🚨 Failed to initialize Gemini Client: {e}")
 def process_visual_wrapper(vp):
     """
     Returns a tuple: (image_bytes, model_name)
+    Properly routes to generate_images (for imagen) or generate_content (for gemini)
     """
     try:
         v_type, v_data = vp
@@ -295,16 +301,34 @@ def process_visual_wrapper(vp):
             
             for model_name in models_to_try:
                 try:
-                    result = client.models.generate_images(
-                        model=model_name,
-                        prompt=v_data,
-                        config=types.GenerateImagesConfig(
-                            number_of_images=1,
-                            aspect_ratio="4:3"
+                    if "imagen" in model_name.lower():
+                        # Standard Imagen API Call
+                        result = client.models.generate_images(
+                            model=model_name,
+                            prompt=v_data,
+                            config=types.GenerateImagesConfig(
+                                number_of_images=1,
+                                aspect_ratio="4:3"
+                            )
                         )
-                    )
-                    if result.generated_images:
-                        return (result.generated_images[0].image.image_bytes, model_name)
+                        if result.generated_images:
+                            return (result.generated_images[0].image.image_bytes, model_name)
+                    else:
+                        # Gemini Native Image Generation (Nano Banana) via generate_content
+                        # Enforce 4:3 1k resolution via prompting for the multimodal model
+                        enhanced_prompt = f"{v_data}\n\n(Important: Generate a 1k resolution image with a 4:3 aspect ratio.)"
+                        
+                        result = client.models.generate_content(
+                            model=model_name,
+                            contents=[enhanced_prompt],
+                            config=types.GenerateContentConfig(
+                                response_modalities=["IMAGE"]
+                            )
+                        )
+                        if result.candidates and result.candidates[0].content.parts:
+                            for part in result.candidates[0].content.parts:
+                                if getattr(part, "inline_data", None) and part.inline_data.data:
+                                    return (part.inline_data.data, model_name)
                 except Exception as e:
                     print(f"Image gen error with {model_name}: {e}")
                     continue 
@@ -715,20 +739,27 @@ with st.sidebar:
     if not is_authenticated:
         st.markdown("You are chatting as a Guest!\nLog in with Google to save history!")
         if st.button("Log in with Google", type="primary", use_container_width=True):
-            try:
-                st.login(provider="google")
-            except Exception as e:
-                st.error("Authentication Error: Streamlit Auth is likely not configured in your Cloud Settings.")
+            if st.session_state.get("force_logout", False):
+                st.session_state["force_logout"] = False
+                st.rerun()
+            else:
+                try:
+                    st.login(provider="google")
+                except Exception as e:
+                    st.error("Authentication Error: Streamlit Auth is likely not configured in your Cloud Settings.")
     else:
         username = getattr(auth_object, "name", None) or (user_email.split("@")[0] if user_email else "User")
-        role_display = f"\n{user_role.capitalize()}" if user_role not in ["undefined", "guest"] else ""
+        role_display = f"\n{user_role.capitalize()}" if user_role not in["undefined", "guest"] else ""
         st.success(f"Welcome back, {username}!{role_display}")
         
-        # Bug Fix: Streamlit relies on an internal exception (RerunException/StopException) 
-        # to process redirections like `st.logout()`. Catching it in `try...except` swallowed it,
-        # resulting in a blank white screen. 
-        if st.button("Log out"):
-            st.logout()
+        # Soft logout fixes the broken Streamlit Community Cloud endpoint hanging
+        if st.button("Log out", use_container_width=True):
+            st.session_state["force_logout"] = True
+            st.session_state.current_thread_id = str(uuid.uuid4())
+            st.session_state.messages = get_default_greeting()
+            st.rerun()
+            
+        st.markdown("<div style='text-align: center;'><a href='/~/+/auth/logout' target='_self' style='font-size: 11px; color: gray; text-decoration: underline;'>Switch Accounts (Hard Logout)</a></div>", unsafe_allow_html=True)
 
         st.divider()
 
@@ -1464,7 +1495,7 @@ Chapter 7 • Testing your skills
 7.4 Assessing your progress: fiction reading and writing
 
     ### RULE 5: VISUAL SYNTAX (STRICT)
-    - For diagrams: IMAGE_GEN: [Detailed description of the image, educational, white background]
+    - For diagrams: IMAGE_GEN:[Detailed description of the image, educational, white background]
     - For pie charts: PIE_CHART:[Label1:Value1, Label2:Value2]
 
     ### RULE 6: MARK SCHEME
@@ -1524,7 +1555,6 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
             display_content = (message.get("content") or "").replace("[PDF_READY]", "").strip()
             st.markdown(display_content)
 
-            # Updated image rendering to display the specific generation model
             if message.get("images"):
                 models = message.get("image_models", ["Unknown"] * len(message["images"]))
                 for img_bytes, mod_name in zip(message["images"], models):
@@ -1730,7 +1760,7 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
                 thinking_placeholder.empty()
 
                 visual_prompts = re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", bot_text)
-                generated_images = []
+                generated_images =[]
                 generated_models =[]
 
                 if visual_prompts:
