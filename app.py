@@ -395,8 +395,8 @@ def generate_chat_title(client, messages):
         if not user_msgs: return "New Chat"
         prompt = "Summarize this conversation context into a very short, punchy chat title (maximum 4 words). Do not use quotes or punctuation. Context: " + "\n".join(user_msgs[-3:])
         response = client.models.generate_content(
-            model="gemini-2.5-flash", contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=15),
+            model="gemini-3.1-flash-lite", contents=[prompt],
+            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=50),
         )
         title = safe_response_text(response).strip().replace('"', '').replace("'", "")
         return title if title else "New Chat"
