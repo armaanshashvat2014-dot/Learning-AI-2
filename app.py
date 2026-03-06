@@ -149,7 +149,7 @@ def create_global_class(class_id, teacher_email, grade, section):
             "created_at": time.time(),
             "grade": grade,
             "section": section,
-            "students": [],
+            "students":[],
             "subjects":[]
         })
         return True, f"Class '{clean_id}' created successfully!"
@@ -211,7 +211,6 @@ def compress_image_for_db(image_bytes: bytes) -> str:
         if not image_bytes: return None
         img = Image.open(BytesIO(image_bytes))
         if img.mode != 'RGB': img = img.convert('RGB')
-        # Improved quality and resolution for UI rendering
         img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
         buf = BytesIO()
         img.save(buf, format="JPEG", quality=85, optimize=True)
@@ -231,7 +230,7 @@ def save_chat_history():
         role = msg.get("role")
         if role == "user":
             q = content_str.lower()
-            if any(k in q for k in ["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"]):
+            if any(k in q for k in["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"]):
                 detected_subjects.add("Math")
             if any(k in q for k in["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"]):
                 detected_subjects.add("Science")
@@ -243,7 +242,7 @@ def save_chat_history():
             if re.search(r"\b(stage\W*8|grade\W*7|class\W*7|year\W*7)\b", qn): detected_grades.add("Grade 7")
             if re.search(r"\b(stage\W*9|grade\W*8|class\W*8|year\W*8)\b", qn): detected_grades.add("Grade 8")
 
-        db_images = []
+        db_images =[]
         if msg.get("images"):
             for img_bytes in msg["images"]:
                 if img_bytes:
@@ -255,7 +254,8 @@ def save_chat_history():
             "role": str(role), "content": content_str,
             "is_greeting": bool(msg.get("is_greeting", False)),
             "is_downloadable": bool(msg.get("is_downloadable", False)),
-            "db_images": db_images
+            "db_images": db_images,
+            "image_models": msg.get("image_models",[])
         })
 
     data = {
@@ -280,10 +280,12 @@ except Exception as e: st.error(f"🚨 Failed to initialize Gemini Client: {e}")
 # GLOBAL VISUAL GENERATOR
 # -----------------------------
 def process_visual_wrapper(vp):
+    """
+    Returns a tuple: (image_bytes, model_name)
+    """
     try:
         v_type, v_data = vp
         if v_type == "IMAGE_GEN":
-            # Graceful degradation fallback chain
             models_to_try =[
                 'gemini-3-pro-image-preview',
                 'gemini-3.1-flash-image-preview',
@@ -302,12 +304,11 @@ def process_visual_wrapper(vp):
                         )
                     )
                     if result.generated_images:
-                        return result.generated_images[0].image.image_bytes
+                        return (result.generated_images[0].image.image_bytes, model_name)
                 except Exception as e:
                     print(f"Image gen error with {model_name}: {e}")
-                    continue # Catch error and fall back to the next model
+                    continue 
             
-            # If all fail:
             return None
 
         elif v_type == "PIE_CHART":
@@ -327,7 +328,7 @@ def process_visual_wrapper(vp):
                 ax.axis("equal")
                 buf = BytesIO()
                 fig.savefig(buf, format="png", bbox_inches="tight", transparent=True)
-                return buf.getvalue()
+                return (buf.getvalue(), "matplotlib")
             except Exception: return None
     except Exception: return None
 
@@ -404,7 +405,7 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     for raw in cleaned_lines:
         s = raw.strip()
         if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
-            cells = [c.strip() for c in s.split("|")[1:-1]]
+            cells =[c.strip() for c in s.split("|")[1:-1]]
             if all(re.fullmatch(r":?-+:?", c) for c in cells if c): continue
             table_rows.append(cells)
             continue
@@ -459,7 +460,7 @@ def safe_response_text(resp) -> str:
 
 def generate_chat_title(client, messages):
     try:
-        user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
+        user_msgs =[m.get("content", "") for m in messages if m.get("role") == "user"]
         if not user_msgs: return "New Chat"
         prompt = "Summarize this conversation context into a very short, punchy chat title (maximum 4 words). Do not use quotes or punctuation. Context: " + "\n".join(user_msgs[-3:])
         response = client.models.generate_content(
@@ -534,8 +535,7 @@ ADMIN_VERIFICATION_CODE = st.secrets.get("ADMIN_VERIFICATION_CODE")
 
 ADMIN_CSS = """
 <style>
-[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }
-[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
+[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
 .admin-header { background: linear-gradient(135deg, rgba(225,29,72,0.18), rgba(153,0,30,0.12)); border: 1px solid rgba(225,29,72,0.35); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; }
 .admin-title { font-size: 1.9rem; font-weight: 800; background: linear-gradient(90deg, #ff4d6d, #ff8fa3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
 .stat-card { background: rgba(225,29,72,0.08); border: 1px solid rgba(225,29,72,0.2); border-radius: 14px; padding: 18px 20px; text-align: center; margin-bottom: 15px; }
@@ -675,7 +675,7 @@ def render_admin_panel():
     # --- AI DEBUG LAB ---
     elif admin_page == "🧪 AI Debug Lab":
         st.markdown('<div class="section-header">🧪 AI Debug Lab</div>', unsafe_allow_html=True)
-        m_choice = st.selectbox("Model", ["gemini-2.5-flash", "gemini-2.5-pro"])
+        m_choice = st.selectbox("Model",["gemini-2.5-flash", "gemini-2.5-pro"])
         d_prompt = st.text_area("User Prompt")
         if st.button("▶️ Run Prompt"):
             with st.spinner("Running..."):
@@ -700,7 +700,7 @@ if st.session_state.get("current_page") == "admin":
 with st.sidebar:
     st.title("Account Settings")
     
-    raw_admins = st.secrets.get("ADMIN_EMAILS", [])
+    raw_admins = st.secrets.get("ADMIN_EMAILS",[])
     allowed_admins =[email.lower() for email in raw_admins]
     
     if is_authenticated and user_email:
@@ -724,12 +724,11 @@ with st.sidebar:
         role_display = f"\n{user_role.capitalize()}" if user_role not in ["undefined", "guest"] else ""
         st.success(f"Welcome back, {username}!{role_display}")
         
+        # Bug Fix: Streamlit relies on an internal exception (RerunException/StopException) 
+        # to process redirections like `st.logout()`. Catching it in `try...except` swallowed it,
+        # resulting in a blank white screen. 
         if st.button("Log out"):
-            try:
-                st.logout()
-            except Exception:
-                st.session_state.clear()
-                st.rerun()
+            st.logout()
 
         st.divider()
 
@@ -868,7 +867,7 @@ def select_relevant_books(query, file_dict):
     qn = normalize_stage_text(query)
     selected =[]
     is_math = any(k in qn for k in["math", "algebra", "geometry", "calculate", "equation", "number", "fraction"])
-    is_sci = any(k in qn for k in ["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"])
+    is_sci = any(k in qn for k in["science", "cell", "biology", "physics", "chemistry", "experiment", "gravity"])
     is_eng = any(k in qn for k in["english", "poem", "story", "essay", "writing", "grammar", "noun", "verb"])
     
     explicit_stage = infer_stage_from_text(qn)
@@ -927,7 +926,7 @@ if user_role == "teacher":
         
         with st.form("create_class_form", clear_on_submit=True):
             cc1, cc2, cc3 = st.columns([0.4, 0.3, 0.3])
-            with cc1: grade_choice = st.selectbox("Grade", ["Grade 6", "Grade 7", "Grade 8"])
+            with cc1: grade_choice = st.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
             with cc2: section_choice = st.selectbox("Section",["A", "B", "C", "D"])
             with cc3:
                 st.write("")
@@ -949,7 +948,7 @@ if user_role == "teacher":
         my_classes_raw = list(db.collection("classes").where(filter=firestore.FieldFilter("created_by", "==", user_email)).stream())
         
         if my_classes_raw:
-            class_names = [c.id for c in my_classes_raw]
+            class_names =[c.id for c in my_classes_raw]
             sel_class = st.selectbox("Select Class to Add Student", class_names, key="add_student_class_sel")
             
             with st.form("add_student_form", clear_on_submit=True):
@@ -975,7 +974,7 @@ if user_role == "teacher":
             for c in my_classes_raw:
                 cdata = c.to_dict()
                 cname = c.id
-                csubj = cdata.get("subjects", [])
+                csubj = cdata.get("subjects",[])
                 cstuds = cdata.get("students",[])
                 
                 with st.expander(f"🏫 {cname} • {len(cstuds)} Students • {', '.join(csubj) if csubj else 'No subjects'}"):
@@ -1045,7 +1044,7 @@ if user_role == "teacher":
                 if not filtered_students:
                     st.warning("No students match your search/filter.")
                 else:
-                    disp_list = [f"{inf['name']} ({inf['grade']})" for inf in filtered_students.values()]
+                    disp_list =[f"{inf['name']} ({inf['grade']})" for inf in filtered_students.values()]
                     e_list = list(filtered_students.keys())
                     sel_idx = st.selectbox("Select Student", range(len(disp_list)), format_func=lambda i: disp_list[i])
                     
@@ -1158,7 +1157,7 @@ if user_role == "teacher":
         a_col1, a_col2 = st.columns(2)
         with a_col1:
             assign_title = st.text_input("Assignment Title", placeholder="e.g. Chapter 4 Science Quiz")
-            assign_subject = st.selectbox("Subject", ["Math", "Biology", "Chemistry", "Physics", "English"])
+            assign_subject = st.selectbox("Subject",["Math", "Biology", "Chemistry", "Physics", "English"])
             assign_grade = st.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
             assign_stage = GRADE_TO_STAGE[assign_grade] # Map to Stage for AI accuracy
         with a_col2:
@@ -1214,14 +1213,19 @@ if user_role == "teacher":
                     
                     gen_paper = safe_response_text(gen_resp).strip()
                     draft_visual_prompts = re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", gen_paper)
-                    draft_images =[]
+                    draft_images = []
+                    draft_models =[]
+                    
                     if draft_visual_prompts:
                         with st.spinner("Drawing diagrams for the paper..."):
                             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                                draft_images = list(executor.map(process_visual_wrapper, draft_visual_prompts))
+                                gen_results = list(executor.map(process_visual_wrapper, draft_visual_prompts))
+                                draft_images = [res[0] for res in gen_results if res is not None]
+                                draft_models = [res[1] for res in gen_results if res is not None]
                     
                     st.session_state.draft_paper = gen_paper
-                    st.session_state.draft_images = draft_images  # Save images to state
+                    st.session_state.draft_images = draft_images  
+                    st.session_state.draft_models = draft_models  
                     st.session_state.draft_title = assign_title or f"{assign_subject} {assign_grade} Paper"
                     st.session_state.draft_due = str(assign_due)
                     st.rerun()
@@ -1234,10 +1238,11 @@ if user_role == "teacher":
                 st.markdown(display_paper)
                 
                 draft_imgs = st.session_state.get("draft_images",[])
+                draft_mods = st.session_state.get("draft_models", ["Unknown"] * len(draft_imgs))
                 if draft_imgs:
-                    for img_bytes in draft_imgs:
+                    for img_bytes, mod_name in zip(draft_imgs, draft_mods):
                         if img_bytes:
-                            st.image(img_bytes, use_container_width=True, caption="Generated by helix.ai")
+                            st.image(img_bytes, use_container_width=True, caption=f"Generated by helix.ai ({mod_name})")
 
                 try:
                     pdf_buf = create_pdf(st.session_state.draft_paper, images=draft_imgs)
@@ -1269,7 +1274,7 @@ if user_role == "teacher":
             else:
                 if not roster: st.warning("No students in your roster.")
                 else:
-                    target_email = st.selectbox("Select Student:", [s.id for s in roster], format_func=lambda e: db.collection("users").document(e).get().to_dict().get("display_name", e.split("@")[0]))
+                    target_email = st.selectbox("Select Student:",[s.id for s in roster], format_func=lambda e: db.collection("users").document(e).get().to_dict().get("display_name", e.split("@")[0]))
                     if st.button(f"🚀 Push to Student", use_container_width=True, type="primary"):
                         db.collection("users").document(target_email).collection("assignments").add({"title": st.session_state["draft_title"], "content": st.session_state["draft_paper"], "assigned_by": user_email, "assigned_at": time.time(), "due_date": st.session_state["draft_due"], "status": "pending", "class": "Individual"})
                         st.success("✅ Pushed!"); del st.session_state["draft_paper"]; time.sleep(1); st.rerun()
@@ -1460,7 +1465,7 @@ Chapter 7 • Testing your skills
 
     ### RULE 5: VISUAL SYNTAX (STRICT)
     - For diagrams: IMAGE_GEN: [Detailed description of the image, educational, white background]
-    - For pie charts: PIE_CHART: [Label1:Value1, Label2:Value2]
+    - For pie charts: PIE_CHART:[Label1:Value1, Label2:Value2]
 
     ### RULE 6: MARK SCHEME
     - Put "## Mark Scheme" at the very bottom. No citations inside mark scheme.
@@ -1519,22 +1524,26 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
             display_content = (message.get("content") or "").replace("[PDF_READY]", "").strip()
             st.markdown(display_content)
 
+            # Updated image rendering to display the specific generation model
             if message.get("images"):
-                for img_bytes in message["images"]:
-                    if img_bytes: st.image(img_bytes, use_container_width=True, output_format="PNG", caption="✨ Generated by helix.ai")
+                models = message.get("image_models", ["Unknown"] * len(message["images"]))
+                for img_bytes, mod_name in zip(message["images"], models):
+                    if img_bytes: 
+                        st.image(img_bytes, use_container_width=True, output_format="PNG", caption=f"✨ Generated by helix.ai ({mod_name})")
+            
             elif message.get("db_images"):
-                for b64_str in message["db_images"]:
+                models = message.get("image_models", ["Unknown"] * len(message["db_images"]))
+                for b64_str, mod_name in zip(message["db_images"], models):
                     if b64_str:
                         try:
                             img_bytes = base64.b64decode(b64_str)
-                            st.image(img_bytes, use_container_width=True, output_format="JPEG", caption="✨ Generated by helix.ai")
+                            st.image(img_bytes, use_container_width=True, output_format="JPEG", caption=f"✨ Generated by helix.ai ({mod_name})")
                         except Exception: pass
 
             if message.get("user_attachment_bytes"):
                 mime = message.get("user_attachment_mime", "")
                 name = message.get("user_attachment_name", "File")
                 if "image" in mime: 
-                    # Fixed rendering size to fix blurriness issue
                     st.image(message["user_attachment_bytes"], use_container_width=True)
                 elif "pdf" in mime: 
                     st.caption(f"📄 *Attached PDF Document: {name}*")
@@ -1593,7 +1602,6 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
         with st.chat_message("user"):
             st.markdown(prompt)
             if file_bytes:
-                # Fixed rendering size inside chat preview
                 if "image" in (file_mime or ""): st.image(file_bytes, use_container_width=True)
                 elif "pdf" in (file_mime or ""): st.caption(f"📄 *Attached: {file_name}*")
                 elif "text/plain" in (file_mime or "") or (file_name or "").endswith(".txt"): st.caption(f"📝 *Attached: {file_name}*")
@@ -1722,43 +1730,9 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
                 thinking_placeholder.empty()
 
                 visual_prompts = re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", bot_text)
-                generated_images =[]
+                generated_images = []
+                generated_models =[]
 
                 if visual_prompts:
                     img_thinking = st.empty()
-                    img_thinking.markdown("""<div class="thinking-container"><span class="thinking-text">🖌️ Processing diagrams & charts...</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div></div>""", unsafe_allow_html=True)
-                    
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                        generated_images = list(executor.map(process_visual_wrapper, visual_prompts))
-                    
-                    img_thinking.empty()
-                    for img in generated_images:
-                        if img is None: bot_text += "\n\n⚠️ *Helix tried to draw a diagram here, but the image generator is currently overloaded. Please try again later.*"
-
-                is_downloadable = ("[PDF_READY]" in bot_text or ("## Mark Scheme" in bot_text and re.search(r"\[\d+\]", bot_text) is not None))
-
-                bot_msg = {"role": "assistant", "content": bot_text, "is_downloadable": is_downloadable, "images": generated_images}
-                st.session_state.messages.append(bot_msg)
-
-                if is_authenticated:
-                    user_msg_count = sum(1 for m in st.session_state.messages if m.get("role") == "user")
-                    if user_msg_count == 1:
-                        coll_ref = get_threads_collection()
-                        if coll_ref and st.session_state.current_thread_id:
-                            thread_doc = coll_ref.document(st.session_state.current_thread_id).get()
-                            user_edited = thread_doc.to_dict().get("user_edited_title", False) if thread_doc.exists else False
-                            if not user_edited:
-                                new_title = generate_chat_title(client, st.session_state.messages)
-                                if new_title and new_title != "New Chat":
-                                    coll_ref.document(st.session_state.current_thread_id).set({"title": new_title}, merge=True)
-
-                save_chat_history()
-                st.rerun()
-
-            except Exception as e:
-                thinking_placeholder.empty()
-                st.error(f"Helix Error: {e}")
-            finally:
-                try:
-                    if "temp_pdf_path" in locals() and temp_pdf_path and os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
-                except Exception: pass
+                    img_thinking.markdown("""<div class="thinking-container"><span class="thinking-text">🖌️ Processing diagrams & charts...</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div clas
