@@ -298,7 +298,6 @@ def process_visual_wrapper(vp):
             for model_name in models_to_try:
                 try:
                     if "imagen" in model_name.lower():
-                        # Standard Imagen API Call
                         result = client.models.generate_images(
                             model=model_name,
                             prompt=v_data,
@@ -312,7 +311,6 @@ def process_visual_wrapper(vp):
                         else:
                             error_logs.append(f"{model_name}: Call succeeded but returned empty images list.")
                     else:
-                        # Gemini Native Image Generation via generate_content
                         enhanced_prompt = f"{v_data}\n\n(Important: Generate a 1k resolution image with a 4:3 aspect ratio.)"
                         
                         result = client.models.generate_content(
@@ -328,7 +326,6 @@ def process_visual_wrapper(vp):
                                     return (part.inline_data.data, model_name, error_logs)
                         error_logs.append(f"{model_name}: Call succeeded but returned no inline_data image part.")
                 except Exception as e:
-                    # Capture exact error trace for the UI
                     error_logs.append(f"**{model_name} Error:** {str(e)}")
                     continue 
             
@@ -400,7 +397,7 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     skip_sources = False
     for line in lines:
         stripped = line.strip()
-        if "[PDF_READY]" in stripped: continue
+        if "[PDF_READY]" in stripped.upper(): continue
         if stripped.startswith("Source(s):") or stripped.startswith("**Source(s):**"):
             skip_sources = True
             continue
@@ -494,7 +491,7 @@ def generate_chat_title(client, messages):
         if not user_msgs: return "New Chat"
         prompt = "Summarize this conversation context into a very short, punchy chat title (maximum 4 words). Do not use quotes or punctuation. Context: " + "\n".join(user_msgs[-3:])
         response = client.models.generate_content(
-            model="gemini-2.5-flash", contents=[prompt],
+            model="gemini-2.5-flash-lite", contents=[prompt],
             config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=50),
         )
         title = safe_response_text(response).strip().replace('"', '').replace("'", "")
@@ -705,7 +702,13 @@ def render_admin_panel():
     # --- AI DEBUG LAB ---
     elif admin_page == "🧪 AI Debug Lab":
         st.markdown('<div class="section-header">🧪 AI Debug Lab</div>', unsafe_allow_html=True)
-        m_choice = st.selectbox("Model",["gemini-2.5-flash", "gemini-2.5-pro"])
+        m_choice = st.selectbox("Model",[
+            "gemini-3.1-flash-lite-preview",
+            "gemini-2.5-flash",
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview",
+            "gemini-2.5-flash-lite"
+        ])
         d_prompt = st.text_area("User Prompt")
         if st.button("▶️ Run Prompt"):
             with st.spinner("Running..."):
@@ -751,7 +754,6 @@ with st.sidebar:
         role_display = f"\n{user_role.capitalize()}" if user_role not in["undefined", "guest"] else ""
         st.success(f"Welcome back, {username}!{role_display}")
         
-        # Pure Logout - Restored without try/except logic
         if st.button("Log out", use_container_width=True):
             st.logout()
 
@@ -1125,7 +1127,7 @@ if user_role == "teacher":
                             recent_w.add(f"**{doc_subject} ({ch_display}):** {wp}")
                             
                         qa = data.get("question_asked")
-                        if qa and str(qa).lower() not in["none", "null", ""]:
+                        if qa and str(qa).lower() not in ["none", "null", ""]:
                             recent_q.append(qa)
 
                     health = int(total_score / score_count) if score_count > 0 else 0
@@ -1176,7 +1178,7 @@ if user_role == "teacher":
 
 
     # ── MENU 3: ASSIGN PAPERS
-    elif teacher_menu == "📝 Assign Papers":
+    elif teacher_menu == "Assign Papers":
         st.subheader("📝 Assignment Creator")
         st.markdown("#### Step 1: Configure Paper")
         a_col1, a_col2 = st.columns(2)
@@ -1222,12 +1224,12 @@ if user_role == "teacher":
                         f"for {assign_stage} ({assign_grade}) students. \n"
                         f"Difficulty: {assign_difficulty}. Total marks: {assign_marks}. \n"
                         f"Instructions: {assign_extra if assign_extra else 'None'}. \n"
-                        f"Do NOT invent topics outside this syllabus. Append[PDF_READY] at the end."
+                        f"Do NOT invent topics outside this syllabus. Append [PDF_READY] at the end."
                     )
                     paper_contents.append(types.Part.from_text(text=gen_prompt))
 
                     gen_resp = client.models.generate_content(
-                        model="gemini-2.5-pro",
+                        model="gemini-3.1-flash-lite-preview",
                         contents=paper_contents,
                         config=types.GenerateContentConfig(
                             system_instruction=PAPER_SYSTEM, 
@@ -1267,7 +1269,7 @@ if user_role == "teacher":
 
         if st.session_state.get("draft_paper"):
             with st.expander("📝 Preview Paper", expanded=True):
-                display_paper = st.session_state.draft_paper.replace("[PDF_READY]", "").strip()
+                display_paper = re.sub(r"\[PDF_READY\]", "", st.session_state.draft_paper, flags=re.IGNORECASE).strip()
                 st.markdown(display_paper)
                 
                 draft_imgs = st.session_state.get("draft_images",[])
@@ -1288,7 +1290,7 @@ if user_role == "teacher":
                         key="teacher_draft_download_btn"
                     )
                 except Exception as e:
-                    st.error(f"Failed to generate PDF: {e}")
+                    st.error(f"⚠️ Failed to generate PDF: {e}")
 
 
             st.divider()
@@ -1315,7 +1317,7 @@ if user_role == "teacher":
             if st.button("🗑️ Discard Draft", use_container_width=True): del st.session_state["draft_paper"]; st.rerun()
 
     # ── MENU 4: AI CHAT
-    elif teacher_menu == "💬 AI Chat":
+    elif teacher_menu == "AI Chat":
         st.info("💡 You are chatting with Helix as a Teacher. History is saved to your sidebar.")
         render_chat_interface = True 
 
@@ -1554,7 +1556,7 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
 
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            display_content = (message.get("content") or "").replace("[PDF_READY]", "").strip()
+            display_content = re.sub(r"\[PDF_READY\]", "", message.get("content") or "", flags=re.IGNORECASE).strip()
             st.markdown(display_content)
 
             if message.get("images"):
@@ -1606,8 +1608,8 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
                         mime="application/pdf",
                         key=f"download_{st.session_state.current_thread_id}_{idx}"
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.error(f"⚠️ PDF Generation Error: {e}")
 
 
     chat_input_data = st.chat_input("Ask Helix... (Click the paperclip to upload a file!)", accept_file=True, file_type=["jpg", "jpeg", "png", "webp", "avif", "svg", "pdf", "txt"])
@@ -1732,7 +1734,7 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
                 full_contents = history_contents + [current_content]
 
                 text_response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.1-flash-lite-preview",
                     contents=full_contents,
                     config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.3, tools=[{"google_search": {}}]),
                 )
@@ -1787,7 +1789,7 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
 
                     img_thinking.empty()
 
-                is_downloadable = ("[PDF_READY]" in bot_text or ("## Mark Scheme" in bot_text and re.search(r"\[\d+\]", bot_text) is not None))
+                is_downloadable = bool(re.search(r"\[PDF_READY\]", bot_text, re.IGNORECASE) or (re.search(r"##\s*Mark Scheme", bot_text, re.IGNORECASE) and re.search(r"\[\d+\]", bot_text)))
 
                 bot_msg = {
                     "role": "assistant", 
