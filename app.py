@@ -1444,7 +1444,7 @@ if render_chat_interface:
     - When you are asked to create a question paper, the assignment title must be the TITLE of the paper. You should not use any other made-up name for the title. Do not hallucinate while creating the name of the paper. Do not mention the SCHOOL name either. Just mention the grade and the chapter this test is made for .
     - PDF TRIGGER: If, and ONLY IF, you generated a full formal question paper, append [PDF_READY] at the very end.
     - SYLLABUS STRICTNESS: When generating a question paper, every single question MUST be sourced directly from the attached textbook context. If the user asks for "Chapter n", find Chapter n in the text and only use topics from that chapter.
-
+    - ENGLISH PAPERS: There are 2 papers, formal and informal. Make both if not specified. There must be at least 15 questions per paper, and a paper is 40M for grade 7 and below, 50m for grade 8. Each question must have at least 2 or more bits. The grammar must be related to the text. Each reading comprehension text must be 450+ words. Also add things like poem comprehension, and more if the syllabus includes it (200 words max). It should be detailed and big, kinda hard.
 
     ### RULE 4: English, Grade 8/Stage 9:
     I could not find the book for stage 9/grade 8, so here is the syllabus:
@@ -1799,7 +1799,7 @@ The books are labeled as Stage 7, but Stage 7 correlates to grade 6. Stage 8 cor
                 full_contents = history_contents + [current_content]
 
                 text_response = client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
+                    model="gemini-2.5-pro",
                     contents=full_contents,
                     config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.3, tools=[{"google_search": {}}]),
                 )
