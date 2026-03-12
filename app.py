@@ -47,8 +47,7 @@ st.markdown("""
 .thinking-dot { width: 6px; height: 6px; border-radius: 50%; background-color: #fc8404; animation: thinking-pulse 1.4s infinite; }
 .thinking-dot:nth-child(2){ animation-delay: 0.2s; }
 .thinking-dot:nth-child(3){ animation-delay: 0.4s; }
-@keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1.2); } }
-[data-testid="stFileUploaderDropzone"] { z-index: -1 !important; }
+@keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1.2); } }[data-testid="stFileUploaderDropzone"] { z-index: -1 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -58,7 +57,7 @@ if "SCHOOL_CODES" in st.secrets:
 else:
     SCHOOL_CODES = {}
 
-# SYLLABUS TEXT (Extracted to keep prompts clean)
+# SYLLABUS TEXT
 ENGLISH_SYLLABUS_G8 = """
 Chapter 1: Writing to explore and reflect (Travel writing, register, tone)
 Chapter 2: Writing to inform and explain (Formal/informal, encyclopedia entries)
@@ -90,7 +89,6 @@ IMPORTANT: ALWAYS check the book when creating questions to ensure syllabus alig
 - Title: Use the requested assignment title as the EXACT title. Do not hallucinate school names.
 - PDF TRIGGER: If you generate a full formal question paper, append [PDF_READY] at the very end.
 - ENGLISH PAPERS: Generate both formal and informal papers if not specified. Minimum 15 questions per paper. 40M for grade 7/below, 50M for grade 8. Include grammar related to text, 750+ word reading comprehensions, poem comprehensions (max 200 words), and 2 mandatory writing tasks. 
-- ALL PAPERS: 15 QUESTIONS PER PAPER (40M), 30Qs for a 80M paper.
 
 ### RULE 4: English, Grade 8/Stage 9 Syllabus:
 {ENGLISH_SYLLABUS_G8}
@@ -111,7 +109,7 @@ At the VERY END of your response (hidden), output a JSON block EXACTLY like this
 Stage 7 = Grade 6 | Stage 8 = Grade 7 | Stage 9 = Grade 8.
 """
 
-PAPER_SYSTEM = SYSTEM_INSTRUCTION  # They use the exact same constraints for generation
+PAPER_SYSTEM = SYSTEM_INSTRUCTION
 
 # -----------------------------
 # 1.5) GRADE <-> STAGE MAPPING
@@ -265,7 +263,7 @@ def save_chat_history():
 
         safe_messages.append({
             "role": str(role), "content": content_str, "is_greeting": bool(msg.get("is_greeting", False)),
-            "is_downloadable": bool(msg.get("is_downloadable", False)), "db_images": [i for i in db_images if i],
+            "is_downloadable": bool(msg.get("is_downloadable", False)), "db_images":[i for i in db_images if i],
             "image_models": msg.get("image_models",[])
         })
 
@@ -346,7 +344,7 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     
     for s in lines:
         if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
-            cells = [c.strip() for c in s.split("|")[1:-1]]
+            cells =[c.strip() for c in s.split("|")[1:-1]]
             if not all(re.fullmatch(r":?-+:?", c) for c in cells if c): table_rows.append(cells)
             continue
         render_pending_table()
@@ -422,34 +420,135 @@ def chat_settings_dialog(thread_data):
 # =====================================================================
 ADMIN_VERIFICATION_CODE = st.secrets.get("ADMIN_VERIFICATION_CODE")
 
+ADMIN_CSS = """
+<style>[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }
+[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
+.admin-header { background: linear-gradient(135deg, rgba(225,29,72,0.18), rgba(153,0,30,0.12)); border: 1px solid rgba(225,29,72,0.35); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; }
+.admin-title { font-size: 1.9rem; font-weight: 800; background: linear-gradient(90deg, #ff4d6d, #ff8fa3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
+.stat-card { background: rgba(225,29,72,0.08); border: 1px solid rgba(225,29,72,0.2); border-radius: 14px; padding: 18px 20px; text-align: center; margin-bottom: 15px; }
+.stat-number { font-size: 2.2rem; font-weight: 800; color: #ff4d6d; }
+.stat-label { font-size: 0.78rem; color: rgba(255,150,160,0.6); text-transform: uppercase; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 20px; color: white; }
+.admin-table th { background: rgba(225,29,72,0.15); color: #ff8fa3; padding: 10px; text-align: left; border-bottom: 2px solid rgba(225,29,72,0.3); }
+.admin-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: rgba(255,200,205,0.85); }
+.section-header { font-size: 1.1rem; font-weight: 700; color: #ff6b81; border-left: 3px solid #e11d48; padding-left: 12px; margin: 20px 0 14px; }
+.admin-login-box { max-width: 420px; margin: 80px auto; background: rgba(225,29,72,0.07); border: 1px solid rgba(225,29,72,0.25); border-radius: 20px; padding: 40px 36px; text-align: center; }
+</style>
+"""
+
 def render_admin_panel():
+    st.markdown(ADMIN_CSS, unsafe_allow_html=True)
+    
     if not is_authenticated or auth_object.email not in st.secrets.get("ADMIN_EMAILS",[]):
         st.error("Unauthorized."); st.button("Return Home", on_click=lambda: st.session_state.update(current_page="chat")); return
 
     if not st.session_state.get("admin_authenticated"):
+        st.markdown(f'<div class="admin-login-box"><h2 style="color:#ff4d6d;margin-bottom:6px;">🔐 Admin Access</h2><p style="color:rgba(255,150,160,0.6);font-size:0.85rem;">Welcome {auth_object.email}.</p></div>', unsafe_allow_html=True)
         with st.form("admin_login"):
             if st.form_submit_button("🔓 Access Admin") and st.text_input("Code", type="password") == ADMIN_VERIFICATION_CODE:
                 st.session_state.update(admin_authenticated=True, admin_email=auth_object.email); st.rerun()
         return
 
+    st.markdown(f'<div class="admin-header"><div class="admin-title">⚙️ Helix Admin Console</div><div style="color:rgba(255,150,160,0.6);font-size:0.85rem;margin-top:4px;">Logged in as {auth_object.email}</div></div>', unsafe_allow_html=True)
+
     admin_school_filter = "All Schools"
     with st.sidebar:
-        admin_page = st.radio("Navigation",["📊 Dashboard", "🎓 Students", "👩‍🏫 Teachers", "🏫 Classes", "🧪 AI Debug Lab"])
+        st.markdown("<b style='color:#ff4d6d'>ADMIN NAVIGATION</b>", unsafe_allow_html=True)
+        admin_page = st.radio("Navigation",["📊 Dashboard", "🎓 Students", "👩‍🏫 Teachers", "🏫 Classes", "🧪 AI Debug Lab"], label_visibility="collapsed")
+        
+        st.markdown("---")
+        st.markdown("<b style='color:#ff4d6d'>🏫 SCHOOL FILTER</b>", unsafe_allow_html=True)
         all_schools = sorted(list(set([u.to_dict().get("school") for u in db.collection("users").where(filter=firestore.FieldFilter("role", "==", "teacher")).stream() if u.to_dict().get("school")]).union(SCHOOL_CODES.values())))
-        admin_school_filter = st.selectbox("School Filter", ["All Schools"] + all_schools)
+        admin_school_filter = st.selectbox("School Filter", ["All Schools"] + all_schools, label_visibility="collapsed")
+        
+        st.markdown("---")
         if st.button("🚪 Exit Admin", use_container_width=True): st.session_state.update(admin_authenticated=False, current_page="chat"); st.rerun()
 
     if admin_page == "📊 Dashboard":
-        st.subheader(f"System Overview ({admin_school_filter})")
+        st.markdown(f'<div class="section-header">📊 System Overview ({admin_school_filter})</div>', unsafe_allow_html=True)
         u_query = db.collection("users").stream() if admin_school_filter == "All Schools" else db.collection("users").where(filter=firestore.FieldFilter("school", "==", admin_school_filter)).stream()
         users =[u.to_dict() for u in u_query]
         c1, c2, c3 = st.columns(3)
-        c1.metric("Students", sum(1 for u in users if u.get("role") == "student"))
-        c2.metric("Teachers", sum(1 for u in users if u.get("role") == "teacher"))
-        c3.metric("Classes", len(list(db.collection("classes").stream() if admin_school_filter == "All Schools" else db.collection("classes").where(filter=firestore.FieldFilter("school", "==", admin_school_filter)).stream())))
+        c1.markdown(f'<div class="stat-card"><div class="stat-number">{sum(1 for u in users if u.get("role") == "student")}</div><div class="stat-label">Students</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="stat-card"><div class="stat-number">{sum(1 for u in users if u.get("role") == "teacher")}</div><div class="stat-label">Teachers</div></div>', unsafe_allow_html=True)
+        
+        classes_count = len(list(db.collection("classes").stream() if admin_school_filter == "All Schools" else db.collection("classes").where(filter=firestore.FieldFilter("school", "==", admin_school_filter)).stream()))
+        c3.markdown(f'<div class="stat-card"><div class="stat-number">{classes_count}</div><div class="stat-label">Classes</div></div>', unsafe_allow_html=True)
+
+    elif admin_page == "🎓 Students":
+        st.markdown(f'<div class="section-header">🎓 Manage Students ({admin_school_filter})</div>', unsafe_allow_html=True)
+        try:
+            if admin_school_filter == "All Schools":
+                students =[{"id": d.id, **d.to_dict()} for d in db.collection("users").where(filter=firestore.FieldFilter("role", "==", "student")).stream()]
+            else:
+                school_users = db.collection("users").where(filter=firestore.FieldFilter("school", "==", admin_school_filter)).stream()
+                students =[{"id": d.id, **d.to_dict()} for d in school_users if d.to_dict().get("role") == "student"]
+            
+            if students:
+                rows = "".join(f"<tr><td>{s.get('display_name','—')}</td><td>{s.get('school','—')}</td><td>{s.get('grade','—')}</td><td><code>{s['id']}</code></td></tr>" for s in students)
+                st.markdown(f'<table class="admin-table"><thead><tr><th>Name</th><th>School</th><th>Grade</th><th>Doc ID (Email)</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+            else:
+                st.info("No students registered for this filter.")
+        except Exception as e: st.error(str(e))
+        
+        st.markdown('<div class="section-header">🗑️ Delete Student</div>', unsafe_allow_html=True)
+        del_id = st.text_input("Enter Student Document ID or Email to Delete")
+        cascade = st.checkbox("Also delete their chat threads and analytics history", value=True)
+        if st.button("🗑️ Permanently Delete Student", type="primary"):
+            if del_id:
+                try:
+                    db.collection("users").document(del_id).delete()
+                    if cascade:
+                        for t in db.collection("users").document(del_id).collection("threads").stream(): t.reference.delete()
+                        for a in db.collection("users").document(del_id).collection("analytics").stream(): a.reference.delete()
+                    st.success(f"Deleted student {del_id}")
+                except Exception as e: st.error(str(e))
+
+    elif admin_page == "👩‍🏫 Teachers":
+        st.markdown(f'<div class="section-header">👩‍🏫 Manage Teachers ({admin_school_filter})</div>', unsafe_allow_html=True)
+        try:
+            if admin_school_filter == "All Schools":
+                teachers =[{"id": d.id, **d.to_dict()} for d in db.collection("users").where(filter=firestore.FieldFilter("role", "==", "teacher")).stream()]
+            else:
+                school_users = db.collection("users").where(filter=firestore.FieldFilter("school", "==", admin_school_filter)).stream()
+                teachers =[{"id": d.id, **d.to_dict()} for d in school_users if d.to_dict().get("role") == "teacher"]
+
+            if teachers:
+                rows = "".join(f"<tr><td>{t.get('display_name','—')}</td><td>{t.get('school','—')}</td><td><code>{t['id']}</code></td></tr>" for t in teachers)
+                st.markdown(f'<table class="admin-table"><thead><tr><th>Name</th><th>School</th><th>Doc ID (Email)</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+            else:
+                st.info("No teachers registered for this filter.")
+        except Exception as e: st.error(str(e))
+        
+        st.markdown('<div class="section-header">🗑️ Delete Teacher</div>', unsafe_allow_html=True)
+        del_t = st.text_input("Teacher Doc ID to delete")
+        if st.button("Delete Teacher", type="primary") and del_t:
+            db.collection("users").document(del_t).delete()
+            st.success("Deleted")
+
+    elif admin_page == "🏫 Classes":
+        st.markdown(f'<div class="section-header">🏫 Manage Classes ({admin_school_filter})</div>', unsafe_allow_html=True)
+        try:
+            if admin_school_filter == "All Schools":
+                classes =[{"id": d.id, **d.to_dict()} for d in db.collection("classes").stream()]
+            else:
+                classes =[{"id": d.id, **d.to_dict()} for d in db.collection("classes").where(filter=firestore.FieldFilter("school", "==", admin_school_filter)).stream()]
+
+            if classes:
+                rows = "".join(f"<tr><td>{c.get('name', c['id'])}</td><td>{c.get('school','—')}</td><td>{c.get('grade','—')}</td><td><code>{c['id']}</code></td></tr>" for c in classes)
+                st.markdown(f'<table class="admin-table"><thead><tr><th>Name/ID</th><th>School</th><th>Grade</th><th>Doc ID</th></tr></thead><tbody>{rows}</tbody></table>', unsafe_allow_html=True)
+            else:
+                st.info("No classes created for this filter.")
+        except Exception as e: st.error(str(e))
+        
+        st.markdown('<div class="section-header">🗑️ Delete Class</div>', unsafe_allow_html=True)
+        del_c = st.text_input("Class Doc ID to delete")
+        if st.button("Delete Class", type="primary") and del_c:
+            db.collection("classes").document(del_c).delete()
+            st.success("Deleted")
 
     elif admin_page == "🧪 AI Debug Lab":
-        st.subheader("🧪 AI Debug Lab")
+        st.markdown('<div class="section-header">🧪 AI Debug Lab</div>', unsafe_allow_html=True)
         m_choice = st.selectbox("Model",["gemini-3.1-flash-lite-preview", "gemini-2.5-flash", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-2.5-flash-lite"])
         d_prompt = st.text_area("Prompt")
         if st.button("▶️ Run"):
@@ -646,7 +745,7 @@ if render_chat_interface:
             st.markdown(re.sub(r"\[PDF_READY\]|\[ANALYTICS:.*?\]", "", msg.get("content") or "", flags=re.IGNORECASE|re.DOTALL).strip())
             for img, mod in zip(msg.get("images") or[], msg.get("image_models", ["Unknown"]*10)):
                 if img: st.image(img, use_container_width=True, caption=f"✨ Generated by helix.ai ({mod})")
-            for b64, mod in zip(msg.get("db_images") or [], msg.get("image_models", ["Unknown"]*10)):
+            for b64, mod in zip(msg.get("db_images") or [], msg.get("image_models",["Unknown"]*10)):
                 if b64:
                     try: st.image(base64.b64decode(b64), use_container_width=True, caption=f"✨ Generated by helix.ai ({mod})")
                     except: pass
@@ -724,7 +823,7 @@ if render_chat_interface:
                 think.empty()
                 
                 # Images Extraction
-                imgs, mods = [],[]
+                imgs, mods =[],[]
                 if v_prompts := re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", bot_txt):
                     with concurrent.futures.ThreadPoolExecutor(5) as exe:
                         for r in exe.map(process_visual_wrapper, v_prompts):
