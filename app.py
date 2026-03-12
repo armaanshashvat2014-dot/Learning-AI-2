@@ -90,6 +90,7 @@ IMPORTANT: ALWAYS check the book when creating questions to ensure syllabus alig
 - Title: Use the requested assignment title as the EXACT title. Do not hallucinate school names.
 - PDF TRIGGER: If you generate a full formal question paper, append [PDF_READY] at the very end.
 - ENGLISH PAPERS: Generate both formal and informal papers if not specified. Minimum 15 questions per paper. 40M for grade 7/below, 50M for grade 8. Include grammar related to text, 750+ word reading comprehensions, poem comprehensions (max 200 words), and 2 mandatory writing tasks. 
+- ALL PAPERS: 15 QUESTIONS PER PAPER (40M), 30Qs for a 80M paper.
 
 ### RULE 4: English, Grade 8/Stage 9 Syllabus:
 {ENGLISH_SYLLABUS_G8}
