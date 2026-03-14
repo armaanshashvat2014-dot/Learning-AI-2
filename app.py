@@ -34,13 +34,15 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 # -----------------------------
 # 1) GLOBAL CONSTANTS & PROMPTS
 # -----------------------------
-st.set_page_config(page_title="helix.ai", page_icon="📚", layout="centered")
+st.set_page_config(page_title="helix.ai - Cambridge (CIE) Tutor", page_icon="📚", layout="centered")
 
 st.markdown("""
 <style>
 .stApp { background: radial-gradient(800px circle at 50% 0%, rgba(0, 212, 255, 0.08), rgba(0, 212, 255, 0.00) 60%), var(--background-color); color: var(--text-color); }
 .big-title { font-family: 'Inter', sans-serif; color: #00d4ff; text-align: center; font-size: 48px; font-weight: 1200; letter-spacing: -3px; margin-bottom: 0px; text-shadow: 0 0 6px rgba(0, 212, 255, 0.55); }
-.subtitle { text-align: center; opacity: 0.60; font-size: 18px; margin-bottom: 30px; }
+
+/* SEO-Friendly Native Text Styling */[data-testid="stText"] { font-family: inherit !important; white-space: normal !important; text-align: center; opacity: 0.60; font-size: 18px; margin-bottom: 30px; }
+
 .thinking-container { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background-color: var(--secondary-background-color); border-radius: 8px; margin: 10px 0; border-left: 3px solid #fc8404; }
 .thinking-text { color: #fc8404; font-size: 14px; font-weight: 600; }
 .thinking-dots { display: flex; gap: 4px; }
@@ -58,7 +60,7 @@ else:
     SCHOOL_CODES = {}
 
 # SYLLABUS TEXT (Extracted to keep prompts clean)
-ENGLISH_SYLLABUS_G8/S9 = """
+ENGLISH_SYLLABUS_G8 = """
 Chapter 1: Writing to explore and reflect (Travel writing, register, tone)
 Chapter 2: Writing to inform and explain (Formal/informal, encyclopedia entries)
 Chapter 3: Writing to argue and persuade (Persuasive techniques, essays)
@@ -91,11 +93,11 @@ IMPORTANT: ALWAYS check the book when creating questions to ensure syllabus alig
 - Visuals: Use IMAGE_GEN for diagrams, PIE_CHART for pie charts. Ask for labels if relevant.
 - NUMBERING: Clean numbering 1., 2., 3. with sub-questions (a), (b), (c). Put marks at the end of the line like "... [3]".
 - Title: Use the requested assignment title as the EXACT title. Do not hallucinate school names.
-- PDF TRIGGER: If you generate a full formal question paper, append [PDF_READY] at the very end
+- PDF TRIGGER: If you generate a full formal question paper, append[PDF_READY] at the very end
 - ENGLISH PAPERS: Generate informal paper if not specified. Minimum 15 questions per paper. 40M for grade 7/below, 50M for grade 8. Include grammar related to text, 750+ word reading comprehensions, poem comprehensions (max 200 words), and 2 mandatory writing tasks from the book (Articles, Summaries, Review Writings, etc for Formal. Letter, Narrative, Descriptive Writings, etc for Informal). 
 
 ### RULE 4: English, Grade 8/Stage 9 Syllabus:
-{ENGLISH_SYLLABUS_G8/S9}
+{ENGLISH_SYLLABUS_G8}
 
 ### RULE 5: VISUAL SYNTAX (STRICT)
 - For diagrams: IMAGE_GEN:[Detailed description of the image, educational, white background]
@@ -171,7 +173,6 @@ db = get_firestore_client()
 def get_student_class_data(student_email):
     if not db: return None
     for c in db.collection("classes").where(filter=firestore.FieldFilter("students", "array_contains", student_email)).limit(1).stream():
-        # Added 'id' to the dictionary so the sidebar can read the class name correctly
         return {"id": c.id, **c.to_dict()}
     return None
 
@@ -346,7 +347,7 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontSize=18, textColor=colors.HexColor("#00d4ff"), spaceAfter=12, alignment=TA_CENTER, fontName="Helvetica-Bold")
     body_style = ParagraphStyle("CustomBody", parent=styles["BodyText"], fontSize=11, spaceAfter=8, alignment=TA_LEFT, fontName="Helvetica")
-    story, img_idx, table_rows =[], 0,[]
+    story, img_idx, table_rows = [], 0,[]
 
     def render_pending_table():
         nonlocal table_rows
@@ -426,7 +427,6 @@ def confirm_delete_chat_dialog(thread_id_to_delete):
 def chat_settings_dialog(thread_data):
     st.caption(f"📚 **Subjects:** {', '.join(thread_data.get('metadata', {}).get('subjects',[])) or 'None'}")
     st.caption(f"🎓 **Grades:** {', '.join(thread_data.get('metadata', {}).get('grades',[])) or 'None'}")
-    # Fix for KeyError: Use .get() with a default fallback
     new_title = st.text_input("Rename Chat", value=thread_data.get("title", "New Chat"))
     if st.button("💾 Save", use_container_width=True):
         get_threads_collection().document(thread_data["id"]).set({"title": new_title, "user_edited_title": True}, merge=True); st.rerun()
@@ -438,23 +438,7 @@ def chat_settings_dialog(thread_data):
 # =====================================================================
 ADMIN_VERIFICATION_CODE = st.secrets.get("ADMIN_VERIFICATION_CODE")
 
-ADMIN_CSS = """
-<style>[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
-.admin-header { background: linear-gradient(135deg, rgba(225,29,72,0.18), rgba(153,0,30,0.12)); border: 1px solid rgba(225,29,72,0.35); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; }
-.admin-title { font-size: 1.9rem; font-weight: 800; background: linear-gradient(90deg, #ff4d6d, #ff8fa3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-.stat-card { background: rgba(225,29,72,0.08); border: 1px solid rgba(225,29,72,0.2); border-radius: 14px; padding: 18px 20px; text-align: center; margin-bottom: 15px; }
-.stat-number { font-size: 2.2rem; font-weight: 800; color: #ff4d6d; }
-.stat-label { font-size: 0.78rem; color: rgba(255,150,160,0.6); text-transform: uppercase; }
-.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 20px; color: white; }
-.admin-table th { background: rgba(225,29,72,0.15); color: #ff8fa3; padding: 10px; text-align: left; border-bottom: 2px solid rgba(225,29,72,0.3); }
-.admin-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: rgba(255,200,205,0.85); }
-.section-header { font-size: 1.1rem; font-weight: 700; color: #ff6b81; border-left: 3px solid #e11d48; padding-left: 12px; margin: 20px 0 14px; }
-.admin-login-box { max-width: 420px; margin: 80px auto; background: rgba(225,29,72,0.07); border: 1px solid rgba(225,29,72,0.25); border-radius: 20px; padding: 40px 36px; text-align: center; }
-</style>
-"""
-
 def render_admin_panel():
-    st.markdown(ADMIN_CSS, unsafe_allow_html=True)
     
     if not is_authenticated or auth_object.email not in st.secrets.get("ADMIN_EMAILS",[]):
         st.error("Unauthorized."); st.button("Return Home", on_click=lambda: st.session_state.update(current_page="chat")); return
@@ -563,7 +547,7 @@ def render_admin_panel():
 
     elif admin_page == "🧪 AI Debug Lab":
         st.markdown('<div class="section-header">🧪 AI Debug Lab</div>', unsafe_allow_html=True)
-        m_choice = st.selectbox("Model",["gemini-3.1-flash-lite-preview", "gemini-2.5-flash", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-3.1-pro"])
+        m_choice = st.selectbox("Model",["gemini-3.1-flash-lite-preview", "gemini-2.5-flash", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-3.1-pro-preview"])
         d_prompt = st.text_area("Prompt")
         if st.button("▶️ Run"):
             with st.spinner("Running..."):
@@ -610,7 +594,6 @@ with st.sidebar:
     if is_authenticated:
         for t in get_all_threads():
             c1, c2 = st.columns([0.85, 0.15], vertical_alignment="center")
-            # Fix for KeyError: Use .get() with a default fallback
             if c1.button(f"{'🟢' if t['id'] == st.session_state.current_thread_id else '💬'} {t.get('title', 'New Chat')}", key=f"btn_{t['id']}", use_container_width=True):
                 st.session_state.current_thread_id = t["id"]; st.session_state.messages = load_chat_history(t["id"]); st.rerun()
             if c2.button("⋮", key=f"set_{t['id']}", use_container_width=True): chat_settings_dialog(t)
@@ -702,6 +685,8 @@ render_chat_interface = False
 
 if user_role == "teacher":
     st.markdown("<div class='big-title' style='color:#fc8404;'>👨‍🏫 helix.ai / Teacher</div>", unsafe_allow_html=True)
+    # Native Streamlit Text overridden via CSS for exact visual matching & SEO optimization
+    st.text("helix.ai Teacher Dashboard: Manage Cambridge (CIE) classes, track student analytics, and generate detailed, multi-step question papers.")
     
     user_school = user_profile.get("school")
     roster =[u for u in db.collection("users").where(filter=firestore.FieldFilter("school", "==", user_school)).stream() if u.to_dict().get("role") == "student"] if user_school else list(db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream())
@@ -775,7 +760,9 @@ if user_role == "teacher":
 
 else:
     render_chat_interface = True
-    st.markdown("<div class='big-title'>📚 helix.ai</div><div class='subtitle'>Your CIE Tutor for Grade 6-8!</div>", unsafe_allow_html=True)
+    st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
+    # Native Streamlit Text overridden via CSS for exact visual matching & SEO optimization
+    st.text("helix.ai: Your AI-powered Cambridge (CIE) Tutor for Grade 6-8. Master Math, Science, and English with deep, interactive learning.")
 
 # ==========================================
 # UNIVERSAL CHAT VIEW 
@@ -791,9 +778,9 @@ if render_chat_interface:
             
             st.markdown(disp)
             
-            for img, mod in zip(msg.get("images") or[], msg.get("image_models", ["Unknown"]*10)):
+            for img, mod in zip(msg.get("images") or[], msg.get("image_models",["Unknown"]*10)):
                 if img: st.image(img, use_container_width=True, caption=f"✨ Generated by helix.ai ({mod})")
-            for b64, mod in zip(msg.get("db_images") or[], msg.get("image_models", ["Unknown"]*10)):
+            for b64, mod in zip(msg.get("db_images") or [], msg.get("image_models", ["Unknown"]*10)):
                 if b64:
                     try: st.image(base64.b64decode(b64), use_container_width=True, caption=f"✨ Generated by helix.ai ({mod})")
                     except: pass
@@ -858,7 +845,7 @@ if render_chat_interface:
                 curr_parts.append(types.Part.from_text(text=f"Please analyze the attached Cambridge textbooks and files. You MUST use the book's facts and terminology.\n\nUser Query: {msg_data.get('content')}"))
                 
                 resp = client.models.generate_content(
-                    model="gemini-2.5-pro",
+                    model="gemini-3.1-flash-lite-preview",
                     contents=valid_history +[types.Content(role="user", parts=curr_parts)],
                     config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.3, tools=[{"google_search": {}}])
                 )
