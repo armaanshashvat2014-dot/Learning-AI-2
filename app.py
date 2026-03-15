@@ -83,20 +83,22 @@ You MUST design questions that are significantly harder than standard textbook d
 - NO VAGUE SHAPES: For any transformation (rotation, reflection, enlargement), you MUST define the shape using exact grid coordinates (e.g., "A triangle has vertices at A(2,2), B(4,2), and C(2,5)").
 - TABLE FORMATTING: You MUST use strict Markdown tables (e.g., `| Col1 | Col2 |`). DO NOT use spaces for alignment.
 
-### RULE 3: GOOD VS. BAD EXAMPLES
+### RULE 3: GOOD VS. BAD EXAMPLES (STYLE GUIDE ONLY)
+***CRITICAL INSTRUCTION: THE EXAMPLES BELOW ARE STRICTLY TO SHOW YOU THE REQUIRED DEPTH AND STRUCTURE. YOU ARE EXPRESSLY FORBIDDEN FROM COPYING THESE EXACT SCENARIOS INTO YOUR GENERATED PAPERS. CREATE 100% UNIQUE QUESTIONS EVERY SINGLE TIME!***
+
 **[MATH]**
-- BAD: "1. Multiplication: Calculate 15 x 40 [1]"
-- GOOD: "1. A theatre sells 26 child tickets and 15 adult tickets on Saturday. On Sunday, they sell 38 child and 21 adult tickets. (a) Draw a dual frequency diagram for this data.[3] (b) If child tickets on Saturday made £143, how much did they make on Sunday? [2]"
-- BAD: "2. Geometry: Rotate the shape 90 degrees. [1]"
-- GOOD: "2. A triangle has vertices at A(2,2), B(4,2), and C(2,5). (a) Draw the triangle on a grid. [1] (b) Rotate the triangle 90 degrees clockwise around the origin (0,0) and draw the new triangle A'B'C'. [2]"
+- BAD: "1. Calculate 15 x 40 [1]"
+- GOOD: "1. A theatre sells 26 child tickets and 15 adult tickets on Saturday. On Sunday... (a) Draw a dual frequency diagram... [3] (b) If child tickets made £143... [2]" (AGAIN, DO NOT COPY THIS THEATRE EXAMPLE).
+- BAD: "2. Rotate the shape 90 degrees. [1]"
+- GOOD: "2. A triangle has vertices at A(2,2), B(4,2), and C(2,5). (a) Draw the triangle on a grid. [1] (b) Rotate the triangle... [2]" (DO NOT COPY THIS TRIANGLE EXAMPLE).
 
 **[SCIENCE]**
 - BAD: "1. What is an acid? [1]"
-- GOOD: "1. Jamila adds 5 cm³ of hydrochloric acid to a sodium hydroxide solution and measures the pH. She continues until she adds 40 cm³. (a) Describe the type of chemical reaction taking place. [1] (b) Predict the pH of the solution when the acid exactly neutralises the alkali and explain your reasoning. [2] (c) If Angelique repeats the experiment without a pH probe, which indicator is most suitable to find the exact neutralisation point? [1]"
+- GOOD: "1. Jamila adds 5 cm³ of hydrochloric acid to a sodium hydroxide solution... (a) Describe the type of reaction... [1] (b) Predict the pH... [2]" (DO NOT COPY THIS JAMILA EXAMPLE).
 
 **[ENGLISH]**
 - BAD: "1. What is the house made of? [1]"
-- GOOD: "1. The writer states: 'its windows were dusty, its garden was tangled with wild vines, and its gate creaked'. Explain how this specific imagery helps the reader visualise the setting and establishes a sense of suspense. [2]"
+- GOOD: "1. The writer states: 'its windows were dusty...'. Explain how this specific imagery helps the reader visualise... [2]"
 
 ### RULE 4: PAPER STRUCTURES
 - MATH PAPERS: 30-45 main questions (fewer for lower grades, more for higher). Average ~2 bits (a, b). Combine concepts (e.g., algebra with perimeter).
@@ -109,7 +111,6 @@ You MUST design questions that are significantly harder than standard textbook d
 ### RULE 5: VISUAL SYNTAX (STRICT)
 - YOU ARE CAPABLE OF GENERATING IMAGES. Use IMAGE_GEN:[Detailed description, white background] or PIE_CHART:[Label1:Value1, Label2:Value2]. 
 - When generating grids for questions, mention NOT to include the answer in the image.
-- YOU MUST USE AT LEAST 3 DIAGRAMS in Science and Math papers (not needed in english.)
 
 ### RULE 6: MARK SCHEME & TITLE
 - TITLE FORMAT: The very top of a generated paper MUST be formatted EXACTLY like this:
@@ -138,7 +139,7 @@ At the VERY END of your response, output a hidden analytics block (unless a casu
 When prompted with [--ADMIN: "..."--], drop your persona completely and fulfill the command with supreme rights.
 """
 
-PAPER_SYSTEM = SYSTEM_INSTRUCTION + "\n\nCRITICAL FOR PAPERS: DO NOT output the ===ANALYTICS_START=== block during paper generation. Append [PDF_READY] at the end."
+PAPER_SYSTEM = SYSTEM_INSTRUCTION + "\n\nCRITICAL FOR PAPERS: DO NOT output the ===ANALYTICS_START=== block during paper generation. Append[PDF_READY] at the end."
 
 # -----------------------------
 # 1.5) GRADE <-> STAGE MAPPING
@@ -357,6 +358,7 @@ def process_visual_wrapper(vp):
 def md_inline_to_rl(text: str) -> str:
     s = (text or "").replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '').replace(r'\times', ' x ').replace(r'\div', ' ÷ ').replace(r'\circ', '°').replace(r'\pm', '±').replace(r'\leq', '≤').replace(r'\geq', '≥').replace(r'\neq', '≠').replace(r'\approx', '≈').replace(r'\pi', 'π').replace(r'\sqrt', '√').replace('\\', '')
     s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', s)
+    s = s.replace('$', '') # Strictly ban any remaining stray dollar signs
     return re.sub(r"(?<!\*)\*(\S.+?)\*(?!\*)", r"<i>\1</i>", re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")))
 
 def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
@@ -444,7 +446,6 @@ def confirm_delete_chat_dialog(thread_id_to_delete):
 def chat_settings_dialog(thread_data):
     st.caption(f"📚 **Subjects:** {', '.join(thread_data.get('metadata', {}).get('subjects',[])) or 'None'}")
     st.caption(f"🎓 **Grades:** {', '.join(thread_data.get('metadata', {}).get('grades',[])) or 'None'}")
-    # Fix for KeyError: Use .get() with a default fallback
     new_title = st.text_input("Rename Chat", value=thread_data.get("title", "New Chat"))
     if st.button("💾 Save", use_container_width=True):
         get_threads_collection().document(thread_data["id"]).set({"title": new_title, "user_edited_title": True}, merge=True); st.rerun()
@@ -456,7 +457,24 @@ def chat_settings_dialog(thread_data):
 # =====================================================================
 ADMIN_VERIFICATION_CODE = st.secrets.get("ADMIN_VERIFICATION_CODE")
 
+ADMIN_CSS = """
+<style>
+[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
+.admin-header { background: linear-gradient(135deg, rgba(225,29,72,0.18), rgba(153,0,30,0.12)); border: 1px solid rgba(225,29,72,0.35); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; }
+.admin-title { font-size: 1.9rem; font-weight: 800; background: linear-gradient(90deg, #ff4d6d, #ff8fa3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
+.stat-card { background: rgba(225,29,72,0.08); border: 1px solid rgba(225,29,72,0.2); border-radius: 14px; padding: 18px 20px; text-align: center; margin-bottom: 15px; }
+.stat-number { font-size: 2.2rem; font-weight: 800; color: #ff4d6d; }
+.stat-label { font-size: 0.78rem; color: rgba(255,150,160,0.6); text-transform: uppercase; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 20px; color: white; }
+.admin-table th { background: rgba(225,29,72,0.15); color: #ff8fa3; padding: 10px; text-align: left; border-bottom: 2px solid rgba(225,29,72,0.3); }
+.admin-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: rgba(255,200,205,0.85); }
+.section-header { font-size: 1.1rem; font-weight: 700; color: #ff6b81; border-left: 3px solid #e11d48; padding-left: 12px; margin: 20px 0 14px; }
+.admin-login-box { max-width: 420px; margin: 80px auto; background: rgba(225,29,72,0.07); border: 1px solid rgba(225,29,72,0.25); border-radius: 20px; padding: 40px 36px; text-align: center; }
+</style>
+"""
+
 def render_admin_panel():
+    st.markdown(ADMIN_CSS, unsafe_allow_html=True)
     
     if not is_authenticated or auth_object.email not in st.secrets.get("ADMIN_EMAILS",[]):
         st.error("Unauthorized."); st.button("Return Home", on_click=lambda: st.session_state.update(current_page="chat")); return
@@ -612,7 +630,6 @@ with st.sidebar:
     if is_authenticated:
         for t in get_all_threads():
             c1, c2 = st.columns([0.85, 0.15], vertical_alignment="center")
-            # Fix for KeyError: Use .get() with a default fallback
             if c1.button(f"{'🟢' if t['id'] == st.session_state.current_thread_id else '💬'} {t.get('title', 'New Chat')}", key=f"btn_{t['id']}", use_container_width=True):
                 st.session_state.current_thread_id = t["id"]; st.session_state.messages = load_chat_history(t["id"]); st.rerun()
             if c2.button("⋮", key=f"set_{t['id']}", use_container_width=True): chat_settings_dialog(t)
@@ -824,7 +841,7 @@ if render_chat_interface:
             
             for img, mod in zip(msg.get("images") or[], msg.get("image_models",["Unknown"]*10)):
                 if img: st.image(img, use_container_width=True, caption=f"✨ Generated by helix.ai ({mod})")
-            for b64, mod in zip(msg.get("db_images") or[], msg.get("image_models", ["Unknown"]*10)):
+            for b64, mod in zip(msg.get("db_images") or [], msg.get("image_models", ["Unknown"]*10)):
                 if b64:
                     try: st.image(base64.b64decode(b64), use_container_width=True, caption=f"✨ Generated by helix.ai ({mod})")
                     except: pass
