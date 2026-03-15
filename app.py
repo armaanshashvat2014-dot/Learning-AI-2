@@ -83,7 +83,7 @@ You MUST design questions that are significantly harder than standard textbook d
 - NO VAGUE SHAPES: For any transformation (rotation, reflection, enlargement), you MUST define the shape using exact grid coordinates (e.g., "A triangle has vertices at A(2,2), B(4,2), and C(2,5)").
 - TABLE FORMATTING: You MUST use strict Markdown tables (e.g., `| Col1 | Col2 |`). DO NOT use spaces for alignment.
 
-### RULE 3: GOOD VS. BAD EXAMPLES (YOUR STANDARD)
+### RULE 3: GOOD VS. BAD EXAMPLES
 **[MATH]**
 - BAD: "1. Multiplication: Calculate 15 x 40 [1]"
 - GOOD: "1. A theatre sells 26 child tickets and 15 adult tickets on Saturday. On Sunday, they sell 38 child and 21 adult tickets. (a) Draw a dual frequency diagram for this data.[3] (b) If child tickets on Saturday made £143, how much did they make on Sunday? [2]"
@@ -109,6 +109,7 @@ You MUST design questions that are significantly harder than standard textbook d
 ### RULE 5: VISUAL SYNTAX (STRICT)
 - YOU ARE CAPABLE OF GENERATING IMAGES. Use IMAGE_GEN:[Detailed description, white background] or PIE_CHART:[Label1:Value1, Label2:Value2]. 
 - When generating grids for questions, mention NOT to include the answer in the image.
+- YOU MUST USE AT LEAST 3 DIAGRAMS in Science and Math papers (not needed in english.)
 
 ### RULE 6: MARK SCHEME & TITLE
 - TITLE FORMAT: The very top of a generated paper MUST be formatted EXACTLY like this:
