@@ -227,6 +227,8 @@ def create_global_class(class_id, teacher_email, grade, section, school_name):
     return check_and_create(db.transaction(), class_ref)
 
 user_role = "guest"
+user_profile = {} # Ensure user_profile defaults to an empty dict for guests
+
 if is_authenticated:
     user_email = auth_object.email
     user_profile = get_user_profile(user_email)
@@ -316,13 +318,7 @@ def process_visual_wrapper(vp):
     try:
         v_type, v_data = vp
         if v_type == "IMAGE_GEN":
-            models_to_try =[
-                'gemini-3-pro-image-preview',
-                'gemini-3.1-flash-image-preview',
-                'imagen-4.0-fast-generate-001',
-                'gemini-2.5-flash-image'
-            ]
-            for model_name in models_to_try:
+            for model_name in['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview', 'imagen-4.0-fast-generate-001', 'gemini-2.5-flash-image']:
                 try:
                     if "imagen" in model_name.lower():
                         result = client.models.generate_images(model=model_name, prompt=v_data, config=types.GenerateImagesConfig(number_of_images=1, aspect_ratio="4:3"))
@@ -358,7 +354,6 @@ def process_visual_wrapper(vp):
 def md_inline_to_rl(text: str) -> str:
     s = (text or "").replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '').replace(r'\times', ' x ').replace(r'\div', ' ÷ ').replace(r'\circ', '°').replace(r'\pm', '±').replace(r'\leq', '≤').replace(r'\geq', '≥').replace(r'\neq', '≠').replace(r'\approx', '≈').replace(r'\pi', 'π').replace(r'\sqrt', '√').replace('\\', '')
     s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', s)
-    s = s.replace('$', '') # Strictly ban any remaining stray dollar signs
     return re.sub(r"(?<!\*)\*(\S.+?)\*(?!\*)", r"<i>\1</i>", re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")))
 
 def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
@@ -446,6 +441,7 @@ def confirm_delete_chat_dialog(thread_id_to_delete):
 def chat_settings_dialog(thread_data):
     st.caption(f"📚 **Subjects:** {', '.join(thread_data.get('metadata', {}).get('subjects',[])) or 'None'}")
     st.caption(f"🎓 **Grades:** {', '.join(thread_data.get('metadata', {}).get('grades',[])) or 'None'}")
+    # Fix for KeyError: Use .get() with a default fallback
     new_title = st.text_input("Rename Chat", value=thread_data.get("title", "New Chat"))
     if st.button("💾 Save", use_container_width=True):
         get_threads_collection().document(thread_data["id"]).set({"title": new_title, "user_edited_title": True}, merge=True); st.rerun()
@@ -456,22 +452,6 @@ def chat_settings_dialog(thread_data):
 # 🔴 HELIX ADMIN MODE
 # =====================================================================
 ADMIN_VERIFICATION_CODE = st.secrets.get("ADMIN_VERIFICATION_CODE")
-
-ADMIN_CSS = """
-<style>
-[data-testid="stAppViewContainer"] { background: linear-gradient(160deg, #1a0008 0%, #0d0010 60%, #0b000d 100%) !important; }[data-testid="stSidebar"] { background: linear-gradient(180deg, #2a0010 0%, #0d000a 100%) !important; }
-.admin-header { background: linear-gradient(135deg, rgba(225,29,72,0.18), rgba(153,0,30,0.12)); border: 1px solid rgba(225,29,72,0.35); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; }
-.admin-title { font-size: 1.9rem; font-weight: 800; background: linear-gradient(90deg, #ff4d6d, #ff8fa3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-.stat-card { background: rgba(225,29,72,0.08); border: 1px solid rgba(225,29,72,0.2); border-radius: 14px; padding: 18px 20px; text-align: center; margin-bottom: 15px; }
-.stat-number { font-size: 2.2rem; font-weight: 800; color: #ff4d6d; }
-.stat-label { font-size: 0.78rem; color: rgba(255,150,160,0.6); text-transform: uppercase; }
-.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 20px; color: white; }
-.admin-table th { background: rgba(225,29,72,0.15); color: #ff8fa3; padding: 10px; text-align: left; border-bottom: 2px solid rgba(225,29,72,0.3); }
-.admin-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: rgba(255,200,205,0.85); }
-.section-header { font-size: 1.1rem; font-weight: 700; color: #ff6b81; border-left: 3px solid #e11d48; padding-left: 12px; margin: 20px 0 14px; }
-.admin-login-box { max-width: 420px; margin: 80px auto; background: rgba(225,29,72,0.07); border: 1px solid rgba(225,29,72,0.25); border-radius: 20px; padding: 40px 36px; text-align: center; }
-</style>
-"""
 
 def render_admin_panel():
     st.markdown(ADMIN_CSS, unsafe_allow_html=True)
