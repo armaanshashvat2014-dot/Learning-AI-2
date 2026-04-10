@@ -7,7 +7,7 @@ import json
 import concurrent.futures
 import base64
 from pathlib import Path
-from io import BytesIO
+from io import BytesIOx
 from PIL import Image
 
 from google import genai
@@ -620,10 +620,22 @@ def guess_mime(filename: str, fallback: str = "application/octet-stream") -> str
 
 def is_image_mime(m: str) -> bool: return (m or "").lower().startswith("image/")
 
+
+class CachedFile:
+    def __init__(self, uri, display_name):
+        self.uri = uri
+        self.display_name = display_name
+
 @st.cache_resource(show_spinner=False)
 def upload_textbooks():
     active_files = {"sci":[], "math":[], "eng":[]}
-    pdf_map = {p.name.lower(): p for p in Path.cwd().rglob("*.pdf") if "cie" in p.name.lower()}
+    
+    # 🎯 STRICT GRADE 6 FILTER: Only grabs PDFs with "cie" and "_7" in the filename
+    pdf_map = {
+        p.name.lower(): p 
+        for p in Path.cwd().rglob("*.pdf") 
+        if "cie" in p.name.lower() and "_7" in p.name.lower()
+    }
     target_files = list(pdf_map.keys())
     
     try: existing = {f.display_name.lower(): f for f in client.files.list() if f.display_name}
