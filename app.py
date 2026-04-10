@@ -165,7 +165,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# MULTI-TENANT SCHOOL CODES SETUP
 if "SCHOOL_CODES" in st.secrets: SCHOOL_CODES = dict(st.secrets["SCHOOL_CODES"])
 else: SCHOOL_CODES = {}
 
@@ -335,8 +334,8 @@ def evaluate_weak_spots(_email): # Use _ to satisfy cache hash
             if match := re.search(r'\[.*\]', txt, re.DOTALL):
                 new_spots = json.loads(match.group(0))
                 for spot in new_spots:
-                    new_doc = ws_ref.add({"topic": spot, "identified_at": now, "dismissed": False})
-                    active_spots.append({"id": new_doc.id, "topic": spot, "identified_at": now, "dismissed": False})
+                    new_doc_ref = ws_ref.add({"topic": spot, "identified_at": now, "dismissed": False})
+                    active_spots.append({"id": new_doc_ref.id, "topic": spot, "identified_at": now, "dismissed": False})
         except Exception as e: print("Weak spot engine error:", e)
             
     return active_spots, dismissed_spots
@@ -594,15 +593,6 @@ with st.sidebar:
         if st.button("Log in with Google", type="primary", use_container_width=True): st.login(provider="google")
     else:
         st.success(f"Welcome back, {user_profile.get('display_name', 'User')}!")
-        
-        # 🎯 NEW: Account button is now here
-        if st.button("👤 My Account", use_container_width=True):
-            st.session_state.app_mode = "👤 My Account"
-            st.rerun()
-
-        if st.button("Log out", use_container_width=True): 
-            st.session_state.clear()
-            st.logout()
         st.divider()
         
         st.markdown("<b style='color:#00d4ff'>🎯 ACTIVE GRADE</b>", unsafe_allow_html=True)
@@ -617,13 +607,13 @@ with st.sidebar:
 
         if user_role == "student":
             st.markdown("<b style='color:#00d4ff'>📱 APP MODE</b>", unsafe_allow_html=True)
-            app_mode = st.radio("Choose Mode",["💬 AI Tutor", "⚡ Interactive Quiz"], label_visibility="collapsed", key="app_mode")
-            if app_mode == "⚡ Interactive Quiz":
-                if st.session_state.get("quiz_active"):
-                    if st.button("End Quiz", use_container_width=True):
-                        for key in list(st.session_state.keys()):
-                            if key.startswith('quiz_'): del st.session_state[key]
-                        st.rerun()
+            # 🎯 FIX: Account page is now a main app mode
+            st.radio("Choose Mode",["💬 AI Tutor", "⚡ Interactive Quiz", "👤 My Account"], key="app_mode", label_visibility="collapsed")
+            if st.session_state.app_mode == "⚡ Interactive Quiz" and st.session_state.get("quiz_active"):
+                if st.button("End Quiz", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        if key.startswith('quiz_'): del st.session_state[key]
+                    st.rerun()
             st.divider()
 
             if not user_profile.get("teacher_id"):
@@ -644,6 +634,10 @@ with st.sidebar:
                 if c1.button(f"{'🟢' if t['id'] == st.session_state.current_thread_id else '💬'} {t.get('title', 'New Chat')}", key=f"btn_{t['id']}", use_container_width=True):
                     st.session_state.current_thread_id = t["id"]; st.session_state.messages = load_chat_history(t["id"]); st.rerun()
                 if c2.button("⋮", key=f"set_{t['id']}", use_container_width=True): st.session_state.delete_requested_for = t['id']
+    
+    # Move logout to the bottom for cleaner UX
+    if is_authenticated:
+        st.button("Log out", use_container_width=True, on_click=st.logout)
 
 if st.session_state.delete_requested_for: confirm_delete_chat_dialog(st.session_state.delete_requested_for)
 
@@ -687,17 +681,14 @@ def select_relevant_books(query, file_dict, user_grade="Grade 6"):
     s7 = any(k in qn for k in ["stage 7", "grade 6", "year 7"])
     s8 = any(k in qn for k in["stage 8", "grade 7", "year 8"])
     s9 = any(k in qn for k in["stage 9", "grade 8", "year 9"])
-    
     im = any(k in qn for k in["math", "algebra", "number", "fraction", "geometry", "calculate", "equation"])
     isc = any(k in qn for k in["sci", "biology", "physics", "chemistry", "experiment", "cell", "gravity"])
     ien = any(k in qn for k in["eng", "poem", "story", "essay", "writing", "grammar"])
-    
     if not (s7 or s8 or s9):
         if user_grade == "Grade 6": s7 = True
         elif user_grade == "Grade 7": s8 = True
         elif user_grade == "Grade 8": s9 = True
         else: s8 = True
-        
     if not (im or isc or ien): im = isc = ien = True
     sel =[]
     def add(k, act):
@@ -715,7 +706,6 @@ def select_relevant_books(query, file_dict, user_grade="Grade 6"):
 # ==========================================
 render_chat_interface = False 
 
-# --- TEACHER DASHBOARD ---
 if user_role == "teacher":
     st.markdown("<div class='big-title' style='color:#fc8404;'>👨‍🏫 helix.ai / Teacher</div>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -732,32 +722,33 @@ if user_role == "teacher":
         if not roster: st.info("No students enrolled yet.")
         else:
             selected_student_name = st.selectbox("Select Student",[r.to_dict().get('display_name', r.id) for r in roster])
-            student_doc =[r for r in roster if r.to_dict().get('display_name', r.id) == selected_student_name]
-            stu_email = student_doc.id
-            
-            qr_docs = db.collection("users").document(stu_email).collection("quiz_results").stream()
-            scores, totals = 0, 0
-            for qd in qr_docs:
-                d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
-            mastery = int((scores/totals)*100) if totals > 0 else 0
-            st.metric("Overall Mastery (Quiz Performance)", f"{mastery}%")
-            
-            st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
-            with st.spinner("Analyzing recent performance..."):
-                active_spots, _ = evaluate_weak_spots(stu_email)
-            if not active_spots: st.success("No active weak spots detected!")
-            else:
-                for spot in active_spots:
-                    col1, col2 = st.columns([0.8, 0.2])
-                    col1.warning(spot['topic'])
-                    if col2.button("Dismiss", key=f"d_t_{spot['id']}"):
-                        db.collection("users").document(stu_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
-                        st.rerun()
+            student_doc_list = [r for r in roster if r.to_dict().get('display_name', r.id) == selected_student_name]
+            if student_doc_list:
+                stu_email = student_doc_list.id
+                
+                qr_docs = db.collection("users").document(stu_email).collection("quiz_results").stream()
+                scores, totals = 0, 0
+                for qd in qr_docs:
+                    d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
+                mastery = int((scores/totals)*100) if totals > 0 else 0
+                st.metric("Overall Mastery (Quiz Performance)", f"{mastery}%")
+                
+                st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
+                with st.spinner("Analyzing recent performance..."):
+                    active_spots, _ = evaluate_weak_spots(stu_email)
+                if not active_spots: st.success("No active weak spots detected!")
+                else:
+                    for spot in active_spots:
+                        col1, col2 = st.columns()
+                        col1.warning(spot['topic'])
+                        if col2.button("Dismiss", key=f"d_t_{spot['id']}"):
+                            db.collection("users").document(stu_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
+                            st.rerun()
 
     elif teacher_menu == "Class Management":
         st.subheader("🏫 Class Management")
         with st.form("create_class_form", clear_on_submit=True):
-            cc1, cc2, cc3 = st.columns([0.4, 0.3, 0.3])
+            cc1, cc2, cc3 = st.columns()
             grade_choice = cc1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
             section_choice = cc2.selectbox("Section", ["A", "B", "C", "D"])
             if cc3.form_submit_button("Create", use_container_width=True):
@@ -807,11 +798,9 @@ if user_role == "teacher":
 
     elif teacher_menu == "AI Chat": render_chat_interface = True 
 
-# --- STUDENT DASHBOARD ---
 else:
     app_mode = st.session_state.get("app_mode", "💬 AI Tutor")
     
-    # 👤 ISOLATED ACCOUNT PAGE
     if app_mode == "👤 My Account":
         render_chat_interface = False
         st.markdown("<div class='big-title'>👤 My Account</div><br>", unsafe_allow_html=True)
@@ -826,12 +815,7 @@ else:
         for qd in qr_docs: d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
         mastery = int((scores/totals)*100) if totals > 0 else 0
         
-        st.markdown(f"""
-        <div class="glass-container">
-            <div class="mastery-title">Overall Mastery (Quiz Performance)</div>
-            <div class="mastery-value">{mastery}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="glass-container"><div class="mastery-title">Overall Mastery</div><div class="mastery-value">{mastery}%</div></div>""", unsafe_allow_html=True)
 
         st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
         with st.spinner("Analyzing recent performance..."):
@@ -840,14 +824,13 @@ else:
         if not active_spots: st.markdown("<div class='success-item'>No active weak spots detected! Great job! 🎉</div>", unsafe_allow_html=True)
         else:
             for spot in active_spots:
-                col1, col2 = st.columns([0.8, 0.2])
+                col1, col2 = st.columns()
                 with col1: st.markdown(f"<div class='weak-spot-item'>{spot['topic']}</div>", unsafe_allow_html=True)
                 with col2:
                     if st.button("Dismiss", key=f"d_a_{spot['id']}", use_container_width=True):
                         db.collection("users").document(user_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
                         st.rerun()
 
-    # ⚡ ISOLATED JSON QUIZ MODE
     elif app_mode == "⚡ Interactive Quiz":
         render_chat_interface = False
         
@@ -943,7 +926,6 @@ else:
                         if key.startswith('quiz_'): del st.session_state[key]
                     st.rerun()
 
-    # 💬 FULL MULTIMODAL AI CHAT MODE
     else: render_chat_interface = True
 
 # ==========================================
