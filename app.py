@@ -69,7 +69,7 @@ st.markdown(f"""
     -webkit-backdrop-filter: blur(40px) !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
     border-radius: 28px !important;
-    padding: 10px !important;
+    padding: 24px !important;
     box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
     margin: 20px 0 !important;
 }}
@@ -134,7 +134,7 @@ st.markdown(f"""
 .quiz-question-text {{ font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 30px; line-height: 1.4; color: #fff; }}
 .quiz-counter {{ color: #a0a0ab; font-size: 14px; font-weight: 600; margin-bottom: 15px; }}
 
-/* 🎯 NEW: Account Page Glass UI */
+/* Account Page Glass UI */
 .glass-container {{
     background: rgba(35, 35, 45, 0.4);
     backdrop-filter: blur(40px);
@@ -270,7 +270,7 @@ def get_user_profile(email):
         if needs_update: doc_ref.update(profile)
         return profile
     else:
-        default_profile = {"role": "student", "teacher_id": None, "display_name": getattr(auth_object, "name", None) or email.split("@") if is_authenticated else email.split("@"), "grade": "Grade 6", "school": None}
+        default_profile = {"role": "student", "teacher_id": None, "display_name": getattr(auth_object, "name", None) or email.split("@") if is_authenticated else "Guest", "grade": "Grade 6", "school": None}
         doc_ref.set(default_profile)
         return default_profile
 
@@ -334,8 +334,8 @@ def evaluate_weak_spots(_email): # Use _ to satisfy cache hash
             if match := re.search(r'\[.*\]', txt, re.DOTALL):
                 new_spots = json.loads(match.group(0))
                 for spot in new_spots:
-                    new_doc_ref = ws_ref.add({"topic": spot, "identified_at": now, "dismissed": False})
-                    active_spots.append({"id": new_doc_ref.id, "topic": spot, "identified_at": now, "dismissed": False})
+                    new_doc = ws_ref.add({"topic": spot, "identified_at": now, "dismissed": False})
+                    active_spots.append({"id": new_doc.id, "topic": spot, "identified_at": now, "dismissed": False})
         except Exception as e: print("Weak spot engine error:", e)
             
     return active_spots, dismissed_spots
@@ -607,7 +607,6 @@ with st.sidebar:
 
         if user_role == "student":
             st.markdown("<b style='color:#00d4ff'>📱 APP MODE</b>", unsafe_allow_html=True)
-            # 🎯 FIX: Account page is now a main app mode
             st.radio("Choose Mode",["💬 AI Tutor", "⚡ Interactive Quiz", "👤 My Account"], key="app_mode", label_visibility="collapsed")
             if st.session_state.app_mode == "⚡ Interactive Quiz" and st.session_state.get("quiz_active"):
                 if st.button("End Quiz", use_container_width=True):
@@ -635,7 +634,6 @@ with st.sidebar:
                     st.session_state.current_thread_id = t["id"]; st.session_state.messages = load_chat_history(t["id"]); st.rerun()
                 if c2.button("⋮", key=f"set_{t['id']}", use_container_width=True): st.session_state.delete_requested_for = t['id']
     
-    # Move logout to the bottom for cleaner UX
     if is_authenticated:
         st.button("Log out", use_container_width=True, on_click=st.logout)
 
@@ -837,23 +835,25 @@ else:
         if not st.session_state.get("quiz_active", False):
             st.markdown("<br><br>", unsafe_allow_html=True)
             st.markdown("<div class='quiz-title'>⚙️ Configure Your Quiz</div>", unsafe_allow_html=True)
-            with st.form("quick_quiz_form", border=False):
+            with st.form("quick_quiz_form"): # REMOVED border=False to match screenshot
                 with st.container(border=True):
                     c1, c2, c3 = st.columns(3)
                     q_subj = c1.selectbox("Subject",["Math", "Science", "English"])
                     current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
                     q_grade = c2.selectbox("Grade", ["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
                     q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
+                    # 🎯 FIX: Corrected st.columns call
                     c4, c5 = st.columns()
                     q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
                     q_num = c5.selectbox("Questions",)
-                    
-                    if st.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True):
-                        st.session_state.quiz_params = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
-                        st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
-                        st.session_state.quiz_active, st.session_state.quiz_saved = True, False
-                        st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
-                        st.rerun()
+                
+                # Submit button now outside the inner container
+                if st.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True):
+                    st.session_state.quiz_params = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
+                    st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                    st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                    st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                    st.rerun()
         else:
             if "quiz_current_q_data" not in st.session_state:
                 with st.spinner("Generating next question..."):
@@ -1007,7 +1007,6 @@ if render_chat_interface:
 
                 curr_parts.append(types.Part.from_text(text=f"Context: Student Grade is {student_grade}.\n\nUser Query: {msg_data.get('content')}"))
                 
-                # CHAT HANDSHAKE TRIGGER
                 user_msg_count = sum(1 for m in st.session_state.messages if m["role"] == "user")
                 if user_msg_count > 0 and user_msg_count % 6 == 0:
                     curr_parts.append(types.Part.from_text(text="Please analyze the student's previous inputs. If you detect a clear, specific academic weak point, output the hidden ===ANALYTICS_START=== JSON block. If not, do NOT output it."))
