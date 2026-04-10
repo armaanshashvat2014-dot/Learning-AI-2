@@ -54,14 +54,16 @@ st.markdown(f"""
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
 }}
 
-/* Sidebar Glassmorphism */[data-testid="stSidebar"] {{
+/* Sidebar Glassmorphism */
+[data-testid="stSidebar"] {{
     background: rgba(25, 25, 35, 0.4) !important;
     backdrop-filter: blur(40px) !important;
     -webkit-backdrop-filter: blur(40px) !important;
     border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }}
 
-/* Native Streamlit Form & Container Glass UI */[data-testid="stForm"],[data-testid="stVerticalBlockBorderWrapper"] {{
+/* Native Streamlit Form & Container Glass UI */
+[data-testid="stForm"],[data-testid="stVerticalBlockBorderWrapper"] {{
     background: rgba(255, 255, 255, 0.04) !important;
     backdrop-filter: blur(40px) !important;
     -webkit-backdrop-filter: blur(40px) !important;
@@ -72,7 +74,8 @@ st.markdown(f"""
     margin: 20px 0 !important;
 }}
 
-/* Glass Chat Bubbles */[data-testid="stChatMessage"] {{
+/* Glass Chat Bubbles */
+[data-testid="stChatMessage"] {{
     background: rgba(255, 255, 255, 0.05) !important;
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
@@ -82,7 +85,8 @@ st.markdown(f"""
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
     color: #fff !important;
     margin-bottom: 16px;
-}}[data-testid="stChatMessage"] * {{ color: #f5f5f7 !important; }}
+}}
+[data-testid="stChatMessage"] * {{ color: #f5f5f7 !important; }}
 
 /* Glass Inputs (Chat & Forms) */
 .stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>textarea, .stNumberInput>div>div>input {{
@@ -140,6 +144,7 @@ st.markdown(f"""
     padding: 24px;
     margin-bottom: 20px;
 }}
+.account-detail {{ font-size: 1.1rem; margin-bottom: 0.5rem; }}
 .mastery-title {{ font-size: 14px; color: #a0a0ab; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }}
 .mastery-value {{ font-size: 48px; color: #00d4ff; font-weight: 800; line-height: 1; }}
 .weak-spot-item {{ 
@@ -258,7 +263,7 @@ def get_user_profile(email):
         profile = doc.to_dict()
         needs_update = False
         if not profile.get("display_name") and is_authenticated:
-            profile["display_name"] = getattr(auth_object, "name", None) or email.split("@")[0]
+            profile["display_name"] = getattr(auth_object, "name", None) or email.split("@")
             needs_update = True
         if profile.get("role") == "undefined":
             profile["role"] = "student"
@@ -266,7 +271,7 @@ def get_user_profile(email):
         if needs_update: doc_ref.update(profile)
         return profile
     else:
-        default_profile = {"role": "student", "teacher_id": None, "display_name": getattr(auth_object, "name", None) or email.split("@")[0] if is_authenticated else "Guest", "grade": "Grade 6", "school": None}
+        default_profile = {"role": "student", "teacher_id": None, "display_name": getattr(auth_object, "name", None) or email.split("@") if is_authenticated else "Guest", "grade": "Grade 6", "school": None}
         doc_ref.set(default_profile)
         return default_profile
 
@@ -331,7 +336,7 @@ def evaluate_weak_spots(_email):
                 new_spots = json.loads(match.group(0))
                 for spot in new_spots:
                     new_doc = ws_ref.add({"topic": spot, "identified_at": now, "dismissed": False})
-                    active_spots.append({"id": new_doc[1].id, "topic": spot, "identified_at": now, "dismissed": False})
+                    active_spots.append({"id": new_doc.id, "topic": spot, "identified_at": now, "dismissed": False})
         except Exception as e: print("Weak spot engine error:", e)
             
     return active_spots, dismissed_spots
@@ -455,11 +460,11 @@ def process_visual_wrapper(vp):
                 try:
                     if "imagen" in model_name.lower():
                         result = client.models.generate_images(model=model_name, prompt=v_data, config=types.GenerateImagesConfig(number_of_images=1, aspect_ratio="4:3"))
-                        if result.generated_images: return (result.generated_images[0].image.image_bytes, model_name, error_logs)
+                        if result.generated_images: return (result.generated_images.image.image_bytes, model_name, error_logs)
                     else:
                         result = client.models.generate_content(model=model_name, contents=[f"{v_data}\n\n(Important: Generate a 1k resolution image with a 4:3 aspect ratio.)"], config=types.GenerateContentConfig(response_modalities=["IMAGE"]))
-                        if result.candidates and result.candidates[0].content.parts:
-                            for part in result.candidates[0].content.parts:
+                        if result.candidates and result.candidates.content.parts:
+                            for part in result.candidates.content.parts:
                                 if getattr(part, "inline_data", None) and part.inline_data.data: return (part.inline_data.data, model_name, error_logs)
                 except Exception as e: error_logs.append(f"**{model_name} Error:** {str(e)}")
             return (None, "All Models Failed", error_logs)
@@ -592,60 +597,55 @@ with st.sidebar:
         
         # 🎯 FIX: Buttons exactly in requested order under the Welcome box
         if st.button("👤 My Account", use_container_width=True):
-            st.session_state.app_mode = "👤 My Account"
+            # We set a distinct state for the account page to avoid conflict with the radio button
+            st.session_state.view_mode = "account"
             st.rerun()
-        if st.button("Log out", use_container_width=True, on_click=st.logout):
-            pass
+        if st.button("Log out", use_container_width=True):
+            st.session_state.clear()
+            st.logout()
             
         st.divider()
         
-        st.markdown("<b style='color:#00d4ff'>🎯 ACTIVE GRADE</b>", unsafe_allow_html=True)
-        prof_grade = user_profile.get("grade", "Grade 6")
-        active_grade = st.selectbox("Set your grade context",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(prof_grade), label_visibility="collapsed")
-        if active_grade != prof_grade:
-            if db: db.collection("users").document(user_email).update({"grade": active_grade})
-            user_profile["grade"] = active_grade
-            st.rerun()
-        st.session_state.active_grade = active_grade
-        st.divider()
-
-        if user_role == "student":
-            st.markdown("<b style='color:#00d4ff'>📱 APP MODE</b>", unsafe_allow_html=True)
-            
-            # 🎯 FIX: Decoupled radio button to prevent Streamlit error when My Account is active
-            modes = ["💬 AI Tutor", "⚡ Interactive Quiz"]
-            curr_mode = st.session_state.get("app_mode", "💬 AI Tutor")
-            r_idx = modes.index(curr_mode) if curr_mode in modes else None
-            
-            selected_mode = st.radio("Choose Mode", modes, index=r_idx, label_visibility="collapsed")
-            if selected_mode and selected_mode != curr_mode:
-                st.session_state.app_mode = selected_mode
+        # If in account view, show a button to go back to the main app modes
+        if st.session_state.get("view_mode") == "account":
+            if st.button("🔙 Back to App", use_container_width=True):
+                st.session_state.view_mode = "main"
                 st.rerun()
-                
-            if st.session_state.get("app_mode") == "⚡ Interactive Quiz" and st.session_state.get("quiz_active"):
-                if st.button("End Quiz", use_container_width=True):
-                    for key in list(st.session_state.keys()):
-                        if key.startswith('quiz_'): del st.session_state[key]
-                    st.session_state.app_mode = "💬 AI Tutor"
-                    st.rerun()
+        
+        # Main app modes are only shown when not in account view
+        if st.session_state.get("view_mode", "main") == "main":
+            st.markdown("<b style='color:#00d4ff'>🎯 ACTIVE GRADE</b>", unsafe_allow_html=True)
+            prof_grade = user_profile.get("grade", "Grade 6")
+            active_grade = st.selectbox("Set your grade context",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(prof_grade), label_visibility="collapsed")
+            if active_grade != prof_grade:
+                if db: db.collection("users").document(user_email).update({"grade": active_grade})
+                user_profile["grade"] = active_grade
+                st.rerun()
+            st.session_state.active_grade = active_grade
             st.divider()
 
-            if not user_profile.get("teacher_id"):
-                with st.expander("🎓 Are you a Teacher?"):
-                    if st.button("Verify Code") and (code_input := st.text_input("Teacher Code", type="password")) in SCHOOL_CODES:
-                        db.collection("users").document(user_email).update({"role": "teacher", "school": SCHOOL_CODES[code_input]})
-                        st.success("Verified!"); time.sleep(1); st.rerun()
-            else:
-                c = get_student_class_data(user_email)
-                st.info(f"🏫 Class:\n**{c.get('id', 'Unknown') if c else 'Unknown'}**")
-        
-        elif user_role == "teacher":
-            if st.session_state.get("app_mode") == "👤 My Account":
-                if st.button("🔙 Back to Dashboard", use_container_width=True):
-                    st.session_state.app_mode = "💬 AI Tutor"
-                    st.rerun()
+            if user_role == "student":
+                st.markdown("<b style='color:#00d4ff'>📱 APP MODE</b>", unsafe_allow_html=True)
+                st.radio("Choose Mode",["💬 AI Tutor", "⚡ Interactive Quiz"], key="app_mode", label_visibility="collapsed")
+                
+                if st.session_state.app_mode == "⚡ Interactive Quiz" and st.session_state.get("quiz_active"):
+                    if st.button("End Quiz", use_container_width=True):
+                        for key in list(st.session_state.keys()):
+                            if key.startswith('quiz_'): del st.session_state[key]
+                        st.session_state.app_mode = "💬 AI Tutor"
+                        st.rerun()
+                st.divider()
 
-    if st.session_state.get("app_mode", "💬 AI Tutor") == "💬 AI Tutor" and user_role != "teacher":
+                if not user_profile.get("teacher_id"):
+                    with st.expander("🎓 Are you a Teacher?"):
+                        if st.button("Verify Code") and (code_input := st.text_input("Teacher Code", type="password")) in SCHOOL_CODES:
+                            db.collection("users").document(user_email).update({"role": "teacher", "school": SCHOOL_CODES[code_input]})
+                            st.success("Verified!"); time.sleep(1); st.rerun()
+                else:
+                    c = get_student_class_data(user_email)
+                    st.info(f"🏫 Class:\n**{c.get('id', 'Unknown') if c else 'Unknown'}**")
+
+    if st.session_state.get("view_mode", "main") == "main" and st.session_state.get("app_mode", "💬 AI Tutor") == "💬 AI Tutor" and user_role != "teacher":
         if st.button("➕ New Chat", use_container_width=True):
             st.session_state.current_thread_id = str(uuid.uuid4()); st.session_state.messages = get_default_greeting(); st.rerun()
         if is_authenticated:
@@ -721,18 +721,29 @@ def select_relevant_books(query, file_dict, user_grade="Grade 6"):
 # APP ROUTER
 # ==========================================
 render_chat_interface = False 
+view_mode = st.session_state.get("view_mode", "main")
 app_mode = st.session_state.get("app_mode", "💬 AI Tutor")
 
 # --- 1) ACCOUNT DASHBOARD (ALL ROLES) ---
-if app_mode == "👤 My Account":
+if view_mode == "account":
     render_chat_interface = False
-    st.markdown("<div class='big-title'>👤 My Account</div><br>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.markdown(f"**Name:** {user_profile.get('display_name', 'Guest')}")
-        st.markdown(f"**Email:** {user_email}")
-        st.markdown(f"**Grade:** {user_profile.get('grade', 'Grade 6')}")
-        if user_profile.get('school'): st.markdown(f"**School:** {user_profile.get('school')}")
+    st.markdown("<div class='big-title' style='display: flex; align-items: center; justify-content: center; gap: 15px;'><svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' class='feather feather-user'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'></path><circle cx='12' cy='7' r='4'></circle></svg> My Account</div><br>", unsafe_allow_html=True)
     
+    with st.container():
+        st.markdown("""<div class="glass-container">
+            <div class="account-detail"><b>Name:</b> {}</div>
+            <div class="account-detail"><b>Email:</b> {}</div>
+            <div class="account-detail"><b>Grade:</b> {}</div>
+            <div class="account-detail"><b>School:</b> {}</div>
+        </div>""".format(user_profile.get('display_name', 'Guest'), user_email, user_profile.get('grade', 'Grade 6'), user_profile.get('school', 'Not linked')), unsafe_allow_html=True)
+
+        if not user_profile.get('school'):
+            with st.form("rename_form", border=False):
+                new_name = st.text_input("Change Display Name", value=user_profile.get('display_name', ''))
+                if st.form_submit_button("Save Name", use_container_width=True):
+                    db.collection("users").document(user_email).update({"display_name": new_name})
+                    st.success("Name updated!"); time.sleep(1); st.rerun()
+
     qr_docs = db.collection("users").document(user_email).collection("quiz_results").stream()
     scores, totals = 0, 0
     for qd in qr_docs: d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
@@ -773,7 +784,7 @@ elif user_role == "teacher":
             selected_student_name = st.selectbox("Select Student",[r.to_dict().get('display_name', r.id) for r in roster])
             student_doc_list =[r for r in roster if r.to_dict().get('display_name', r.id) == selected_student_name]
             if student_doc_list:
-                stu_email = student_doc_list[0].id
+                stu_email = student_doc_list.id
                 
                 qr_docs = db.collection("users").document(stu_email).collection("quiz_results").stream()
                 scores, totals = 0, 0
@@ -832,8 +843,8 @@ elif user_role == "teacher":
                     if v_prompts := re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", gen_paper):
                         with concurrent.futures.ThreadPoolExecutor(5) as exe:
                             for r in exe.map(process_visual_wrapper, v_prompts):
-                                draft_imgs.append(r[0]); draft_mods.append(r[1])
-                                if not r[0] and len(r)>2: st.error(f"Image Error: {r[2]}")
+                                draft_imgs.append(r); draft_mods.append(r)
+                                if not r and len(r)>2: st.error(f"Image Error: {r}")
                     st.session_state.update(draft_paper=gen_paper, draft_images=draft_imgs, draft_models=draft_mods, draft_title=assign_title); st.rerun()
                 except Exception as e: st.error(e)
         if st.session_state.get("draft_paper"):
@@ -847,108 +858,107 @@ elif user_role == "teacher":
 
     elif teacher_menu == "AI Chat": render_chat_interface = True 
 
-# --- 3) STUDENT QUIZ DASHBOARD ---
-elif app_mode == "⚡ Interactive Quiz":
-    render_chat_interface = False
-    
-    if not st.session_state.get("quiz_active", False):
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("<div class='quiz-title'>⚙️ Configure Your Quiz</div>", unsafe_allow_html=True)
-        with st.form("quick_quiz_form", border=False):
-            with st.container(border=True):
-                c1, c2, c3 = st.columns(3)
-                q_subj = c1.selectbox("Subject",["Math", "Science", "English"])
-                current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
-                q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
-                q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
-                
-                # 🎯 FIX: Explicitly sizing columns for layout consistency
-                c4, c5 = st.columns([3, 1])
-                q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
-                q_num = c5.selectbox("Questions",[5, 10, 15, 20])
-                
+# --- 3) STUDENT MAIN DASHBOARD (Chat or Quiz) ---
+else:
+    if app_mode == "⚡ Interactive Quiz":
+        render_chat_interface = False
+        
+        if not st.session_state.get("quiz_active", False):
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.markdown("<div class='quiz-title'>⚙️ Configure Your Quiz</div>", unsafe_allow_html=True)
+            with st.form("quick_quiz_form", border=False):
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns(3)
+                    q_subj = c1.selectbox("Subject",["Math", "Science", "English"])
+                    current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
+                    q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
+                    q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
+                    c4, c5 = st.columns()
+                    q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
+                    q_num = c5.selectbox("Questions",)
+                    
                 if st.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True):
                     st.session_state.quiz_params = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
                     st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
                     st.session_state.quiz_active, st.session_state.quiz_saved = True, False
                     st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
                     st.rerun()
-    else:
-        if "quiz_current_q_data" not in st.session_state:
-            with st.spinner("Generating next question..."):
-                p = st.session_state.quiz_params
-                prompt = f"Create a {p['diff']} multiple-choice question for a {p['grade']} {p['subj']} student. Topic: {p['chap']}. Provide 4 options."
-                books = select_relevant_books(f"{p['subj']} {p['grade']}", st.session_state.textbook_handles, p['grade'])
-                parts =[]
-                for b in books: parts.extend([types.Part.from_text(text=f"[Source: {b.display_name}]"), types.Part.from_uri(file_uri=b.uri, mime_type="application/pdf")])
-                parts.append(prompt)
-                response = generate_with_retry("gemini-2.5-pro", parts, types.GenerateContentConfig(system_instruction=QUIZ_SYSTEM_INSTRUCTION, temperature=0.3))
-                try:
-                    json_str = re.search(r'\{.*\}', safe_response_text(response), re.DOTALL).group(0)
-                    st.session_state.quiz_current_q_data = json.loads(json_str)
-                    st.session_state.quiz_user_answer = None 
-                    st.session_state.quiz_bg = "default"
-                    st.rerun()
-                except Exception as e:
-                    st.error("Failed to generate a valid quiz question. Please try again.")
-                    st.button("Try Again", on_click=lambda: st.session_state.pop("quiz_current_q_data", None))
+        else:
+            if "quiz_current_q_data" not in st.session_state:
+                with st.spinner("Generating next question..."):
+                    p = st.session_state.quiz_params
+                    prompt = f"Create a {p['diff']} multiple-choice question for a {p['grade']} {p['subj']} student. Topic: {p['chap']}. Provide 4 options."
+                    books = select_relevant_books(f"{p['subj']} {p['grade']}", st.session_state.textbook_handles, p['grade'])
+                    parts =[]
+                    for b in books: parts.extend([types.Part.from_text(text=f"[Source: {b.display_name}]"), types.Part.from_uri(file_uri=b.uri, mime_type="application/pdf")])
+                    parts.append(prompt)
+                    response = generate_with_retry("gemini-2.5-pro", parts, types.GenerateContentConfig(system_instruction=QUIZ_SYSTEM_INSTRUCTION, temperature=0.3))
+                    try:
+                        json_str = re.search(r'\{.*\}', safe_response_text(response), re.DOTALL).group(0)
+                        st.session_state.quiz_current_q_data = json.loads(json_str)
+                        st.session_state.quiz_user_answer = None 
+                        st.session_state.quiz_bg = "default"
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Failed to generate a valid quiz question. Please try again.")
+                        st.button("Try Again", on_click=lambda: st.session_state.pop("quiz_current_q_data", None))
 
-        if "quiz_current_q_data" in st.session_state:
-            q_data = st.session_state.quiz_current_q_data
-            q_params = st.session_state.quiz_params
-            
-            with st.container(border=True):
-                st.markdown(f"<div class='quiz-counter'>Question {st.session_state.quiz_current_q} of {q_params['num']}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='quiz-question-text'>{q_data.get('question', 'Question text missing')}</div>", unsafe_allow_html=True)
-
-                if st.session_state.get("quiz_user_answer") is None:
-                    for option in q_data.get('options',[]):
-                        if st.button(option, use_container_width=True, key=f"q_opt_{option}"):
-                            st.session_state.quiz_user_answer = option
-                            st.rerun()
-                else:
-                    user_ans = st.session_state.quiz_user_answer
-                    is_correct = (user_ans == q_data.get('correct_answer'))
-                    
-                    if is_correct:
-                        st.success(f"**Correct!** {q_data.get('explanation', '')}")
-                        if st.session_state.quiz_bg != "correct":
-                            st.session_state.quiz_score += 1
-                            st.session_state.quiz_bg = "correct"; st.rerun()
-                    else:
-                        st.error(f"**Incorrect.** The correct answer was **{q_data.get('correct_answer')}**. \n\n*Explanation: {q_data.get('explanation', '')}*")
-                        if st.session_state.quiz_bg != "wrong":
-                            st.session_state.quiz_bg = "wrong"; st.rerun()
-                            
-                    if len(st.session_state.quiz_history) < st.session_state.quiz_current_q:
-                        st.session_state.quiz_history.append({"q": q_data.get('question'), "user": user_ans, "correct": q_data.get('correct_answer'), "is_correct": is_correct})
-                        if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email)
-
-                    is_last_q = (st.session_state.quiz_current_q == q_params['num'])
-                    if st.button("Next Question" if not is_last_q else "Finish Quiz", type="primary", use_container_width=True):
-                        if is_last_q: st.session_state.quiz_finished = True
-                        else:
-                            st.session_state.quiz_current_q += 1
-                            st.session_state.pop("quiz_current_q_data", None) 
-                        st.session_state.quiz_bg = "default"; st.rerun()
-
-        if st.session_state.get("quiz_finished"):
-            score, total = st.session_state.quiz_score, st.session_state.quiz_params['num']
-            if not st.session_state.quiz_saved and is_authenticated and db:
-                db.collection("users").document(user_email).collection("quiz_results").add({"timestamp": time.time(), "score": score, "total": total, "subject": st.session_state.quiz_params['subj']})
-                st.session_state.quiz_saved = True
+            if "quiz_current_q_data" in st.session_state:
+                q_data = st.session_state.quiz_current_q_data
+                q_params = st.session_state.quiz_params
                 
-            st.balloons()
-            st.success(f"## 🎉 Quiz Complete! 🎉 \n\n### You scored: {score} / {total}")
-            if st.button("Take Another Quiz", use_container_width=True):
-                for key in list(st.session_state.keys()):
-                    if key.startswith('quiz_'): del st.session_state[key]
-                st.rerun()
+                with st.container(border=True):
+                    st.markdown(f"<div class='quiz-counter'>Question {st.session_state.quiz_current_q} of {q_params['num']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='quiz-question-text'>{q_data.get('question', 'Question text missing')}</div>", unsafe_allow_html=True)
 
-else: render_chat_interface = True
+                    if st.session_state.get("quiz_user_answer") is None:
+                        for option in q_data.get('options',[]):
+                            if st.button(option, use_container_width=True, key=f"q_opt_{option}"):
+                                st.session_state.quiz_user_answer = option
+                                st.rerun()
+                    else:
+                        user_ans = st.session_state.quiz_user_answer
+                        is_correct = (user_ans == q_data.get('correct_answer'))
+                        
+                        if is_correct:
+                            st.success(f"**Correct!** {q_data.get('explanation', '')}")
+                            if st.session_state.quiz_bg != "correct":
+                                st.session_state.quiz_score += 1
+                                st.session_state.quiz_bg = "correct"; st.rerun()
+                        else:
+                            st.error(f"**Incorrect.** The correct answer was **{q_data.get('correct_answer')}**. \n\n*Explanation: {q_data.get('explanation', '')}*")
+                            if st.session_state.quiz_bg != "wrong":
+                                st.session_state.quiz_bg = "wrong"; st.rerun()
+                                
+                        if len(st.session_state.quiz_history) < st.session_state.quiz_current_q:
+                            st.session_state.quiz_history.append({"q": q_data.get('question'), "user": user_ans, "correct": q_data.get('correct_answer'), "is_correct": is_correct})
+                            if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email)
+
+                        is_last_q = (st.session_state.quiz_current_q == q_params['num'])
+                        if st.button("Next Question" if not is_last_q else "Finish Quiz", type="primary", use_container_width=True):
+                            if is_last_q: st.session_state.quiz_finished = True
+                            else:
+                                st.session_state.quiz_current_q += 1
+                                st.session_state.pop("quiz_current_q_data", None) 
+                            st.session_state.quiz_bg = "default"; st.rerun()
+
+            if st.session_state.get("quiz_finished"):
+                score, total = st.session_state.quiz_score, st.session_state.quiz_params['num']
+                if not st.session_state.quiz_saved and is_authenticated and db:
+                    db.collection("users").document(user_email).collection("quiz_results").add({"timestamp": time.time(), "score": score, "total": total, "subject": st.session_state.quiz_params['subj']})
+                    st.session_state.quiz_saved = True
+                    
+                st.balloons()
+                st.success(f"## 🎉 Quiz Complete! 🎉 \n\n### You scored: {score} / {total}")
+                if st.button("Take Another Quiz", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        if key.startswith('quiz_'): del st.session_state[key]
+                    st.rerun()
+
+    else: render_chat_interface = True
 
 # ==========================================
-# 4) UNIVERSAL CHAT VIEW (AI Tutor / Teacher Chat)
+# UNIVERSAL CHAT VIEW (AI Tutor / Teacher Chat)
 # ==========================================
 if render_chat_interface:
     st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
@@ -986,7 +996,10 @@ if render_chat_interface:
     if chat_input := st.chat_input("Ask Helix...", accept_file=True, file_type=["jpg","png","pdf","txt"]):
         if "textbook_handles" not in st.session_state: st.session_state.textbook_handles = upload_textbooks()
         
-        f_bytes, f_mime, f_name = (chat_input.files[0].getvalue() if chat_input.files else None), (chat_input.files[0].type if chat_input.files else None), (chat_input.files[0].name if chat_input.files else None)
+        f_bytes = chat_input.files.getvalue() if chat_input.files else None
+        f_mime = chat_input.files.type if chat_input.files else None
+        f_name = chat_input.files.name if chat_input.files else None
+        
         st.session_state.messages.append({"role": "user", "content": (chat_input.text or "").strip(), "user_attachment_bytes": f_bytes, "user_attachment_mime": f_mime, "user_attachment_name": f_name})
         save_chat_history(); st.rerun()
 
@@ -1004,7 +1017,7 @@ if render_chat_interface:
                     if txt.strip() and r == exp_role:
                         valid_history.insert(0, types.Content(role=r, parts=[types.Part.from_text(text=txt)]))
                         exp_role = "user" if exp_role == "model" else "model"
-                if valid_history and valid_history[0].role == "model": valid_history.pop(0)
+                if valid_history and valid_history.role == "model": valid_history.pop(0)
 
                 curr_parts =[]
                 student_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
@@ -1051,7 +1064,7 @@ if render_chat_interface:
                 if v_prompts := re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", bot_txt):
                     with concurrent.futures.ThreadPoolExecutor(5) as exe:
                         for r in exe.map(process_visual_wrapper, v_prompts):
-                            if r and r[0]: imgs.append(r[0]); mods.append(r[1])
+                            if r and r: imgs.append(r); mods.append(r)
                 
                 dl = bool(re.search(r"\[PDF_READY\]", bot_txt, re.IGNORECASE) or (re.search(r"##\s*Mark Scheme", bot_txt, re.IGNORECASE) and re.search(r"\[\d+\]", bot_txt)))
                 st.session_state.messages.append({"role": "assistant", "content": bot_txt, "is_downloadable": dl, "images": imgs, "image_models": mods})
