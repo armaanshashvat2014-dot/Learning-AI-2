@@ -47,117 +47,16 @@ else:
 st.markdown(f"""
 <style>
 /* Core App Background & Typography */
-.stApp {{
-    background: {bg_style} !important;
-    transition: background 0.6s ease-in-out;
-    color: #f5f5f7 !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-}}
-
-/* Sidebar Glassmorphism */[data-testid="stSidebar"] {{
-    background: rgba(25, 25, 35, 0.4) !important;
-    backdrop-filter: blur(40px) !important;
-    -webkit-backdrop-filter: blur(40px) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
-}}
-
-/* Native Streamlit Form & Container Glass UI */[data-testid="stForm"],[data-testid="stVerticalBlockBorderWrapper"] {{
-    background: rgba(255, 255, 255, 0.04) !important;
-    backdrop-filter: blur(40px) !important;
-    -webkit-backdrop-filter: blur(40px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 28px !important;
-    padding: 10px !important;
-    box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-    margin: 20px 0 !important;
-}}
-
-/* Glass Chat Bubbles */[data-testid="stChatMessage"] {{
-    background: rgba(255, 255, 255, 0.05) !important;
-    backdrop-filter: blur(24px) !important;
-    -webkit-backdrop-filter: blur(24px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    border-radius: 28px !important;
-    padding: 20px !important;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-    color: #fff !important;
-    margin-bottom: 16px;
-}}[data-testid="stChatMessage"] * {{ color: #f5f5f7 !important; }}
-
-/* Glass Inputs (Chat & Forms) */
-.stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>textarea, .stNumberInput>div>div>input {{
-    background: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-    border-radius: 12px !important;
-    color: #fff !important;
-}}
-.stChatInputContainer {{ background: transparent !important; }}
-
-/* Glossy Buttons */
-.stButton>button {{
-    background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 100%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-    border-radius: 20px !important;
-    backdrop-filter: blur(20px) !important;
-    color: #fff !important;
-    font-weight: 600 !important;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
-}}
-
-/* Prevent Samsung mobile sticky hover bug! */
-@media (hover: hover) and (pointer: fine) {{
-    .stButton>button:hover {{
-        background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 100%) !important;
-        border-color: rgba(255,255,255,0.4) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
-    }}
-}}
-.stButton>button:active {{ transform: translateY(1px) !important; background: rgba(255,255,255,0.2) !important; }}
-
-/* Thinking Animation */
-.thinking-container {{ display: flex; align-items: center; gap: 8px; padding: 12px 16px; background-color: rgba(255,255,255,0.05); border-radius: 16px; margin: 10px 0; border-left: 3px solid #fc8404; backdrop-filter: blur(10px); }}
-.thinking-text {{ color: #fc8404; font-size: 14px; font-weight: 600; }}
-.thinking-dots {{ display: flex; gap: 4px; }}
-.thinking-dot {{ width: 6px; height: 6px; border-radius: 50%; background-color: #fc8404; animation: thinking-pulse 1.4s infinite; }}
-.thinking-dot:nth-child(2){{ animation-delay: 0.2s; }}
-.thinking-dot:nth-child(3){{ animation-delay: 0.4s; }}
-@keyframes thinking-pulse {{ 0%, 60%, 100% {{ opacity: 0.3; transform: scale(0.8); }} 30% {{ opacity: 1; transform: scale(1.2); }} }}
-
-/* Typography */
-.big-title {{ font-family: 'Inter', sans-serif; color: #00d4ff; text-align: center; font-size: 48px; font-weight: 1200; letter-spacing: -3px; margin-bottom: 0px; text-shadow: 0 0 12px rgba(0, 212, 255, 0.4); }}
-.quiz-title {{ font-size: 32px; font-weight: 800; text-align: center; margin-bottom: 20px; }}
-.quiz-question-text {{ font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 30px; line-height: 1.4; color: #fff; }}
-.quiz-counter {{ color: #a0a0ab; font-size: 14px; font-weight: 600; margin-bottom: 15px; }}
-
-/* Account Page Glass UI */
-.glass-container {{
-    background: rgba(35, 35, 45, 0.4);
-    backdrop-filter: blur(40px);
-    -webkit-backdrop-filter: blur(40px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 28px;
-    padding: 24px;
-    margin-bottom: 20px;
-}}
-.mastery-title {{ font-size: 14px; color: #a0a0ab; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }}
-.mastery-value {{ font-size: 48px; color: #00d4ff; font-weight: 800; line-height: 1; }}
-.weak-spot-item {{ 
-    background: rgba(231, 76, 60, 0.1);
-    border: 1px solid rgba(231, 76, 60, 0.2);
-    border-radius: 16px;
-    padding: 12px 16px;
-    color: #f5f5f7;
-    font-weight: 500;
-}}
-.success-item {{
-    background: rgba(46, 204, 113, 0.1);
-    border: 1px solid rgba(46, 204, 113, 0.2);
-    border-radius: 16px;
-    padding: 12px 16px;
-    color: #f5f5f7;
-    font-weight: 500;
-}}
+.stApp {{ background: {bg_style} !important; transition: background 0.6s ease-in-out; color: #f5f5f7 !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important; }}
+/* Sidebar Glassmorphism */[data-testid="stSidebar"] {{ background: rgba(25, 25, 35, 0.4) !important; backdrop-filter: blur(40px) !important; -webkit-backdrop-filter: blur(40px) !important; border-right: 1px solid rgba(255, 255, 255, 0.08) !important; }}
+/* Native Streamlit Form & Container Glass UI */[data-testid="stForm"],[data-testid="stVerticalBlockBorderWrapper"] {{ background: rgba(255, 255, 255, 0.04) !important; backdrop-filter: blur(40px) !important; -webkit-backdrop-filter: blur(40px) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; border-radius: 28px !important; padding: 24px !important; box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important; margin: 20px 0 !important; }}
+/* Glass Chat Bubbles */[data-testid="stChatMessage"] {{ background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(24px) !important; -webkit-backdrop-filter: blur(24px) !important; border: 1px solid rgba(255, 255, 255, 0.12) !important; border-radius: 28px !important; padding: 20px !important; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important; color: #fff !important; margin-bottom: 16px; }}[data-testid="stChatMessage"] * {{ color: #f5f5f7 !important; }}
+/* Glass Inputs (Chat & Forms) */.stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>textarea, .stNumberInput>div>div>input {{ background: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 12px !important; color: #fff !important; }} .stChatInputContainer {{ background: transparent !important; }}
+/* Glossy Buttons */.stButton>button {{ background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 100%) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 20px !important; backdrop-filter: blur(20px) !important; color: #fff !important; font-weight: 600 !important; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important; }}
+/* Prevent Samsung mobile sticky hover bug! */@media (hover: hover) and (pointer: fine) {{ .stButton>button:hover {{ background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 100%) !important; border-color: rgba(255,255,255,0.4) !important; transform: translateY(-2px) !important; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important; }} }} .stButton>button:active {{ transform: translateY(1px) !important; background: rgba(255,255,255,0.2) !important; }}
+/* Thinking Animation */.thinking-container {{ display: flex; align-items: center; gap: 8px; padding: 12px 16px; background-color: rgba(255,255,255,0.05); border-radius: 16px; margin: 10px 0; border-left: 3px solid #fc8404; backdrop-filter: blur(10px); }} .thinking-text {{ color: #fc8404; font-size: 14px; font-weight: 600; }} .thinking-dots {{ display: flex; gap: 4px; }} .thinking-dot {{ width: 6px; height: 6px; border-radius: 50%; background-color: #fc8404; animation: thinking-pulse 1.4s infinite; }} .thinking-dot:nth-child(2){{ animation-delay: 0.2s; }} .thinking-dot:nth-child(3){{ animation-delay: 0.4s; }} @keyframes thinking-pulse {{ 0%, 60%, 100% {{ opacity: 0.3; transform: scale(0.8); }} 30% {{ opacity: 1; transform: scale(1.2); }} }}
+/* Typography */.big-title {{ font-family: 'Inter', sans-serif; color: #00d4ff; text-align: center; font-size: 48px; font-weight: 1200; letter-spacing: -3px; margin-bottom: 0px; text-shadow: 0 0 12px rgba(0, 212, 255, 0.4); }} .quiz-title {{ font-size: 32px; font-weight: 800; text-align: center; margin-bottom: 20px; }} .quiz-question-text {{ font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 30px; line-height: 1.4; color: #fff; }} .quiz-counter {{ color: #a0a0ab; font-size: 14px; font-weight: 600; margin-bottom: 15px; }}
+/* Account Page Glass UI */.glass-container {{ background: rgba(35, 35, 45, 0.4); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 28px; padding: 24px; margin-bottom: 20px; }} .account-detail {{ font-size: 1.1rem; margin-bottom: 0.5rem; }} .mastery-title {{ font-size: 14px; color: #a0a0ab; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }} .mastery-value {{ font-size: 48px; color: #00d4ff; font-weight: 800; line-height: 1; }} .weak-spot-item {{ background: rgba(231, 76, 60, 0.1); border: 1px solid rgba(231, 76, 60, 0.2); border-radius: 16px; padding: 12px 16px; color: #f5f5f7; font-weight: 500; margin-bottom: 8px; }} .success-item {{ background: rgba(46, 204, 113, 0.1); border: 1px solid rgba(46, 204, 113, 0.2); border-radius: 16px; padding: 12px 16px; color: #f5f5f7; font-weight: 500; }}[data-testid="stFileUploaderDropzone"] {{ z-index: -1 !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -172,49 +71,44 @@ You are Helix, an elite Cambridge (CIE) Tutor and Examiner for Grade 6-8 student
 
 ### RULE 1: RAG SEARCH & SCOPE (CRITICAL)
 - Search the attached PDF textbooks using OCR FIRST.
-- STRICT SCOPE: If the user requests specific chapters or topics, you MUST STRICTLY RESTRICT all questions to ONLY those requested chapters.
-- If the user asks for a general paper, balance questions across the uploaded syllabus.
+- STRICT SCOPE: If the user requests specific chapters, you MUST STRICTLY RESTRICT all questions to ONLY those requested chapters.
 
 ### RULE 2: STRICT CAMBRIDGE QUESTION DEPTH
 You MUST design questions that force multi-step reasoning. Do NOT explicitly use the word "HOTS".
 - INDIRECT QUESTIONS: NEVER reveal the topic in the heading. The student MUST deduce the concept.
-- NO CHILDISH TROPES: Use realistic, sophisticated scenarios.
 - TABLE FORMATTING: MUST use strict Markdown tables.
 
-### RULE 3: VISUAL SYNTAX (STRICT)
+### RULE 3: ANTI-PLAGIARISM PROTOCOL (CRITICAL)
+You are STRICTLY FORBIDDEN from copy-pasting or slightly rephrasing questions directly from the attached textbooks. The textbooks are for INSPIRATION ONLY. You must understand the concepts, style, and difficulty, then generate 100% NEW and UNIQUE questions that test the same skills.
+
+### RULE 4: VISUAL SYNTAX (STRICT)
 - YOU ARE CAPABLE OF GENERATING IMAGES. Use IMAGE_GEN:[Detailed description] or PIE_CHART:[Label1:Value1, Label2:Value2]. 
 
-### RULE 4: MARK SCHEME & TITLE
+### RULE 5: MARK SCHEME & TITLE
 - TITLE FORMAT: MUST be formatted EXACTLY like this:
 # Helix A.I.
 ## Practice Paper
 ###[SUBJECT] - [GRADE]
-- MARK SCHEME: Put "## Mark Scheme" at the very bottom. 
 
-### RULE 5: Analytics for students (HIDDEN):
+### RULE 6: Analytics for students (HIDDEN):
 If the user prompt explicitly asks you to evaluate for a weak point (e.g., every 6th message), silently do so.
-If you detect a clear, specific academic weak point, output a hidden analytics block at the VERY END wrapped exactly like this:
+If you detect a clear academic weak point, output a hidden analytics block at the VERY END wrapped exactly like this:
 ===ANALYTICS_START===
 {{ "subject": "Math", "grade": "Grade 7", "weak_point": "Struggles with cross-multiplication in fractions" }}
 ===ANALYTICS_END===
 If there is no clear weak point, DO NOT output this block.
 
-### RULE 6: FLEXIBLE GRADING & CHAIN OF THOUGHT
+### RULE 7: FLEXIBLE GRADING & CHAIN OF THOUGHT
 When evaluating a student's typed chat answer, you MUST act as a supportive human tutor:
 1. SILENTLY solve the problem yourself to determine the undeniable correct answer.
-2. Focus ENTIRELY on SEMANTIC CORRECTNESS. If the text submitted matches the correct concept, mark it CORRECT.
+2. Focus ENTIRELY on SEMANTIC CORRECTNESS. 
 3. NEVER penalize a student if their answer is longer or phrased differently.
 """
 
 QUIZ_SYSTEM_INSTRUCTION = f"""
-You are an AI Quiz Engine. Your ONLY job is to output a single, raw JSON object based on the user's request. NEVER output conversational text, markdown formatting, or blockquotes like ```json. 
+You are an AI Quiz Engine. Your ONLY job is to output a single, raw JSON object based on the user's request. NEVER output conversational text. 
 The JSON object MUST have this exact structure:
-{{
-    "question": "The text of the question?",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "correct_answer": "The exact text of the correct option",
-    "explanation": "Brief explanation of why it is correct"
-}}
+{{ "question": "The text of the question?", "options":["Option A", "Option B", "Option C", "Option D"], "correct_answer": "The exact text of the correct option", "explanation": "Brief explanation of why it is correct" }}
 """
 PAPER_SYSTEM = SYSTEM_INSTRUCTION + "\n\nCRITICAL FOR PAPERS: DO NOT output the ===ANALYTICS_START=== block. Append[PDF_READY] at the end."
 
@@ -233,7 +127,6 @@ def normalize_stage_text(s: str) -> str:
 if hasattr(st, "user"): auth_object = st.user
 elif hasattr(st, "experimental_user"): auth_object = st.experimental_user
 else: st.error("Streamlit version too old for Google Login."); st.stop()
-
 is_authenticated = getattr(auth_object, "is_logged_in", False)
 
 @st.cache_resource
@@ -301,7 +194,6 @@ def evaluate_weak_spots(_email):
     ws_ref = db.collection("users").document(_email).collection("weak_spots")
     ws_docs = ws_ref.where(filter=firestore.FieldFilter("identified_at", ">", seven_days_ago)).stream()
     active_spots, dismissed_spots = [],[]
-    
     for d in ws_docs:
         val = d.to_dict(); val['id'] = d.id
         if val.get("dismissed"): dismissed_spots.append(val)
@@ -309,46 +201,48 @@ def evaluate_weak_spots(_email):
     
     an_ref = db.collection("users").document(_email).collection("analytics")
     an_docs = an_ref.where(filter=firestore.FieldFilter("timestamp", ">", seven_days_ago)).stream()
-    raw_remarks =[d.to_dict().get("weak_point") for d in an_docs if d.to_dict().get("weak_point") and d.to_dict().get("weak_point").lower() != "none"]
+    
+    # Extract complete remark dicts (including subject)
+    raw_remarks =[d.to_dict() for d in an_docs if d.to_dict().get("weak_point") and d.to_dict().get("weak_point").lower() != "none"]
     
     if len(raw_remarks) >= 3:
         prompt = f"""
         You are a diagnostic AI. 
-        Raw remarks about the student: {raw_remarks}
-        Active weak spots: {[s['topic'] for s in active_spots]}
-        Dismissed weak spots: {[s['topic'] for s in dismissed_spots]}
+        Raw remarks about the student: {json.dumps(raw_remarks)}
+        Active weak spots: {[s.get('topic') for s in active_spots]}
+        Dismissed weak spots: {[s.get('topic') for s in dismissed_spots]}
         
         Task:
         1. Group the raw remarks by semantic similarity.
         2. If ANY group has 3 or more remarks, it is a "Potential Weak Spot".
-        3. If this spot is already in the 'Active' or 'Dismissed' list (semantically), IGNORE IT.
-        4. Output ONLY a JSON array of NEW distinct weak spot strings. Example:["Weak imagery in descriptive writing", "Fractions"]
+        3. Output ONLY a JSON array of NEW distinct weak spot objects. You MUST identify the subject based on the raw remarks.
+        Format Example: [{{"subject": "Math", "topic": "Fractions"}}]
         """
         try:
             resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(temperature=0.1))
-            txt = safe_response_text(resp)
-            if match := re.search(r'\[.*\]', txt, re.DOTALL):
+            if match := re.search(r'\[.*\]', safe_response_text(resp), re.DOTALL):
                 new_spots = json.loads(match.group(0))
                 for spot in new_spots:
-                    new_doc = ws_ref.add({"topic": spot, "identified_at": now, "dismissed": False})
-                    active_spots.append({"id": new_doc[1].id, "topic": spot, "identified_at": now, "dismissed": False})
+                    if spot.get("topic") and spot.get("subject"):
+                        new_doc = ws_ref.add({"topic": spot["topic"], "subject": spot["subject"], "identified_at": now, "dismissed": False})
+                        active_spots.append({"id": new_doc[1].id, "topic": spot["topic"], "subject": spot["subject"], "identified_at": now, "dismissed": False})
         except Exception as e: print("Weak spot engine error:", e)
             
     return active_spots, dismissed_spots
 
-def run_quiz_weakpoint_check(history, email):
+def run_quiz_weakpoint_check(history, email, subject):
     if not db: return
-    prompt = f"Review the student's last 5 quiz answers:\n{json.dumps(history, indent=2)}\nDid they show a specific recurring weak spot? If yes, return JSON: {{\"weak_point\": \"description of weak spot\"}}. If no, return {{\"weak_point\": \"None\"}}."
+    prompt = f"Review the student's last 5 {subject} quiz answers:\n{json.dumps(history, indent=2)}\nDid they show a specific recurring weak spot? If yes, return JSON: {{\"weak_point\": \"description of weak spot\"}}. If no, return {{\"weak_point\": \"None\"}}."
     try:
         resp = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt, config=types.GenerateContentConfig(temperature=0.1))
         if match := re.search(r'\{.*\}', safe_response_text(resp), re.DOTALL):
             data = json.loads(match.group(0))
             if data.get("weak_point") and data.get("weak_point").lower() != "none":
-                db.collection("users").document(email).collection("analytics").add({"timestamp": time.time(), "weak_point": data["weak_point"], "source": "quiz"})
+                db.collection("users").document(email).collection("analytics").add({"timestamp": time.time(), "subject": subject, "weak_point": data["weak_point"], "source": "quiz"})
     except Exception: pass
 
 # -----------------------------
-# THREAD HELPERS
+# THREAD HELPERS & DB COMPRESSION
 # -----------------------------
 def get_threads_collection(): return db.collection("users").document(auth_object.email).collection("threads") if is_authenticated and db else None
 def get_all_threads():
@@ -443,7 +337,7 @@ def generate_with_retry(model_target, contents, config, retries=3):
     return None
 
 def safe_response_text(resp) -> str:
-    try: return str(resp.text) if getattr(resp, "text", None) else "\n".join([p.text for c in (getattr(resp, "candidates", []) or[]) for p in (getattr(c.content, "parts", []) or[]) if getattr(p, "text", None)])
+    try: return str(resp.text) if getattr(resp, "text", None) else "\n".join([p.text for c in (getattr(resp, "candidates", []) or[]) for p in (getattr(c.content, "parts",[]) or[]) if getattr(p, "text", None)])
     except Exception: return ""
 
 def process_visual_wrapper(vp):
@@ -536,12 +430,8 @@ def generate_chat_title(client, messages):
     except Exception as e: st.toast(f"Title Gen Failed: {e}"); return "New Chat"
 
 # -----------------------------
-# 3) SESSION STATE & DIALOGS
+# DIALOGS (MUST BE DEFINED EARLY)
 # -----------------------------
-if "current_thread_id" not in st.session_state: st.session_state.current_thread_id = str(uuid.uuid4())
-if "messages" not in st.session_state: st.session_state.messages = get_default_greeting()
-if "delete_requested_for" not in st.session_state: st.session_state.delete_requested_for = None
-
 @st.dialog("⚠️ Maximum Chats")
 def confirm_new_chat_dialog(oldest_thread_id):
     st.write("Limit of 15 chats reached. Delete oldest to create new?")
@@ -570,15 +460,45 @@ def confirm_delete_chat_dialog(thread_id_to_delete):
             st.session_state.current_thread_id = str(uuid.uuid4()); st.session_state.messages = get_default_greeting()
         st.session_state.delete_requested_for = None; st.rerun()
 
-@st.dialog("⚙️ Chat Settings")
-def chat_settings_dialog(thread_data):
-    st.caption(f"📚 **Subjects:** {', '.join(thread_data.get('metadata', {}).get('subjects',[])) or 'None'}")
-    st.caption(f"🎓 **Grades:** {', '.join(thread_data.get('metadata', {}).get('grades',[])) or 'None'}")
-    new_title = st.text_input("Rename Chat", value=thread_data.get("title", "New Chat"))
-    if st.button("💾 Save", use_container_width=True):
-        get_threads_collection().document(thread_data["id"]).set({"title": new_title, "user_edited_title": True}, merge=True); st.rerun()
-    if st.button("🗑️ Delete", type="primary", use_container_width=True):
-        st.session_state.delete_requested_for = thread_data['id']; st.rerun()
+@st.dialog("Manage Class")
+def manage_class_dialog_ui(class_id):
+    new_id = st.text_input("Rename Class ID", value=class_id)
+    if st.button("Save New ID", use_container_width=True):
+        old_ref = db.collection("classes").document(class_id)
+        new_ref = db.collection("classes").document(new_id)
+        new_ref.set(old_ref.get().to_dict())
+        old_ref.delete()
+        st.success("Renamed!"); time.sleep(1); st.rerun()
+    st.error("Danger Zone")
+    if st.button("Delete Class Permanently", type="primary", use_container_width=True):
+        db.collection("classes").document(class_id).delete()
+        st.success("Deleted!"); time.sleep(1); st.rerun()
+
+@st.dialog("Manage Student")
+def manage_student_dialog_ui(student_email, class_id):
+    prof = get_user_profile(student_email)
+    new_name = st.text_input("Rename Student", value=prof.get("display_name", ""))
+    if st.button("Save Name", use_container_width=True):
+        db.collection("users").document(student_email).update({"display_name": new_name})
+        st.success("Renamed!"); time.sleep(1); st.rerun()
+    st.error("Danger Zone")
+    if st.button("Remove from Class", type="primary", use_container_width=True):
+        db.collection("classes").document(class_id).update({"students": firestore.ArrayRemove([student_email])})
+        db.collection("users").document(student_email).update({"teacher_id": None})
+        st.success("Removed!"); time.sleep(1); st.rerun()
+
+@st.dialog("🔥 Delete Account Permanently")
+def confirm_delete_account_dialog():
+    st.warning("This action is irreversible. It will delete your account, all classes you created, and unlink you from all your students.")
+    c1, c2 = st.columns(2)
+    if c1.button("Cancel", use_container_width=True): st.rerun()
+    if c2.button("Yes, Delete My Account", type="primary", use_container_width=True):
+        try:
+            for c in db.collection("classes").where(filter=firestore.FieldFilter("created_by", "==", user_email)).stream(): c.reference.delete()
+            for s in db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream(): s.reference.update({"teacher_id": None})
+            db.collection("users").document(user_email).delete()
+            st.session_state.clear(); st.logout()
+        except Exception as e: st.error(f"Error: {e}")
 
 # -----------------------------
 # 4) SIDEBAR
@@ -590,62 +510,55 @@ with st.sidebar:
     else:
         st.success(f"Welcome back, {user_profile.get('display_name', 'User')}!")
         
-        # 🎯 FIX: Buttons exactly in requested order under the Welcome box
         if st.button("👤 My Account", use_container_width=True):
-            st.session_state.app_mode = "👤 My Account"
+            st.session_state.view_mode = "account"
             st.rerun()
-        if st.button("Log out", use_container_width=True, on_click=st.logout):
-            pass
+        if st.button("Log out", use_container_width=True):
+            st.session_state.clear()
+            st.logout()
             
         st.divider()
         
-        st.markdown("<b style='color:#00d4ff'>🎯 ACTIVE GRADE</b>", unsafe_allow_html=True)
-        prof_grade = user_profile.get("grade", "Grade 6")
-        active_grade = st.selectbox("Set your grade context",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(prof_grade), label_visibility="collapsed")
-        if active_grade != prof_grade:
-            if db: db.collection("users").document(user_email).update({"grade": active_grade})
-            user_profile["grade"] = active_grade
-            st.rerun()
-        st.session_state.active_grade = active_grade
-        st.divider()
-
-        if user_role == "student":
-            st.markdown("<b style='color:#00d4ff'>📱 APP MODE</b>", unsafe_allow_html=True)
-            
-            # 🎯 FIX: Decoupled radio button to prevent Streamlit error when My Account is active
-            modes = ["💬 AI Tutor", "⚡ Interactive Quiz"]
-            curr_mode = st.session_state.get("app_mode", "💬 AI Tutor")
-            r_idx = modes.index(curr_mode) if curr_mode in modes else None
-            
-            selected_mode = st.radio("Choose Mode", modes, index=r_idx, label_visibility="collapsed")
-            if selected_mode and selected_mode != curr_mode:
-                st.session_state.app_mode = selected_mode
+        if st.session_state.get("view_mode") == "account":
+            if st.button("🔙 Back to App", use_container_width=True):
+                st.session_state.view_mode = "main"
                 st.rerun()
-                
-            if st.session_state.get("app_mode") == "⚡ Interactive Quiz" and st.session_state.get("quiz_active"):
-                if st.button("End Quiz", use_container_width=True):
-                    for key in list(st.session_state.keys()):
-                        if key.startswith('quiz_'): del st.session_state[key]
-                    st.session_state.app_mode = "💬 AI Tutor"
-                    st.rerun()
+        
+        if st.session_state.get("view_mode", "main") == "main":
+            st.markdown("<b style='color:#00d4ff'>🎯 ACTIVE GRADE</b>", unsafe_allow_html=True)
+            prof_grade = user_profile.get("grade", "Grade 6")
+            active_grade = st.selectbox("Set your grade context",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(prof_grade), label_visibility="collapsed")
+            if active_grade != prof_grade:
+                if db: db.collection("users").document(user_email).update({"grade": active_grade})
+                user_profile["grade"] = active_grade
+                st.rerun()
+            st.session_state.active_grade = active_grade
             st.divider()
 
-            if not user_profile.get("teacher_id"):
-                with st.expander("🎓 Are you a Teacher?"):
-                    if st.button("Verify Code") and (code_input := st.text_input("Teacher Code", type="password")) in SCHOOL_CODES:
-                        db.collection("users").document(user_email).update({"role": "teacher", "school": SCHOOL_CODES[code_input]})
-                        st.success("Verified!"); time.sleep(1); st.rerun()
-            else:
-                c = get_student_class_data(user_email)
-                st.info(f"🏫 Class:\n**{c.get('id', 'Unknown') if c else 'Unknown'}**")
-        
-        elif user_role == "teacher":
-            if st.session_state.get("app_mode") == "👤 My Account":
-                if st.button("🔙 Back to Dashboard", use_container_width=True):
-                    st.session_state.app_mode = "💬 AI Tutor"
-                    st.rerun()
+            if user_role == "student":
+                st.markdown("<b style='color:#00d4ff'>📱 APP MODE</b>", unsafe_allow_html=True)
+                st.radio("Choose Mode",["💬 AI Tutor", "⚡ Interactive Quiz"], key="app_mode", label_visibility="collapsed")
+                
+                if st.session_state.app_mode == "⚡ Interactive Quiz" and st.session_state.get("quiz_active"):
+                    if st.button("End Quiz", use_container_width=True):
+                        for key in list(st.session_state.keys()):
+                            if key.startswith('quiz_'): del st.session_state[key]
+                        st.session_state.app_mode = "💬 AI Tutor"
+                        st.rerun()
+                st.divider()
 
-    if st.session_state.get("app_mode", "💬 AI Tutor") == "💬 AI Tutor" and user_role != "teacher":
+                if not user_profile.get("teacher_id"):
+                    with st.expander("🎓 Are you a Teacher?"):
+                        if st.button("Verify Code") and (code_input := st.text_input("Teacher Code", type="password")) in SCHOOL_CODES:
+                            db.collection("users").document(user_email).update({"role": "teacher", "school": SCHOOL_CODES[code_input]})
+                            st.success("Verified!"); time.sleep(1); st.rerun()
+                else:
+                    c = get_student_class_data(user_email)
+                    school_display = user_profile.get('school') or (c.get('school') if c else None) or "Not linked"
+                    class_display = c.get('id', 'Unknown') if c else 'Unknown'
+                    st.info(f"🏫 **School:** {school_display}\n\n**Class:** {class_display}")
+
+    if st.session_state.get("view_mode", "main") == "main" and st.session_state.get("app_mode", "💬 AI Tutor") == "💬 AI Tutor" and user_role != "teacher":
         if st.button("➕ New Chat", use_container_width=True):
             st.session_state.current_thread_id = str(uuid.uuid4()); st.session_state.messages = get_default_greeting(); st.rerun()
         if is_authenticated:
@@ -718,161 +631,62 @@ def select_relevant_books(query, file_dict, user_grade="Grade 6"):
     return sel
 
 # ==========================================
-# APP ROUTER
+# QUIZ ENGINE (SHARED UI)
 # ==========================================
-render_chat_interface = False 
-app_mode = st.session_state.get("app_mode", "💬 AI Tutor")
-
-# --- 1) ACCOUNT DASHBOARD (ALL ROLES) ---
-if app_mode == "👤 My Account":
-    render_chat_interface = False
-    st.markdown("<div class='big-title'>👤 My Account</div><br>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.markdown(f"**Name:** {user_profile.get('display_name', 'Guest')}")
-        st.markdown(f"**Email:** {user_email}")
-        st.markdown(f"**Grade:** {user_profile.get('grade', 'Grade 6')}")
-        if user_profile.get('school'): st.markdown(f"**School:** {user_profile.get('school')}")
-    
-    qr_docs = db.collection("users").document(user_email).collection("quiz_results").stream()
-    scores, totals = 0, 0
-    for qd in qr_docs: d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
-    mastery = int((scores/totals)*100) if totals > 0 else 0
-    
-    st.markdown(f"""<div class="glass-container"><div class="mastery-title">Overall Mastery</div><div class="mastery-value">{mastery}%</div></div>""", unsafe_allow_html=True)
-
-    st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
-    with st.spinner("Analyzing recent performance..."):
-        active_spots, _ = evaluate_weak_spots(user_email)
-    
-    if not active_spots: st.markdown("<div class='success-item'>No active weak spots detected! Great job! 🎉</div>", unsafe_allow_html=True)
-    else:
-        for spot in active_spots:
-            col1, col2 = st.columns([0.8, 0.2])
-            with col1: st.markdown(f"<div class='weak-spot-item'>{spot['topic']}</div>", unsafe_allow_html=True)
-            with col2:
-                if st.button("Dismiss", key=f"d_a_{spot['id']}", use_container_width=True):
-                    db.collection("users").document(user_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
-                    st.rerun()
-
-# --- 2) TEACHER DASHBOARD ---
-elif user_role == "teacher":
-    st.markdown("<div class='big-title' style='color:#fc8404;'>👨‍🏫 helix.ai / Teacher</div>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    if user_profile.get("school"): roster_stream = db.collection("users").where(filter=firestore.FieldFilter("school", "==", user_profile.get("school"))).stream()
-    else: roster_stream = db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream()
-    roster =[u for u in roster_stream if u.to_dict().get("role") == "student"]
-
-    teacher_menu = st.radio("Menu",["Student Analytics", "Class Management", "Assign Papers", "AI Chat"], horizontal=True, label_visibility="collapsed")
-    st.divider()
-
-    if teacher_menu == "Student Analytics":
-        st.subheader("📊 Student Analytics")
-        if not roster: st.info("No students enrolled yet.")
-        else:
-            selected_student_name = st.selectbox("Select Student",[r.to_dict().get('display_name', r.id) for r in roster])
-            student_doc_list =[r for r in roster if r.to_dict().get('display_name', r.id) == selected_student_name]
-            if student_doc_list:
-                stu_email = student_doc_list[0].id
-                
-                qr_docs = db.collection("users").document(stu_email).collection("quiz_results").stream()
-                scores, totals = 0, 0
-                for qd in qr_docs:
-                    d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
-                mastery = int((scores/totals)*100) if totals > 0 else 0
-                st.metric("Overall Mastery (Quiz Performance)", f"{mastery}%")
-                
-                st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
-                with st.spinner("Analyzing recent performance..."):
-                    active_spots, _ = evaluate_weak_spots(stu_email)
-                if not active_spots: st.success("No active weak spots detected!")
-                else:
-                    for spot in active_spots:
-                        col1, col2 = st.columns([0.8, 0.2])
-                        col1.warning(spot['topic'])
-                        if col2.button("Dismiss", key=f"d_t_{spot['id']}"):
-                            db.collection("users").document(stu_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
-                            st.rerun()
-
-    elif teacher_menu == "Class Management":
-        st.subheader("🏫 Class Management")
-        with st.form("create_class_form", clear_on_submit=True):
-            cc1, cc2, cc3 = st.columns([0.4, 0.3, 0.3])
-            grade_choice = cc1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
-            section_choice = cc2.selectbox("Section", ["A", "B", "C", "D"])
-            if cc3.form_submit_button("Create", use_container_width=True):
-                success, msg = create_global_class(f"{grade_choice.split()[-1]}{section_choice}".upper(), user_email, grade_choice, section_choice, user_profile.get("school"))
-                if success: st.success(msg); time.sleep(1); st.rerun()
-                else: st.error(msg)
-        my_classes = list(db.collection("classes").where(filter=firestore.FieldFilter("created_by", "==", user_email)).stream())
-        if my_classes:
-            with st.form("add_student_form", clear_on_submit=True):
-                sc = st.selectbox("Class",[c.id for c in my_classes])
-                em = st.text_input("Student Email")
-                if st.form_submit_button("Add") and em:
-                    db.collection("users").document(em.strip().lower()).set({"role": "student", "teacher_id": user_email, "school": user_profile.get("school")}, merge=True)
-                    db.collection("classes").document(sc).update({"students": firestore.ArrayUnion([em.strip().lower()])})
-                    st.success("Added!"); time.sleep(1); st.rerun()
-
-    elif teacher_menu == "Assign Papers":
-        st.subheader("📝 Assignment Creator")
-        c1, c2 = st.columns(2)
-        assign_title, assign_subject, assign_grade = c1.text_input("Title", "Chapter Quiz"), c1.selectbox("Subject",["Math", "Biology", "Chemistry", "Physics", "English"]), c1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
-        assign_difficulty, assign_marks, assign_extra = c2.selectbox("Difficulty",["Easy", "Medium", "Hard"]), c2.number_input("Marks", 10, 100, 30, 5), st.text_area("Extra Instructions")
-        if st.button("🤖 Generate with Helix AI", type="primary", use_container_width=True):
-            with st.spinner("Writing paper..."):
-                books = select_relevant_books(f"{assign_subject} {assign_grade}", st.session_state.textbook_handles, assign_grade)
-                parts = []
-                for b in books: parts.extend([types.Part.from_text(text=f"[Source: {b.display_name}]"), types.Part.from_uri(file_uri=b.uri, mime_type="application/pdf")])
-                parts.append(types.Part.from_text(text=f"Task: Generate a CIE {assign_subject} paper for {assign_grade} students.\nDifficulty: {assign_difficulty}. Marks: {assign_marks}.\nExtra Instructions: {assign_extra}"))
-                try:
-                    resp = generate_with_retry(model_target="gemini-2.5-pro", contents=parts, config=types.GenerateContentConfig(system_instruction=PAPER_SYSTEM, temperature=0.1))
-                    gen_paper = safe_response_text(resp)
-                    draft_imgs, draft_mods = [],[]
-                    if v_prompts := re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", gen_paper):
-                        with concurrent.futures.ThreadPoolExecutor(5) as exe:
-                            for r in exe.map(process_visual_wrapper, v_prompts):
-                                draft_imgs.append(r[0]); draft_mods.append(r[1])
-                                if not r[0] and len(r)>2: st.error(f"Image Error: {r[2]}")
-                    st.session_state.update(draft_paper=gen_paper, draft_images=draft_imgs, draft_models=draft_mods, draft_title=assign_title); st.rerun()
-                except Exception as e: st.error(e)
-        if st.session_state.get("draft_paper"):
-            with st.expander("Preview", expanded=True):
-                st.markdown(st.session_state.draft_paper.replace("[PDF_READY]", ""))
-                if st.session_state.draft_images:
-                    for i, m in zip(st.session_state.draft_images, st.session_state.draft_models):
-                        if i: st.image(i, caption=m)
-                try: st.download_button("Download PDF", data=create_pdf(st.session_state.draft_paper, st.session_state.draft_images), file_name=f"{st.session_state.draft_title}.pdf", mime="application/pdf")
-                except Exception as e: st.error(f"PDF Gen Error: {e}")
-
-    elif teacher_menu == "AI Chat": render_chat_interface = True 
-
-# --- 3) STUDENT QUIZ DASHBOARD ---
-elif app_mode == "⚡ Interactive Quiz":
-    render_chat_interface = False
-    
+def render_quiz_engine():
     if not st.session_state.get("quiz_active", False):
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("<div class='quiz-title'>⚙️ Configure Your Quiz</div>", unsafe_allow_html=True)
-        with st.form("quick_quiz_form", border=False):
+        
+        with st.form("create_quiz_form", border=False):
             with st.container(border=True):
+                st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Create a New Quiz</h3>", unsafe_allow_html=True)
                 c1, c2, c3 = st.columns(3)
-                q_subj = c1.selectbox("Subject",["Math", "Science", "English"])
+                q_subj = c1.selectbox("Subject", ["Math", "Science", "English"])
                 current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
                 q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
                 q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
                 
-                # 🎯 FIX: Explicitly sizing columns for layout consistency
                 c4, c5 = st.columns([3, 1])
                 q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
                 q_num = c5.selectbox("Questions",[5, 10, 15, 20])
                 
-                if st.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True):
-                    st.session_state.quiz_params = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
-                    st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
-                    st.session_state.quiz_active, st.session_state.quiz_saved = True, False
-                    st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
-                    st.rerun()
+            col_btn1, col_btn2 = st.columns(2)
+            if col_btn1.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True):
+                st.session_state.quiz_params = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
+                st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                st.rerun()
+                
+            if col_btn2.form_submit_button("🔗 Generate ShareCode", use_container_width=True):
+                st.session_state.quiz_params = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
+                share_code = str(uuid.uuid4())[:6].upper()
+                if db:
+                    db.collection("quizzes").document(share_code).set({
+                        "params": st.session_state.quiz_params, "created_by": user_email, "created_at": time.time()
+                    })
+                st.session_state.generated_share_code = share_code
+
+        if st.session_state.get("generated_share_code"):
+            st.success(f"Quiz created! Share this code with students: **{st.session_state.generated_share_code}**")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        with st.form("join_quiz_form", border=False):
+            with st.container(border=True):
+                st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Join a Quiz</h3>", unsafe_allow_html=True)
+                share_code_input = st.text_input("Enter ShareCode", placeholder="e.g., A1B2C3").upper()
+                if st.form_submit_button("Join Quiz", use_container_width=True):
+                    if db:
+                        quiz_ref = db.collection("quizzes").document(share_code_input).get()
+                        if quiz_ref.exists:
+                            st.session_state.quiz_params = quiz_ref.to_dict()["params"]
+                            st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                            st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                            st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                            st.rerun()
+                        else: st.error("Invalid ShareCode. Please check the code and try again.")
     else:
         if "quiz_current_q_data" not in st.session_state:
             with st.spinner("Generating next question..."):
@@ -904,8 +718,7 @@ elif app_mode == "⚡ Interactive Quiz":
                 if st.session_state.get("quiz_user_answer") is None:
                     for option in q_data.get('options',[]):
                         if st.button(option, use_container_width=True, key=f"q_opt_{option}"):
-                            st.session_state.quiz_user_answer = option
-                            st.rerun()
+                            st.session_state.quiz_user_answer = option; st.rerun()
                 else:
                     user_ans = st.session_state.quiz_user_answer
                     is_correct = (user_ans == q_data.get('correct_answer'))
@@ -922,7 +735,7 @@ elif app_mode == "⚡ Interactive Quiz":
                             
                     if len(st.session_state.quiz_history) < st.session_state.quiz_current_q:
                         st.session_state.quiz_history.append({"q": q_data.get('question'), "user": user_ans, "correct": q_data.get('correct_answer'), "is_correct": is_correct})
-                        if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email)
+                        if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email, q_params['subj'])
 
                     is_last_q = (st.session_state.quiz_current_q == q_params['num'])
                     if st.button("Next Question" if not is_last_q else "Finish Quiz", type="primary", use_container_width=True):
@@ -945,10 +758,215 @@ elif app_mode == "⚡ Interactive Quiz":
                     if key.startswith('quiz_'): del st.session_state[key]
                 st.rerun()
 
-else: render_chat_interface = True
+# ==========================================
+# APP ROUTER
+# ==========================================
+render_chat_interface = False 
+view_mode = st.session_state.get("view_mode", "main")
+app_mode = st.session_state.get("app_mode", "💬 AI Tutor")
+
+# --- 1) ACCOUNT DASHBOARD (ALL ROLES) ---
+if view_mode == "account":
+    render_chat_interface = False
+    st.markdown("<div class='big-title' style='display: flex; align-items: center; justify-content: center; gap: 15px;'><svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' class='feather feather-user'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'></path><circle cx='12' cy='7' r='4'></circle></svg> My Account</div><br>", unsafe_allow_html=True)
+    
+    student_class_data = get_student_class_data(user_email)
+    class_name = student_class_data.get('id') if student_class_data else "Not in a Class"
+    school_name = user_profile.get('school') or (student_class_data.get('school') if student_class_data else None) or "Not linked"
+
+    with st.container():
+        st.markdown(f"""<div class="glass-container">
+            <div class="account-detail"><b>Name:</b> {user_profile.get('display_name', 'Guest')}</div>
+            <div class="account-detail"><b>Email:</b> {user_email}</div>
+            <div class="account-detail"><b>Grade:</b> {user_profile.get('grade', 'Grade 6')}</div>
+            <div class="account-detail"><b>School:</b> {school_name}</div>
+            {f'<div class="account-detail"><b>Class:</b> {class_name}</div>' if user_role == 'student' else ''}
+        </div>""", unsafe_allow_html=True)
+
+        if not student_class_data and not user_profile.get('school'):
+            with st.form("rename_form", border=False):
+                st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+                new_name = st.text_input("Change Display Name", value=user_profile.get('display_name', ''))
+                if st.form_submit_button("Save Name", use_container_width=True):
+                    db.collection("users").document(user_email).update({"display_name": new_name})
+                    st.success("Name updated!"); time.sleep(1); st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+        if user_role == "teacher":
+            st.markdown("### Danger Zone")
+            with st.container(border=True):
+                if st.button("Request Account Deletion", type="primary", use_container_width=True):
+                    confirm_delete_account_dialog()
+
+    if user_role == "student":
+        qr_docs = db.collection("users").document(user_email).collection("quiz_results").stream()
+        scores, totals = 0, 0
+        for qd in qr_docs: d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
+        mastery = int((scores/totals)*100) if totals > 0 else 0
+        
+        st.markdown(f"""<div class="glass-container"><div class="mastery-title">Overall Mastery</div><div class="mastery-value">{mastery}%</div></div>""", unsafe_allow_html=True)
+        st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
+        with st.spinner("Analyzing recent performance..."):
+            active_spots, _ = evaluate_weak_spots(user_email)
+        
+        if not active_spots: st.markdown("<div class='success-item'>No active weak spots detected! Great job! 🎉</div>", unsafe_allow_html=True)
+        else:
+            for spot in active_spots:
+                col1, col2 = st.columns([0.8, 0.2])
+                with col1: st.markdown(f"<div class='weak-spot-item'>[{spot.get('subject', 'General')}] {spot['topic']}</div>", unsafe_allow_html=True)
+                with col2:
+                    if st.button("Dismiss", key=f"d_a_{spot['id']}", use_container_width=True):
+                        db.collection("users").document(user_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
+                        st.rerun()
+
+# --- 2) TEACHER DASHBOARD ---
+elif user_role == "teacher":
+    st.markdown("<div class='big-title' style='color:#fc8404;'>👨‍🏫 helix.ai / Teacher</div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if user_profile.get("school"): roster_stream = db.collection("users").where(filter=firestore.FieldFilter("school", "==", user_profile.get("school"))).stream()
+    else: roster_stream = db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream()
+    roster =[u for u in roster_stream if u.to_dict().get("role") == "student"]
+
+    teacher_menu = st.radio("Menu",["Student Analytics", "Class Management", "Assign Papers", "⚡ Interactive Quiz", "💬 AI Chat"], horizontal=True, label_visibility="collapsed")
+    st.divider()
+
+    if teacher_menu == "Student Analytics":
+        st.subheader("📊 Student Analytics")
+        if not roster: st.info("No students enrolled yet.")
+        else:
+            selected_student_name = st.selectbox("Select Student",[r.to_dict().get('display_name', r.id) for r in roster])
+            student_doc_list =[r for r in roster if r.to_dict().get('display_name', r.id) == selected_student_name]
+            if student_doc_list:
+                stu_email = student_doc_list[0].id
+                
+                stu_class_data = get_student_class_data(stu_email)
+                class_subjects = stu_class_data.get("subjects", []) if stu_class_data else[]
+                
+                st.markdown("#### Subject-Specific Mastery")
+                if not class_subjects: st.info("No subjects assigned to this student's class.")
+                else:
+                    cols = st.columns(len(class_subjects))
+                    for i, subject in enumerate(class_subjects):
+                        qr_docs = db.collection("users").document(stu_email).collection("quiz_results").where(filter=firestore.FieldFilter("subject", "==", subject)).stream()
+                        scores, totals = 0, 0
+                        for qd in qr_docs: d = qd.to_dict(); scores += d.get("score", 0); totals += d.get("total", 0)
+                        mastery = int((scores/totals)*100) if totals > 0 else 0
+                        cols[i].metric(f"{subject}", f"{mastery}%")
+                
+                st.markdown("### ⚠️ Potential Weak Spots (7 Days)")
+                with st.spinner("Analyzing recent performance..."):
+                    active_spots, _ = evaluate_weak_spots(stu_email)
+                
+                relevant_spots =[s for s in active_spots if s.get('subject') in class_subjects] if class_subjects else active_spots
+                
+                if not relevant_spots: st.success("No active weak spots detected for your subjects!")
+                else:
+                    for spot in relevant_spots:
+                        col1, col2 = st.columns([0.8, 0.2])
+                        col1.warning(f"[{spot.get('subject', 'General')}] {spot['topic']}")
+                        if col2.button("Dismiss", key=f"d_t_{spot['id']}"):
+                            db.collection("users").document(stu_email).collection("weak_spots").document(spot['id']).update({"dismissed": True})
+                            st.rerun()
+
+    elif teacher_menu == "Class Management":
+        st.subheader("🏫 Class Management")
+        with st.form("create_class_form", border=False):
+            st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+            st.markdown("<h5>Create New Class</h5>", unsafe_allow_html=True)
+            cc1, cc2, cc3 = st.columns([0.4, 0.3, 0.3])
+            grade_choice = cc1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
+            section_choice = cc2.selectbox("Section", ["A", "B", "C", "D"])
+            if cc3.form_submit_button("Create", use_container_width=True):
+                success, msg = create_global_class(f"{grade_choice.split()[-1]}{section_choice}".upper(), user_email, grade_choice, section_choice, user_profile.get("school"))
+                if success: st.success(msg); time.sleep(1); st.rerun()
+                else: st.error(msg)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        my_classes = list(db.collection("classes").where(filter=firestore.FieldFilter("created_by", "==", user_email)).stream())
+        if my_classes:
+            st.markdown("---")
+            st.subheader("Edit Existing Class")
+            for c_doc in my_classes:
+                c_data = c_doc.to_dict()
+                col1, col2 = st.columns([0.85, 0.15])
+                if col1.button(f"🏫 {c_doc.id}", key=f"sel_cls_{c_doc.id}", use_container_width=True): st.session_state.managing_class = c_doc.id
+                if col2.button("⋮", key=f"del_cls_{c_doc.id}"): manage_class_dialog_ui(c_doc.id)
+                    
+            if st.session_state.get("managing_class"):
+                m_class_id = st.session_state.managing_class
+                m_class_doc = db.collection("classes").document(m_class_id).get()
+                if m_class_doc.exists:
+                    c_data = m_class_doc.to_dict()
+                    with st.form(f"edit_subjects_{m_class_id}", border=False):
+                        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+                        subjects = st.multiselect(f"Subjects taught in {m_class_id}", ["Math", "Science", "English", "Physics", "Chemistry", "Biology"], default=c_data.get("subjects",[]))
+                        if st.form_submit_button("Update Subjects", use_container_width=True):
+                            db.collection("classes").document(m_class_id).update({"subjects": subjects})
+                            st.success("Subjects updated!"); time.sleep(1); st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("<h6>Student Roster</h6>", unsafe_allow_html=True)
+                    for s_email in c_data.get("students",[]):
+                        s_prof = get_user_profile(s_email)
+                        c1, c2 = st.columns([0.85, 0.15], vertical_alignment="center")
+                        c1.markdown(f"<div class='glass-container' style='padding:10px; margin-bottom:5px;'>{s_prof.get('display_name', 'Unknown')} ({s_email})</div>", unsafe_allow_html=True)
+                        if c2.button("⋮", key=f"mng_stu_{s_email}"): manage_student_dialog_ui(s_email, m_class_id)
+                    
+                    with st.form(f"add_student_{m_class_id}", border=False):
+                        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+                        em = st.text_input("Add Student Email")
+                        if st.form_submit_button("Add Student", use_container_width=True) and em:
+                            db.collection("users").document(em.strip().lower()).set({"role": "student", "teacher_id": user_email, "school": user_profile.get("school")}, merge=True)
+                            db.collection("classes").document(m_class_id).update({"students": firestore.ArrayUnion([em.strip().lower()])})
+                            st.success("Added!"); time.sleep(1); st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+    elif teacher_menu == "Assign Papers":
+        st.subheader("📝 Assignment Creator")
+        with st.form("assign_paper_form", border=False):
+            st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            assign_title, assign_subject, assign_grade = c1.text_input("Title", "Chapter Quiz"), c1.selectbox("Subject",["Math", "Science", "Biology", "Chemistry", "Physics", "English"]), c1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
+            assign_difficulty, assign_marks, assign_extra = c2.selectbox("Difficulty",["Easy", "Medium", "Hard"]), c2.number_input("Marks", 10, 100, 30, 5), st.text_area("Extra Instructions")
+            if st.form_submit_button("🤖 Generate with Helix AI", type="primary", use_container_width=True):
+                with st.spinner("Writing paper..."):
+                    books = select_relevant_books(f"{assign_subject} {assign_grade}", st.session_state.textbook_handles, assign_grade)
+                    parts = []
+                    for b in books: parts.extend([types.Part.from_text(text=f"[Source: {b.display_name}]"), types.Part.from_uri(file_uri=b.uri, mime_type="application/pdf")])
+                    parts.append(types.Part.from_text(text=f"Task: Generate a CIE {assign_subject} paper for {assign_grade} students.\nDifficulty: {assign_difficulty}. Marks: {assign_marks}.\nExtra Instructions: {assign_extra}"))
+                    try:
+                        resp = generate_with_retry(model_target="gemini-2.5-pro", contents=parts, config=types.GenerateContentConfig(system_instruction=PAPER_SYSTEM, temperature=0.1))
+                        gen_paper = safe_response_text(resp)
+                        draft_imgs, draft_mods = [],[]
+                        if v_prompts := re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", gen_paper):
+                            with concurrent.futures.ThreadPoolExecutor(5) as exe:
+                                for r in exe.map(process_visual_wrapper, v_prompts):
+                                    draft_imgs.append(r[0]); draft_mods.append(r[1])
+                                    if not r[0] and len(r)>2: st.error(f"Image Error: {r[2]}")
+                        st.session_state.update(draft_paper=gen_paper, draft_images=draft_imgs, draft_models=draft_mods, draft_title=assign_title); st.rerun()
+                    except Exception as e: st.error(e)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        if st.session_state.get("draft_paper"):
+            with st.expander("Preview", expanded=True):
+                st.markdown(st.session_state.draft_paper.replace("[PDF_READY]", ""))
+                if st.session_state.draft_images:
+                    for i, m in zip(st.session_state.draft_images, st.session_state.draft_models):
+                        if i: st.image(i, caption=m)
+                try: st.download_button("Download PDF", data=create_pdf(st.session_state.draft_paper, st.session_state.draft_images), file_name=f"{st.session_state.draft_title}.pdf", mime="application/pdf")
+                except Exception as e: st.error(f"PDF Gen Error: {e}")
+
+    elif teacher_menu == "⚡ Interactive Quiz": render_quiz_engine()
+    elif teacher_menu == "💬 AI Chat": render_chat_interface = True 
+
+# --- 3) STUDENT MAIN DASHBOARD (Chat or Quiz) ---
+else:
+    if app_mode == "⚡ Interactive Quiz": render_quiz_engine()
+    else: render_chat_interface = True
 
 # ==========================================
-# 4) UNIVERSAL CHAT VIEW (AI Tutor / Teacher Chat)
+# UNIVERSAL CHAT VIEW (AI Tutor / Teacher Chat)
 # ==========================================
 if render_chat_interface:
     st.markdown("<div class='big-title'>📚 helix.ai</div>", unsafe_allow_html=True)
