@@ -76,7 +76,7 @@ You are Helix, an elite Cambridge (CIE) Tutor and Examiner for Grade 6-8 student
 - NEVER introduce outside terminology or advanced concepts not explicitly stated in the provided textbook extract (e.g., if the text discusses series circuits, NEVER bring up parallel circuits).
 
 ### RULE 2: CAMBRIDGE QUESTION DEPTH
-- Force multi-step reasoning. Do NOT use the word "HOTS".
+- Force multi-step reasoning. Do NOT explicitly use the word "HOTS".
 - INDIRECT QUESTIONS: NEVER reveal the topic in the heading. The student MUST deduce the concept.
 - TABLE FORMATTING: MUST use strict Markdown tables.
 
@@ -257,6 +257,9 @@ def run_quiz_weakpoint_check(history, email, subject):
                 db.collection("users").document(email).collection("analytics").add({"timestamp": time.time(), "subject": subject, "weak_point": data["weak_point"], "source": "quiz"})
     except Exception: pass
 
+# -----------------------------
+# THREAD HELPERS
+# -----------------------------
 def get_threads_collection(): return db.collection("users").document(auth_object.email).collection("threads") if is_authenticated and db else None
 def get_all_threads():
     coll_ref = get_threads_collection()
@@ -327,23 +330,30 @@ def save_chat_history():
         batch.commit()
     except Exception as e: st.toast(f"⚠️ DB Error: {e}")
 
+# -----------------------------
+# GEMINI INIT
+# -----------------------------
 api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
 if not api_key: st.error("🚨 GOOGLE_API_KEY not found."); st.stop()
 try: client = genai.Client(api_key=api_key)
 except Exception as e: st.error(f"🚨 GenAI Error: {e}"); st.stop()
 
-def generate_with_retry(model_target, contents, config, retries=3):
-    for attempt in range(retries):
-        try: return client.models.generate_content(model=model_target, contents=contents, config=config)
-        except Exception as e:
-            err_str = str(e).lower()
-            if "503" in err_str or "unavailable" in err_str or "overloaded" in err_str or "429" in err_str or "quota" in err_str:
-                if attempt < retries - 1: time.sleep(1.5 ** attempt); continue
-            try:
-                st.toast(f"⚠️ {model_target} overloaded. Switching to high-speed fallback...", icon="⚡")
-                fallback_model = "gemini-2.5-flash-lite" if "flash" in model_target else "gemini-2.5-flash"
-                return client.models.generate_content(model=fallback_model, contents=contents, config=config)
-            except Exception as fallback_e: raise fallback_e
+# 🎯 FIX: Unbreakable Waterfall Retry System
+def generate_with_retry(model_target, contents, config, retries=2):
+    fallback_models = ["gemini-2.5-flash", "gemini-3.1-flash-preview", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite-preview"]
+    models_to_try = [model_target] + [m for m in fallback_models if m != model_target]
+    
+    for current_model in models_to_try:
+        for attempt in range(retries):
+            try: return client.models.generate_content(model=current_model, contents=contents, config=config)
+            except Exception as e:
+                es = str(e).lower()
+                if any(x in es for x in ["503", "unavailable", "overloaded", "429", "quota"]):
+                    if attempt < retries - 1: time.sleep(1.5 ** attempt); continue
+                break # Exit retry loop and try the next model in the waterfall
+        if current_model != models_to_try[-1]: st.toast(f"⚠️ {current_model} overloaded. Switching models...", icon="⚡")
+        
+    st.toast("🚨 All Google AI servers are currently overloaded. Please wait.", icon="🛑")
     return None
 
 def safe_response_text(resp) -> str:
@@ -382,6 +392,9 @@ def process_visual_wrapper(vp):
             except Exception as e: return (None, "matplotlib_failed", error_logs)
     except Exception as e: return (None, "Crash",[str(e)])
 
+# -----------------------------
+# PDF HELPER
+# -----------------------------
 def md_inline_to_rl(text: str) -> str:
     s = (text or "").replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '').replace(r'\times', ' x ').replace(r'\div', ' ÷ ').replace(r'\circ', '°').replace(r'\pm', '±').replace(r'\leq', '≤').replace(r'\geq', '≥').replace(r'\neq', '≠').replace(r'\approx', '≈').replace(r'\pi', 'π').replace(r'\sqrt', '√').replace('\\', '')
     s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', s)
@@ -432,7 +445,7 @@ def generate_chat_title(client, messages):
     try:
         user_msgs =[m.get("content", "") for m in messages if m.get("role") == "user"]
         if not user_msgs: return "New Chat"
-        response = generate_with_retry(model_target="gemini-2.5-flash", contents=["Summarize this into a short chat title (max 4 words). Context: " + "\n".join(user_msgs[-3:])], config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=50))
+        response = generate_with_retry("gemini-2.5-flash", ["Summarize this into a short chat title (max 4 words). Context: " + "\n".join(user_msgs[-3:])], types.GenerateContentConfig(temperature=0.3, max_output_tokens=50))
         return safe_response_text(response).strip().replace('"', '').replace("'", "") or "New Chat"
     except Exception as e: st.toast(f"Title Gen Failed: {e}"); return "New Chat"
 
@@ -584,308 +597,9 @@ with st.sidebar:
 
 if st.session_state.get("delete_requested_for"): confirm_delete_chat_dialog(st.session_state.get("delete_requested_for"))
 
-def guess_mime(filename: str, fallback: str = "application/octet-stream") -> str:
-    n = (filename or "").lower()
-    return "image/jpeg" if n.endswith((".jpg", ".jpeg")) else "image/png" if n.endswith(".png") else "application/pdf" if n.endswith(".pdf") else fallback
-def is_image_mime(m: str) -> bool: return (m or "").lower().startswith("image/")
-
-def sync_textbooks():
-    active_files = {"sci":[], "math": [], "eng":[]}
-    pdf_map = {p.name.lower(): p for p in Path.cwd().rglob("*.pdf") if "cie" in p.name.lower()}
-    
-    # Check cache first
-    cache_file = "fast_sync_cache.json"
-    if os.path.exists(cache_file):
-        try:
-            with open(cache_file, "r") as f:
-                cached_data = json.load(f)
-            # Expire after 24 hours (86400 seconds) to be safe
-            if time.time() - cached_data.get("timestamp", 0) < 86400:
-                class CachedFile:
-                    def __init__(self, d): self.uri = d["uri"]; self.display_name = d["display_name"]
-                for subj, files in cached_data["files"].items():
-                    for item in files: active_files[subj].append(CachedFile(item))
-                return active_files
-        except Exception: pass
-    
-    # Actual sync logic
-    try: existing = {f.display_name.lower(): f for f in client.files.list() if f.display_name}
-    except Exception: existing = {}
-    
-    def process_single_book(t):
-        if t in existing and existing[t].state.name == "ACTIVE": return t, existing[t]
-        if t in pdf_map:
-            try:
-                up = client.files.upload(file=str(pdf_map[t]), config={"mime_type": "application/pdf", "display_name": pdf_map[t].name})
-                timeout = time.time() + 90
-                while up.state.name == "PROCESSING" and time.time() < timeout: time.sleep(3); up = client.files.get(name=up.name)
-                if up.state.name == "ACTIVE": return t, up
-            except Exception as e: print(f"Upload Error {t}: {e}")
-        return t, None
-        
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        results = list(executor.map(process_single_book, list(pdf_map.keys())))
-        
-    cache_dict = {"sci": [], "math": [], "eng":[]}
-    for t, file_obj in results:
-        if file_obj:
-            subj_key = "sci" if "sci" in t else "math" if "math" in t else "eng" if "eng" in t else None
-            if subj_key:
-                active_files[subj_key].append(file_obj)
-                cache_dict[subj_key].append({"uri": file_obj.uri, "display_name": file_obj.display_name})
-                
-    try:
-        with open(cache_file, "w") as f: json.dump({"timestamp": time.time(), "files": cache_dict}, f)
-    except Exception: pass
-    
-    return active_files
-
-if is_authenticated and "textbook_handles" not in st.session_state:
-    with st.spinner("Syncing Curriculum (This will be instant next time)..."):
-        st.session_state.textbook_handles = sync_textbooks()
-
-def select_relevant_books(query, file_dict, user_grade="Grade 6"):
-    qn = normalize_stage_text(query)
-    s7 = any(k in qn for k in["stage 7", "grade 6", "year 7"])
-    s8 = any(k in qn for k in["stage 8", "grade 7", "year 8"])
-    s9 = any(k in qn for k in["stage 9", "grade 8", "year 9"])
-    im = any(k in qn for k in["math", "algebra", "number", "fraction", "geometry", "calculate", "equation"])
-    isc = any(k in qn for k in["sci", "biology", "physics", "chemistry", "experiment", "cell", "gravity"])
-    ien = any(k in qn for k in["eng", "poem", "story", "essay", "writing", "grammar"])
-    if not (s7 or s8 or s9):
-        if user_grade == "Grade 6": s7 = True
-        elif user_grade == "Grade 7": s8 = True
-        elif user_grade == "Grade 8": s9 = True
-        else: s8 = True
-    if not (im or isc or ien): im = isc = ien = True
-    sel =[]
-    def add(k, act):
-        if act: 
-            for b in file_dict.get(k,[]):
-                n = b.display_name.lower()
-                if "answers" in n and user_role != "teacher": continue
-                if (s7 and "cie_7" in n) or (s8 and "cie_8" in n) or (s9 and "cie_9" in n): 
-                    sel.append(b); return 
-    add("math", im); add("sci", isc); add("eng", ien)
-    return sel
-
-def generate_full_quiz_ai(p, u_grade):
-    prompt = f"Create EXACTLY {p['num']} unique questions for a {p['grade']} {p['subj']} student. Topic: {p['chap']}. Difficulty: {p['diff']}."
-    books = select_relevant_books(f"{p['subj']} {p['grade']}", st.session_state.get("textbook_handles", {}), u_grade)
-    parts =[]
-    for b in books: parts.extend([types.Part.from_text(text=f"[Source: {b.display_name}]"), types.Part.from_uri(file_uri=b.uri, mime_type="application/pdf")])
-    parts.append(prompt)
-    resp = generate_with_retry("gemini-2.5-pro", parts, types.GenerateContentConfig(system_instruction=QUIZ_SYSTEM_INSTRUCTION, temperature=0.7))
-    if resp:
-        match = re.search(r'\[.*\]', safe_response_text(resp), re.DOTALL)
-        if match:
-            try: return json.loads(match.group(0))
-            except Exception: pass
-    return None
-
-def evaluate_short_answer(question, user_ans, reference):
-    prompt = f"Evaluate this short answer.\nQuestion: {question}\nStudent Answer: {user_ans}\nReference/Rubric: {reference}\nOutput ONLY valid JSON: {{\n\"is_correct\": true/false,\n\"explanation\": \"Short feedback\"\n}}"
-    try:
-        resp = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt, config=types.GenerateContentConfig(temperature=0.1))
-        match = re.search(r'\{.*\}', safe_response_text(resp), re.DOTALL)
-        if match: return json.loads(match.group(0))
-    except Exception: pass
-    return {"is_correct": False, "explanation": "Failed to evaluate answer."}
-
-# ==========================================
-# REUSABLE QUIZ UI (TEACHER & STUDENT)
-# ==========================================
-def render_quiz_engine():
-    if not st.session_state.get("quiz_active", False) and not st.session_state.get("quiz_finished", False):
-        st.markdown("<div class='quiz-title'>⚙️ Quiz Engine</div>", unsafe_allow_html=True)
-        tab_ai, tab_man, tab_join = st.tabs(["🤖 AI Generator", "✍️ Manual Builder", "🔑 Join Quiz"])
-        
-        with tab_ai:
-            with st.form("create_quiz_form", border=False):
-                with st.container(border=True):
-                    st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Generate AI Quiz</h3>", unsafe_allow_html=True)
-                    c1, c2, c3 = st.columns(3)
-                    q_subj = c1.selectbox("Subject",["Math", "Science", "English", "Physics", "Chemistry", "Biology"])
-                    current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
-                    q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
-                    q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
-                    
-                    c4, c5 = st.columns([3, 1])
-                    q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
-                    q_num = c5.selectbox("Questions",[5, 10, 15, 20])
-                    
-                col_btn1, col_btn2 = st.columns(2)
-                start_quiz_btn = col_btn1.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True)
-                gen_code_btn = col_btn2.form_submit_button("🔗 Generate ShareCode Only", use_container_width=True)
-                
-                if start_quiz_btn or gen_code_btn:
-                    p = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
-                    with st.spinner("Generating your unique quiz... This may take up to 30 seconds."):
-                        generated_q = generate_full_quiz_ai(p, current_active_grade)
-                    
-                    if generated_q:
-                        share_code = str(uuid.uuid4())[:6].upper()
-                        if db:
-                            db.collection("quizzes").document(share_code).set({
-                                "params": p, "questions": generated_q, "created_by": user_email, "created_at": time.time()
-                            })
-                        if start_quiz_btn:
-                            st.session_state.quiz_params = p
-                            st.session_state.quiz_questions = generated_q
-                            st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
-                            st.session_state.quiz_active, st.session_state.quiz_saved = True, False
-                            st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
-                            st.session_state.quiz_share_code = share_code
-                            st.rerun()
-                        else:
-                            st.success(f"Quiz generated! Share this code: **{share_code}**")
-                    else: st.error("Failed to generate quiz. Please try again.")
-
-        with tab_man:
-            if "manual_questions" not in st.session_state: st.session_state.manual_questions =[]
-            for i, mq in enumerate(st.session_state.get("manual_questions",[])):
-                st.info(f"**Q{i+1}:** {mq['question']} *({mq['type']})*")
-            
-            with st.expander("➕ Add New Question", expanded=True):
-                q_type = st.radio("Question Type",["MCQ", "Short Answer"])
-                q_text = st.text_area("Question Text")
-                if q_type == "MCQ":
-                    mc1, mc2 = st.columns(2)
-                    opt_a = mc1.text_input("Option A")
-                    opt_b = mc2.text_input("Option B")
-                    opt_c = mc1.text_input("Option C")
-                    opt_d = mc2.text_input("Option D")
-                    correct_opt = st.selectbox("Correct Option",["Option A", "Option B", "Option C", "Option D"])
-                    if st.button("Save MCQ"):
-                        opts =[opt_a, opt_b, opt_c, opt_d]
-                        c_text = opts[["Option A", "Option B", "Option C", "Option D"].index(correct_opt)]
-                        st.session_state.manual_questions.append({
-                            "question": q_text, "type": "MCQ", "options": opts, "correct_answer": c_text, "explanation": "Manual Quiz - Correct Answer."
-                        })
-                        st.rerun()
-                else:
-                    ref_ans = st.text_area("Reference Answer / Grading Rubric")
-                    if st.button("Save Short Answer"):
-                        st.session_state.manual_questions.append({
-                            "question": q_text, "type": "Short Answer", "options":[], "correct_answer": ref_ans, "explanation": "Manual Quiz Evaluated."
-                        })
-                        st.rerun()
-
-            if len(st.session_state.get("manual_questions",[])) > 0:
-                if st.button("Publish Quiz & Get ShareCode", type="primary", use_container_width=True):
-                    code = str(uuid.uuid4())[:6].upper()
-                    if db:
-                        db.collection("quizzes").document(code).set({
-                            "questions": st.session_state.manual_questions,
-                            "created_by": user_email,
-                            "created_at": time.time(),
-                            "params": {"subj": "Manual", "grade": "Mixed", "diff": "Mixed", "chap": "Mixed", "num": len(st.session_state.manual_questions)}
-                        })
-                    st.success(f"Quiz Published! ShareCode: **{code}**")
-                    st.session_state.manual_questions =[]
-
-        with tab_join:
-            with st.form("join_quiz_form", border=False):
-                with st.container(border=True):
-                    st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Join a Shared Quiz</h3>", unsafe_allow_html=True)
-                    share_code_input = st.text_input("Enter ShareCode", placeholder="e.g., A1B2C3").upper()
-                    if st.form_submit_button("Join Quiz", use_container_width=True):
-                        if db:
-                            quiz_ref = db.collection("quizzes").document(share_code_input).get()
-                            if quiz_ref.exists:
-                                q_dict = quiz_ref.to_dict()
-                                st.session_state.quiz_params = q_dict.get("params", {"subj": "General", "num": len(q_dict.get("questions",[]))})
-                                st.session_state.quiz_questions = q_dict.get("questions",[])
-                                st.session_state.quiz_share_code = share_code_input
-                                st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
-                                st.session_state.quiz_active, st.session_state.quiz_saved = True, False
-                                st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
-                                st.rerun()
-                            else:
-                                st.error("Invalid ShareCode. Please check the code and try again.")
-    else:
-        # ACTIVE OR FINISHED QUIZ STATE
-        q_list = st.session_state.get("quiz_questions",[])
-        q_idx = st.session_state.get("quiz_current_q", 1) - 1
-        
-        if st.session_state.get("quiz_finished"):
-            score, total = st.session_state.get("quiz_score"), len(st.session_state.get("quiz_questions",[]))
-            if not st.session_state.get("quiz_saved") and is_authenticated and db:
-                db.collection("users").document(user_email).collection("quiz_results").add({"timestamp": time.time(), "score": score, "total": total, "subject": st.session_state.get("quiz_params", {}).get('subj', 'Manual')})
-                st.session_state.quiz_saved = True
-                
-            st.balloons()
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            with st.container(border=True):
-                st.markdown("<div class='glass-container' style='text-align:center;'>", unsafe_allow_html=True)
-                st.markdown(f"<h1 style='color:#2ecc71;'>🎉 Quiz Complete! 🎉</h1>", unsafe_allow_html=True)
-                st.markdown(f"<h2>You scored: <span style='color:#00d4ff;'>{score} / {total}</span></h2>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-                if st.session_state.get("quiz_share_code"):
-                    st.info(f"Challenge friends with ShareCode: **{st.session_state.get('quiz_share_code')}**")
-                    
-                if st.button("Take Another Quiz", type="primary", use_container_width=True):
-                    for key in list(st.session_state.keys()):
-                        if key.startswith('quiz_'): del st.session_state[key]
-                    st.rerun()
-                    
-        elif q_idx < len(q_list):
-            q_data = q_list[q_idx]
-            q_params = st.session_state.get("quiz_params", {})
-            
-            with st.container(border=True):
-                st.markdown(f"<div class='quiz-counter'>Question {q_idx + 1} of {len(q_list)}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='quiz-question-text'>{q_data.get('question', 'Question text missing')}</div>", unsafe_allow_html=True)
-
-                if st.session_state.get("quiz_user_answer") is None:
-                    if q_data.get("type", "MCQ") == "MCQ":
-                        for o_idx, option in enumerate(q_data.get('options',[])):
-                            if st.button(option, use_container_width=True, key=f"q{q_idx}_opt_{o_idx}"):
-                                st.session_state.quiz_user_answer = option; st.rerun()
-                    else:
-                        user_sa = st.text_area("Your Answer:")
-                        if st.button("Submit Answer", type="primary"):
-                            with st.spinner("Evaluating..."):
-                                eval_res = evaluate_short_answer(q_data.get("question"), user_sa, q_data.get("correct_answer"))
-                                st.session_state.quiz_sa_eval = eval_res
-                            st.session_state.quiz_user_answer = user_sa; st.rerun()
-                else:
-                    user_ans = st.session_state.get("quiz_user_answer")
-                    
-                    if q_data.get("type", "MCQ") == "MCQ":
-                        is_correct = (user_ans == q_data.get('correct_answer'))
-                        explanation = q_data.get('explanation', '')
-                    else:
-                        eval_res = st.session_state.get("quiz_sa_eval", {})
-                        is_correct = eval_res.get("is_correct", False)
-                        explanation = eval_res.get("explanation", "Evaluated by AI.")
-
-                    if is_correct:
-                        st.success(f"**Correct!** {explanation}")
-                        if st.session_state.get("quiz_bg") != "correct":
-                            st.session_state.quiz_score += 1
-                            st.session_state.quiz_bg = "correct"; st.rerun()
-                    else:
-                        if q_data.get("type", "MCQ") == "MCQ": st.error(f"**Incorrect.** The correct answer was **{q_data.get('correct_answer')}**. \n\n*Explanation: {explanation}*")
-                        else: st.error(f"**Incorrect.** \n\n*Feedback: {explanation}*")
-                        if st.session_state.get("quiz_bg") != "wrong":
-                            st.session_state.quiz_bg = "wrong"; st.rerun()
-                            
-                    if len(st.session_state.get("quiz_history",[])) < st.session_state.get("quiz_current_q"):
-                        st.session_state.quiz_history.append({"q": q_data.get('question'), "user": user_ans, "correct": q_data.get('correct_answer'), "is_correct": is_correct})
-                        if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email, q_params.get('subj', 'General'))
-
-                    is_last_q = (st.session_state.get("quiz_current_q") == len(q_list))
-                    if st.button("Next Question" if not is_last_q else "Finish Quiz", type="primary", use_container_width=True):
-                        if is_last_q: st.session_state.quiz_finished = True
-                        else: st.session_state.quiz_current_q += 1
-                        st.session_state.quiz_user_answer = None 
-                        st.session_state.quiz_bg = "default"; st.rerun()
-
-# ==========================================
-# APP ROUTING & MAIN EXECUTION
-# ==========================================
+# -----------------------------
+# APP ROUTER & VIEW LOGIC
+# -----------------------------
 render_chat_interface = False 
 view_mode = st.session_state.get("view_mode", "main")
 app_mode = st.session_state.get("app_mode", "💬 AI Tutor")
@@ -899,29 +613,29 @@ if view_mode == "account":
     class_name = student_class_data.get('id') if student_class_data else "Not in a Class"
     school_name = user_profile.get('school') or (student_class_data.get('school') if student_class_data else None) or "Not linked"
 
-    with st.container():
-        st.markdown(f"""<div class="glass-container">
-            <div class="account-detail"><b>Name:</b> {user_profile.get('display_name', 'Guest')}</div>
-            <div class="account-detail"><b>Email:</b> {user_email}</div>
-            <div class="account-detail"><b>Grade:</b> {user_profile.get('grade', 'Grade 6')}</div>
-            <div class="account-detail"><b>School:</b> {school_name}</div>
-            {f'<div class="account-detail"><b>Class:</b> {class_name}</div>' if user_role == 'student' else ''}
-        </div>""", unsafe_allow_html=True)
+    # 🎯 FIX: Removed extra st.container() border wrapper
+    st.markdown(f"""<div class="glass-container">
+        <div class="account-detail"><b>Name:</b> {user_profile.get('display_name', 'Guest')}</div>
+        <div class="account-detail"><b>Email:</b> {user_email}</div>
+        <div class="account-detail"><b>Grade:</b> {user_profile.get('grade', 'Grade 6')}</div>
+        <div class="account-detail"><b>School:</b> {school_name}</div>
+        {f'<div class="account-detail"><b>Class:</b> {class_name}</div>' if user_role == 'student' else ''}
+    </div>""", unsafe_allow_html=True)
 
-        if not student_class_data and not user_profile.get('school'):
-            with st.form("rename_form", border=False):
-                st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-                new_name = st.text_input("Change Display Name", value=user_profile.get('display_name', ''))
-                if st.form_submit_button("Save Name", use_container_width=True):
-                    if db: db.collection("users").document(user_email).update({"display_name": new_name})
-                    st.success("Name updated!"); time.sleep(1); st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-        
-        if user_role == "teacher":
-            st.markdown("### Danger Zone")
-            with st.container(border=True):
-                if st.button("Request Account Deletion", type="primary", use_container_width=True):
-                    confirm_delete_account_dialog()
+    if not student_class_data and not user_profile.get('school'):
+        with st.form("rename_form", border=False):
+            st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+            new_name = st.text_input("Change Display Name", value=user_profile.get('display_name', ''))
+            if st.form_submit_button("Save Name", use_container_width=True):
+                if db: db.collection("users").document(user_email).update({"display_name": new_name})
+                st.success("Name updated!"); time.sleep(1); st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+    
+    if user_role == "teacher":
+        st.markdown("### Danger Zone")
+        with st.container(border=True):
+            if st.button("Request Account Deletion", type="primary", use_container_width=True):
+                confirm_delete_account_dialog()
 
     if user_role == "student":
         scores, totals = 0, 0
@@ -1085,12 +799,386 @@ elif user_role == "teacher":
                 try: st.download_button("Download PDF", data=create_pdf(st.session_state.get("draft_paper"), st.session_state.get("draft_images")), file_name=f"{st.session_state.get('draft_title')}.pdf", mime="application/pdf")
                 except Exception as e: st.error(f"PDF Gen Error: {e}")
 
-    elif teacher_menu == "⚡ Interactive Quiz": render_quiz_engine()
+    elif teacher_menu == "⚡ Interactive Quiz": 
+        if not st.session_state.get("quiz_active", False) and not st.session_state.get("quiz_finished", False):
+            st.markdown("<div class='quiz-title'>⚙️ Quiz Engine</div>", unsafe_allow_html=True)
+            tab_ai, tab_man, tab_join = st.tabs(["🤖 AI Generator", "✍️ Manual Builder", "🔑 Join Quiz"])
+            
+            with tab_ai:
+                with st.form("create_quiz_form", border=False):
+                    with st.container(border=True):
+                        st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Generate AI Quiz</h3>", unsafe_allow_html=True)
+                        c1, c2, c3 = st.columns(3)
+                        q_subj = c1.selectbox("Subject",["Math", "Science", "English", "Physics", "Chemistry", "Biology"])
+                        current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
+                        q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
+                        q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
+                        
+                        c4, c5 = st.columns([3, 1])
+                        q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
+                        q_num = c5.selectbox("Questions",[5, 10, 15, 20])
+                        
+                    col_btn1, col_btn2 = st.columns(2)
+                    start_quiz_btn = col_btn1.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True)
+                    gen_code_btn = col_btn2.form_submit_button("🔗 Generate ShareCode Only", use_container_width=True)
+                    
+                    if start_quiz_btn or gen_code_btn:
+                        p = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
+                        with st.spinner("Generating your unique quiz... This may take up to 30 seconds."):
+                            generated_q = generate_full_quiz_ai(p, current_active_grade)
+                        
+                        if generated_q:
+                            share_code = str(uuid.uuid4())[:6].upper()
+                            if db:
+                                db.collection("quizzes").document(share_code).set({
+                                    "params": p, "questions": generated_q, "created_by": user_email, "created_at": time.time()
+                                })
+                            if start_quiz_btn:
+                                st.session_state.quiz_params = p
+                                st.session_state.quiz_questions = generated_q
+                                st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                                st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                                st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                                st.session_state.quiz_share_code = share_code
+                                st.rerun()
+                            else:
+                                st.success(f"Quiz generated! Share this code: **{share_code}**")
+                        else: st.error("Failed to generate quiz. Please try again.")
+
+            with tab_man:
+                if "manual_questions" not in st.session_state: st.session_state.manual_questions =[]
+                for i, mq in enumerate(st.session_state.get("manual_questions",[])):
+                    st.info(f"**Q{i+1}:** {mq['question']} *({mq['type']})*")
+                
+                with st.expander("➕ Add New Question", expanded=True):
+                    q_type = st.radio("Question Type",["MCQ", "Short Answer"])
+                    q_text = st.text_area("Question Text")
+                    if q_type == "MCQ":
+                        mc1, mc2 = st.columns(2)
+                        opt_a = mc1.text_input("Option A")
+                        opt_b = mc2.text_input("Option B")
+                        opt_c = mc1.text_input("Option C")
+                        opt_d = mc2.text_input("Option D")
+                        correct_opt = st.selectbox("Correct Option",["Option A", "Option B", "Option C", "Option D"])
+                        if st.button("Save MCQ"):
+                            opts =[opt_a, opt_b, opt_c, opt_d]
+                            c_text = opts[["Option A", "Option B", "Option C", "Option D"].index(correct_opt)]
+                            st.session_state.manual_questions.append({
+                                "question": q_text, "type": "MCQ", "options": opts, "correct_answer": c_text, "explanation": "Manual Quiz - Correct Answer."
+                            })
+                            st.rerun()
+                    else:
+                        ref_ans = st.text_area("Reference Answer / Grading Rubric")
+                        if st.button("Save Short Answer"):
+                            st.session_state.manual_questions.append({
+                                "question": q_text, "type": "Short Answer", "options":[], "correct_answer": ref_ans, "explanation": "Manual Quiz Evaluated."
+                            })
+                            st.rerun()
+
+                if len(st.session_state.get("manual_questions",[])) > 0:
+                    if st.button("Publish Quiz & Get ShareCode", type="primary", use_container_width=True):
+                        code = str(uuid.uuid4())[:6].upper()
+                        if db:
+                            db.collection("quizzes").document(code).set({
+                                "questions": st.session_state.manual_questions,
+                                "created_by": user_email,
+                                "created_at": time.time(),
+                                "params": {"subj": "Manual", "grade": "Mixed", "diff": "Mixed", "chap": "Mixed", "num": len(st.session_state.manual_questions)}
+                            })
+                        st.success(f"Quiz Published! ShareCode: **{code}**")
+                        st.session_state.manual_questions =[]
+
+            with tab_join:
+                with st.form("join_quiz_form", border=False):
+                    with st.container(border=True):
+                        st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Join a Shared Quiz</h3>", unsafe_allow_html=True)
+                        share_code_input = st.text_input("Enter ShareCode", placeholder="e.g., A1B2C3").upper()
+                        if st.form_submit_button("Join Quiz", use_container_width=True):
+                            if db:
+                                quiz_ref = db.collection("quizzes").document(share_code_input).get()
+                                if quiz_ref.exists:
+                                    q_dict = quiz_ref.to_dict()
+                                    st.session_state.quiz_params = q_dict.get("params", {"subj": "General", "num": len(q_dict.get("questions",[]))})
+                                    st.session_state.quiz_questions = q_dict.get("questions",[])
+                                    st.session_state.quiz_share_code = share_code_input
+                                    st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                                    st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                                    st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                                    st.rerun()
+                                else:
+                                    st.error("Invalid ShareCode. Please check the code and try again.")
+        else:
+            q_list = st.session_state.get("quiz_questions",[])
+            q_idx = st.session_state.get("quiz_current_q", 1) - 1
+            
+            if st.session_state.get("quiz_finished"):
+                score, total = st.session_state.get("quiz_score"), len(st.session_state.get("quiz_questions",[]))
+                if not st.session_state.get("quiz_saved") and is_authenticated and db:
+                    db.collection("users").document(user_email).collection("quiz_results").add({"timestamp": time.time(), "score": score, "total": total, "subject": st.session_state.get("quiz_params", {}).get('subj', 'Manual')})
+                    st.session_state.quiz_saved = True
+                    
+                st.balloons()
+                st.markdown("<br><br>", unsafe_allow_html=True)
+                # 🎯 FIX: Removed extra st.container(border=True)
+                st.markdown("<div class='glass-container' style='text-align:center;'>", unsafe_allow_html=True)
+                st.markdown(f"<h1 style='color:#2ecc71;'>🎉 Quiz Complete! 🎉</h1>", unsafe_allow_html=True)
+                st.markdown(f"<h2>You scored: <span style='color:#00d4ff;'>{score} / {total}</span></h2>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                    
+                if st.session_state.get("quiz_share_code"):
+                    st.info(f"Challenge friends with ShareCode: **{st.session_state.get('quiz_share_code')}**")
+                        
+                if st.button("Take Another Quiz", type="primary", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        if key.startswith('quiz_'): del st.session_state[key]
+                    st.rerun()
+                        
+            elif q_idx < len(q_list):
+                q_data = q_list[q_idx]
+                q_params = st.session_state.get("quiz_params", {})
+                
+                with st.container(border=True):
+                    st.markdown(f"<div class='quiz-counter'>Question {q_idx + 1} of {len(q_list)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='quiz-question-text'>{q_data.get('question', 'Question text missing')}</div>", unsafe_allow_html=True)
+
+                    if st.session_state.get("quiz_user_answer") is None:
+                        if q_data.get("type", "MCQ") == "MCQ":
+                            for o_idx, option in enumerate(q_data.get('options',[])):
+                                # 🎯 FIX: DuplicateKeyError mathematically impossible
+                                if st.button(option, use_container_width=True, key=f"q{q_idx}_opt_{o_idx}"):
+                                    st.session_state.quiz_user_answer = option; st.rerun()
+                        else:
+                            user_sa = st.text_area("Your Answer:")
+                            if st.button("Submit Answer", type="primary"):
+                                with st.spinner("Evaluating..."):
+                                    eval_res = evaluate_short_answer(q_data.get("question"), user_sa, q_data.get("correct_answer"))
+                                    st.session_state.quiz_sa_eval = eval_res
+                                st.session_state.quiz_user_answer = user_sa; st.rerun()
+                    else:
+                        user_ans = st.session_state.get("quiz_user_answer")
+                        
+                        if q_data.get("type", "MCQ") == "MCQ":
+                            is_correct = (user_ans == q_data.get('correct_answer'))
+                            explanation = q_data.get('explanation', '')
+                        else:
+                            eval_res = st.session_state.get("quiz_sa_eval", {})
+                            is_correct = eval_res.get("is_correct", False)
+                            explanation = eval_res.get("explanation", "Evaluated by AI.")
+
+                        if is_correct:
+                            st.success(f"**Correct!** {explanation}")
+                            if st.session_state.get("quiz_bg") != "correct":
+                                st.session_state.quiz_score += 1
+                                st.session_state.quiz_bg = "correct"; st.rerun()
+                        else:
+                            if q_data.get("type", "MCQ") == "MCQ": st.error(f"**Incorrect.** The correct answer was **{q_data.get('correct_answer')}**. \n\n*Explanation: {explanation}*")
+                            else: st.error(f"**Incorrect.** \n\n*Feedback: {explanation}*")
+                            if st.session_state.get("quiz_bg") != "wrong":
+                                st.session_state.quiz_bg = "wrong"; st.rerun()
+                                
+                        if len(st.session_state.get("quiz_history",[])) < st.session_state.get("quiz_current_q"):
+                            st.session_state.quiz_history.append({"q": q_data.get('question'), "user": user_ans, "correct": q_data.get('correct_answer'), "is_correct": is_correct})
+                            if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email, q_params.get('subj', 'General'))
+
+                        is_last_q = (st.session_state.get("quiz_current_q") == len(q_list))
+                        if st.button("Next Question" if not is_last_q else "Finish Quiz", type="primary", use_container_width=True):
+                            if is_last_q: st.session_state.quiz_finished = True
+                            else: st.session_state.quiz_current_q += 1
+                            st.session_state.quiz_user_answer = None 
+                            st.session_state.quiz_bg = "default"; st.rerun()
+
     elif teacher_menu == "💬 AI Chat": render_chat_interface = True 
 
 # --- 3) STUDENT MAIN DASHBOARD (Chat or Quiz) ---
 else:
-    if app_mode == "⚡ Interactive Quiz": render_quiz_engine()
+    if app_mode == "⚡ Interactive Quiz": 
+        if not st.session_state.get("quiz_active", False) and not st.session_state.get("quiz_finished", False):
+            st.markdown("<div class='quiz-title'>⚙️ Quiz Engine</div>", unsafe_allow_html=True)
+            tab_ai, tab_man, tab_join = st.tabs(["🤖 AI Generator", "✍️ Manual Builder", "🔑 Join Quiz"])
+            
+            with tab_ai:
+                with st.form("create_quiz_form", border=False):
+                    with st.container(border=True):
+                        st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Generate AI Quiz</h3>", unsafe_allow_html=True)
+                        c1, c2, c3 = st.columns(3)
+                        q_subj = c1.selectbox("Subject",["Math", "Science", "English", "Physics", "Chemistry", "Biology"])
+                        current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
+                        q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
+                        q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
+                        
+                        c4, c5 = st.columns([3, 1])
+                        q_chap = c4.text_input("Chapter / Topic", placeholder="e.g., Chapter 4, Fractions, Forces...")
+                        q_num = c5.selectbox("Questions",[5, 10, 15, 20])
+                        
+                    col_btn1, col_btn2 = st.columns(2)
+                    start_quiz_btn = col_btn1.form_submit_button("🚀 Start Interactive Quiz", type="primary", use_container_width=True)
+                    gen_code_btn = col_btn2.form_submit_button("🔗 Generate ShareCode Only", use_container_width=True)
+                    
+                    if start_quiz_btn or gen_code_btn:
+                        p = {"subj": q_subj, "grade": q_grade, "diff": q_diff, "chap": q_chap, "num": q_num}
+                        with st.spinner("Generating your unique quiz... This may take up to 30 seconds."):
+                            generated_q = generate_full_quiz_ai(p, current_active_grade)
+                        
+                        if generated_q:
+                            share_code = str(uuid.uuid4())[:6].upper()
+                            if db:
+                                db.collection("quizzes").document(share_code).set({
+                                    "params": p, "questions": generated_q, "created_by": user_email, "created_at": time.time()
+                                })
+                            if start_quiz_btn:
+                                st.session_state.quiz_params = p
+                                st.session_state.quiz_questions = generated_q
+                                st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                                st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                                st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                                st.session_state.quiz_share_code = share_code
+                                st.rerun()
+                            else:
+                                st.success(f"Quiz generated! Share this code: **{share_code}**")
+                        else: st.error("Failed to generate quiz. Please try again.")
+
+            with tab_man:
+                if "manual_questions" not in st.session_state: st.session_state.manual_questions =[]
+                for i, mq in enumerate(st.session_state.get("manual_questions",[])):
+                    st.info(f"**Q{i+1}:** {mq['question']} *({mq['type']})*")
+                
+                with st.expander("➕ Add New Question", expanded=True):
+                    q_type = st.radio("Question Type",["MCQ", "Short Answer"])
+                    q_text = st.text_area("Question Text")
+                    if q_type == "MCQ":
+                        mc1, mc2 = st.columns(2)
+                        opt_a = mc1.text_input("Option A")
+                        opt_b = mc2.text_input("Option B")
+                        opt_c = mc1.text_input("Option C")
+                        opt_d = mc2.text_input("Option D")
+                        correct_opt = st.selectbox("Correct Option",["Option A", "Option B", "Option C", "Option D"])
+                        if st.button("Save MCQ"):
+                            opts =[opt_a, opt_b, opt_c, opt_d]
+                            c_text = opts[["Option A", "Option B", "Option C", "Option D"].index(correct_opt)]
+                            st.session_state.manual_questions.append({
+                                "question": q_text, "type": "MCQ", "options": opts, "correct_answer": c_text, "explanation": "Manual Quiz - Correct Answer."
+                            })
+                            st.rerun()
+                    else:
+                        ref_ans = st.text_area("Reference Answer / Grading Rubric")
+                        if st.button("Save Short Answer"):
+                            st.session_state.manual_questions.append({
+                                "question": q_text, "type": "Short Answer", "options":[], "correct_answer": ref_ans, "explanation": "Manual Quiz Evaluated."
+                            })
+                            st.rerun()
+
+                if len(st.session_state.get("manual_questions",[])) > 0:
+                    if st.button("Publish Quiz & Get ShareCode", type="primary", use_container_width=True):
+                        code = str(uuid.uuid4())[:6].upper()
+                        if db:
+                            db.collection("quizzes").document(code).set({
+                                "questions": st.session_state.manual_questions,
+                                "created_by": user_email,
+                                "created_at": time.time(),
+                                "params": {"subj": "Manual", "grade": "Mixed", "diff": "Mixed", "chap": "Mixed", "num": len(st.session_state.manual_questions)}
+                            })
+                        st.success(f"Quiz Published! ShareCode: **{code}**")
+                        st.session_state.manual_questions =[]
+
+            with tab_join:
+                with st.form("join_quiz_form", border=False):
+                    with st.container(border=True):
+                        st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Join a Shared Quiz</h3>", unsafe_allow_html=True)
+                        share_code_input = st.text_input("Enter ShareCode", placeholder="e.g., A1B2C3").upper()
+                        if st.form_submit_button("Join Quiz", use_container_width=True):
+                            if db:
+                                quiz_ref = db.collection("quizzes").document(share_code_input).get()
+                                if quiz_ref.exists:
+                                    q_dict = quiz_ref.to_dict()
+                                    st.session_state.quiz_params = q_dict.get("params", {"subj": "General", "num": len(q_dict.get("questions",[]))})
+                                    st.session_state.quiz_questions = q_dict.get("questions",[])
+                                    st.session_state.quiz_share_code = share_code_input
+                                    st.session_state.quiz_score, st.session_state.quiz_current_q = 0, 1
+                                    st.session_state.quiz_active, st.session_state.quiz_saved = True, False
+                                    st.session_state.quiz_bg, st.session_state.quiz_history = "default",[]
+                                    st.rerun()
+                                else:
+                                    st.error("Invalid ShareCode. Please check the code and try again.")
+        else:
+            # ACTIVE OR FINISHED QUIZ STATE
+            q_list = st.session_state.get("quiz_questions",[])
+            q_idx = st.session_state.get("quiz_current_q", 1) - 1
+            
+            if st.session_state.get("quiz_finished"):
+                score, total = st.session_state.get("quiz_score"), len(st.session_state.get("quiz_questions",[]))
+                if not st.session_state.get("quiz_saved") and is_authenticated and db:
+                    db.collection("users").document(user_email).collection("quiz_results").add({"timestamp": time.time(), "score": score, "total": total, "subject": st.session_state.get("quiz_params", {}).get('subj', 'Manual')})
+                    st.session_state.quiz_saved = True
+                    
+                st.balloons()
+                st.markdown("<br><br>", unsafe_allow_html=True)
+                # 🎯 FIX: Removed extra border container here
+                st.markdown("<div class='glass-container' style='text-align:center;'>", unsafe_allow_html=True)
+                st.markdown(f"<h1 style='color:#2ecc71;'>🎉 Quiz Complete! 🎉</h1>", unsafe_allow_html=True)
+                st.markdown(f"<h2>You scored: <span style='color:#00d4ff;'>{score} / {total}</span></h2>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                    
+                if st.session_state.get("quiz_share_code"):
+                    st.info(f"Challenge friends with ShareCode: **{st.session_state.get('quiz_share_code')}**")
+                        
+                if st.button("Take Another Quiz", type="primary", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        if key.startswith('quiz_'): del st.session_state[key]
+                    st.rerun()
+                    
+            elif q_idx < len(q_list):
+                q_data = q_list[q_idx]
+                q_params = st.session_state.get("quiz_params", {})
+                
+                with st.container(border=True):
+                    st.markdown(f"<div class='quiz-counter'>Question {q_idx + 1} of {len(q_list)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='quiz-question-text'>{q_data.get('question', 'Question text missing')}</div>", unsafe_allow_html=True)
+
+                    if st.session_state.get("quiz_user_answer") is None:
+                        if q_data.get("type", "MCQ") == "MCQ":
+                            for o_idx, option in enumerate(q_data.get('options',[])):
+                                # 🎯 FIX: DuplicateKeyError mathematically impossible
+                                if st.button(option, use_container_width=True, key=f"q{q_idx}_opt_{o_idx}"):
+                                    st.session_state.quiz_user_answer = option; st.rerun()
+                        else:
+                            user_sa = st.text_area("Your Answer:")
+                            if st.button("Submit Answer", type="primary"):
+                                with st.spinner("Evaluating..."):
+                                    eval_res = evaluate_short_answer(q_data.get("question"), user_sa, q_data.get("correct_answer"))
+                                    st.session_state.quiz_sa_eval = eval_res
+                                st.session_state.quiz_user_answer = user_sa; st.rerun()
+                    else:
+                        user_ans = st.session_state.get("quiz_user_answer")
+                        
+                        if q_data.get("type", "MCQ") == "MCQ":
+                            is_correct = (user_ans == q_data.get('correct_answer'))
+                            explanation = q_data.get('explanation', '')
+                        else:
+                            eval_res = st.session_state.get("quiz_sa_eval", {})
+                            is_correct = eval_res.get("is_correct", False)
+                            explanation = eval_res.get("explanation", "Evaluated by AI.")
+
+                        if is_correct:
+                            st.success(f"**Correct!** {explanation}")
+                            if st.session_state.get("quiz_bg") != "correct":
+                                st.session_state.quiz_score += 1
+                                st.session_state.quiz_bg = "correct"; st.rerun()
+                        else:
+                            if q_data.get("type", "MCQ") == "MCQ": st.error(f"**Incorrect.** The correct answer was **{q_data.get('correct_answer')}**. \n\n*Explanation: {explanation}*")
+                            else: st.error(f"**Incorrect.** \n\n*Feedback: {explanation}*")
+                            if st.session_state.get("quiz_bg") != "wrong":
+                                st.session_state.quiz_bg = "wrong"; st.rerun()
+                                
+                        if len(st.session_state.get("quiz_history",[])) < st.session_state.get("quiz_current_q"):
+                            st.session_state.quiz_history.append({"q": q_data.get('question'), "user": user_ans, "correct": q_data.get('correct_answer'), "is_correct": is_correct})
+                            if len(st.session_state.quiz_history) % 5 == 0: run_quiz_weakpoint_check(st.session_state.quiz_history[-5:], user_email, q_params.get('subj', 'General'))
+
+                        is_last_q = (st.session_state.get("quiz_current_q") == len(q_list))
+                        if st.button("Next Question" if not is_last_q else "Finish Quiz", type="primary", use_container_width=True):
+                            if is_last_q: st.session_state.quiz_finished = True
+                            else: st.session_state.quiz_current_q += 1
+                            st.session_state.quiz_user_answer = None 
+                            st.session_state.quiz_bg = "default"; st.rerun()
     else: render_chat_interface = True
 
 # ==========================================
@@ -1132,7 +1220,7 @@ if render_chat_interface:
     if chat_input := st.chat_input("Ask Helix...", accept_file=True, file_type=["jpg","png","pdf","txt"]):
         
         # 🎯 FIX: Using the newly robust sync function
-        if "textbook_handles" not in st.session_state: st.session_state.textbook_handles = sync_textbooks()
+        if "textbook_handles" not in st.session_state: st.session_state.textbook_handles = upload_textbooks()
         
         f_bytes, f_mime, f_name = (chat_input.files[0].getvalue() if chat_input.files else None), (chat_input.files[0].type if chat_input.files else None), (chat_input.files[0].name if chat_input.files else None)
         
@@ -1140,8 +1228,8 @@ if render_chat_interface:
         st.session_state.messages.append({"role": "user", "content": (chat_input.text or "").strip(), "user_attachment_bytes": f_bytes, "user_attachment_mime": f_mime, "user_attachment_name": f_name})
         save_chat_history(); st.rerun()
 
-    if st.session_state.get("messages") and st.session_state.messages[-1]["role"] == "user":
-        msg_data = st.session_state.messages[-1]
+    if st.session_state.get("messages") and st.session_state.get("messages")[-1]["role"] == "user":
+        msg_data = st.session_state.get("messages")[-1]
         with st.chat_message("assistant"):
             think = st.empty(); think.markdown("""<div class="thinking-container"><span class="thinking-text">Thinking</span><div class="thinking-dots"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div></div>""", unsafe_allow_html=True)
             
@@ -1206,7 +1294,7 @@ if render_chat_interface:
                 dl = bool(re.search(r"\[PDF_READY\]", bot_txt, re.IGNORECASE) or (re.search(r"##\s*Mark Scheme", bot_txt, re.IGNORECASE) and re.search(r"\[\d+\]", bot_txt)))
                 st.session_state.messages.append({"role": "assistant", "content": bot_txt, "is_downloadable": dl, "images": imgs, "image_models": mods})
                 
-                if is_authenticated and sum(1 for m in st.session_state.get("messages",[]) if m["role"] == "user") == 1:
+                if is_authenticated and sum(1 for m in st.session_state.get("messages",[]) if m.get("role") == "user") == 1:
                     t = generate_chat_title(client, st.session_state.get("messages", []))
                     if t: get_threads_collection().document(st.session_state.get("current_thread_id")).set({"title": t}, merge=True)
                 
