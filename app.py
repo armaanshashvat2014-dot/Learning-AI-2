@@ -72,51 +72,50 @@ You are Helix, an elite Cambridge (CIE) Tutor and Examiner for Grade 6-8 student
 ### RULE 1: RAG SEARCH & STRICT SYLLABUS BOUNDARIES (CRITICAL)
 - Search attached PDF textbooks using OCR FIRST.
 - STRICT SCOPE: Restrict all questions/answers ONLY to requested chapters.
-- "Hard" difficulty means applying the EXACT concepts from the text to complex, multi-step, real-world scenarios.
-- NEVER introduce outside terminology or advanced concepts not explicitly stated in the provided textbook extract (e.g., if the text discusses series circuits, NEVER bring up parallel circuits).
+- "Hard" difficulty means applying EXACT concepts from the text to complex scenarios.
+- NEVER introduce outside terminology or concepts not explicitly stated in the provided textbook extract.
 
 ### RULE 2: CAMBRIDGE QUESTION DEPTH
 - Force multi-step reasoning. Do NOT use the word "HOTS".
-- INDIRECT QUESTIONS: NEVER reveal the topic in the heading. The student MUST deduce the concept.
+- INDIRECT QUESTIONS: NEVER reveal the topic in the heading.
 - TABLE FORMATTING: MUST use strict Markdown tables.
 
 ### RULE 3: ANTI-PLAGIARISM PROTOCOL (CRITICAL)
-You are STRICTLY FORBIDDEN from copy-pasting or slightly rephrasing questions directly from the attached textbooks. The textbooks are for INSPIRATION ONLY. You must understand the concepts, style, and difficulty, then generate 100% NEW and UNIQUE questions that test the same skills.
+You are STRICTLY FORBIDDEN from copy-pasting or slightly rephrasing questions directly from the textbooks. Textbooks are for INSPIRATION ONLY. Generate 100% NEW and UNIQUE questions testing the same skills.
 
 ### RULE 4: VISUAL SYNTAX (STRICT)
 - YOU ARE CAPABLE OF GENERATING IMAGES. Use IMAGE_GEN:[Detailed description] or PIE_CHART:[Label1:Value1, Label2:Value2]. 
+- Put tags on a NEW LINE.
+- DIAGRAM LIMITATIONS: Image AI CANNOT spell text, draw explicit scientific arrows, or create complex diagrams. For IMAGE_GEN, NEVER ask for text labels or vectors. Ask for clean, high-quality, textless 3D renders or illustrations (e.g., 'A textless 3D render of the Earth and Moon'). Explain the diagram in the chat text instead.
 
 ### RULE 5: MARK SCHEME & TITLE
 - TITLE FORMAT: MUST be formatted EXACTLY like this:
 # Helix A.I.
 ## Practice Paper
 ###[SUBJECT] - [GRADE]
+- ALWAYS append exactly "[PDF_READY]" at the end of practice papers.
+- ALWAYS include "## Mark Scheme" at the bottom of practice papers.
 
 ### RULE 6: Analytics for students (HIDDEN):
-If the user prompt explicitly asks you to evaluate for a weak point (e.g., every 6th message), silently do so.
-If you detect a clear academic weak point, output a hidden analytics block at the VERY END wrapped exactly like this:
+If explicitly asked to evaluate for a weak point (e.g., every 6th message), silently do so. If detected, output at the VERY END:
 ===ANALYTICS_START===
-{{ "subject": "Math", "grade": "Grade 7", "weak_point": "Struggles with cross-multiplication in fractions" }}
+{{ "subject": "Math", "grade": "Grade 7", "weak_point": "Struggles with fractions" }}
 ===ANALYTICS_END===
 If there is no clear weak point, DO NOT output this block.
 
 ### RULE 7: FLEXIBLE GRADING & CHAIN OF THOUGHT
-When evaluating a student's typed chat answer, you MUST act as a supportive human tutor:
+When evaluating a student's answer:
 1. SILENTLY solve the problem yourself to determine the undeniable correct answer.
 2. Focus ENTIRELY on SEMANTIC CORRECTNESS. 
 3. NEVER penalize a student if their answer is longer or phrased differently.
 """
 
 QUIZ_SYSTEM_INSTRUCTION = f"""
-You are an AI Quiz Engine. Your ONLY job is to output a single, raw JSON array of objects. NEVER output conversational text or markdown formatting. 
+You are an AI Quiz Engine. Output a single, raw JSON array of objects. NEVER output conversational text or markdown. 
 
-### ANTI-PLAGIARISM & RANDOMIZATION (CRITICAL)
-- STRICTLY FORBIDDEN to copy-paste or rephrase questions directly from the provided textbooks. Textbooks are for INSPIRATION ONLY.
-- Generate 100% NEW, UNIQUE, and highly randomized questions. 
-
-### STRICT SYLLABUS BOUNDARIES (CRITICAL)
-- "Hard" difficulty means creating complex, multi-step scenarios using ONLY the concepts present in the provided text.
-- NEVER introduce outside terminology or advanced concepts not present in the provided textbook extract (e.g., if the text ONLY discusses series circuits, DO NOT ask about parallel circuits under the guise of a "hard" question).
+### ANTI-PLAGIARISM & STRICT SYLLABUS BOUNDARIES (CRITICAL)
+- STRICTLY FORBIDDEN to copy from textbooks. Generate 100% NEW, randomized questions. 
+- "Hard" means creating complex scenarios using ONLY the concepts present in the text. NEVER introduce outside terminology.
 
 The JSON MUST be a valid ARRAY of objects. Each object MUST have this exact structure:
 {{
@@ -228,10 +227,7 @@ def evaluate_weak_spots(_email):
         Active weak spots: {[s.get('topic') for s in active_spots]}
         Dismissed weak spots: {[s.get('topic') for s in dismissed_spots]}
         
-        Task:
-        1. Group the raw remarks by semantic similarity.
-        2. If ANY group has 3 or more remarks, it is a "Potential Weak Spot".
-        3. Output ONLY a JSON array of NEW distinct weak spot objects. You MUST identify the subject based on the raw remarks.
+        Task: Group raw remarks by semantic similarity. If ANY group has 3+ remarks, it is a "Potential Weak Spot". Output ONLY a JSON array of NEW distinct weak spot objects.
         Format Example: [{{"subject": "Math", "topic": "Fractions"}}]
         """
         try:
@@ -446,7 +442,7 @@ def generate_chat_title(client, messages):
         if not user_msgs: return "New Chat"
         response = generate_with_retry("gemini-2.5-flash", ["Summarize this into a short chat title (max 4 words). Context: " + "\n".join(user_msgs[-3:])], types.GenerateContentConfig(temperature=0.3, max_output_tokens=50))
         return safe_response_text(response).strip().replace('"', '').replace("'", "") or "New Chat"
-    except Exception: return "New Chat"
+    except Exception as e: st.toast(f"Title Gen Failed: {e}"); return "New Chat"
 
 # -----------------------------
 # 3) DIALOGS & SESSION INIT
@@ -524,7 +520,7 @@ def confirm_delete_account_dialog():
                 for s in db.collection("users").where(filter=firestore.FieldFilter("teacher_id", "==", user_email)).stream(): s.reference.update({"teacher_id": None})
                 db.collection("users").document(user_email).delete()
             st.session_state.clear(); st.logout()
-        except Exception: st.error("Failed to delete account.")
+        except Exception as e: st.error(f"Error: {e}")
 
 # -----------------------------
 # 4) SIDEBAR
@@ -601,11 +597,12 @@ def guess_mime(filename: str, fallback: str = "application/octet-stream") -> str
     return "image/jpeg" if n.endswith((".jpg", ".jpeg")) else "image/png" if n.endswith(".png") else "application/pdf" if n.endswith(".pdf") else fallback
 def is_image_mime(m: str) -> bool: return (m or "").lower().startswith("image/")
 
+@st.cache_resource(show_spinner=False)
 def upload_textbooks():
     active_files = {"sci":[], "math": [], "eng":[]}
     pdf_map = {p.name.lower(): p for p in Path.cwd().rglob("*.pdf") if "cie" in p.name.lower()}
     
-    # 🎯 FIX: Smart caching to prevent 403 errors
+    # 🎯 FIX: Intelligent caching to avoid 403 errors
     cache_file = "fast_sync_cache.json"
     if os.path.exists(cache_file):
         try:
@@ -654,19 +651,15 @@ if is_authenticated and "textbook_handles" not in st.session_state:
     with st.spinner("Syncing Curriculum (This will be instant next time)..."):
         st.session_state.textbook_handles = upload_textbooks()
 
-# 🎯 FIX: Completely rewritten grade selection logic
 def select_relevant_books(query, file_dict, user_grade="Grade 6"):
     qn = normalize_stage_text(query)
     im = any(k in qn for k in["math", "algebra", "geometry", "calculate", "equation"])
     isc = any(k in qn for k in["science", "biology", "physics", "chemistry", "experiment"])
     ien = any(k in qn for k in["english", "poem", "story", "essay", "grammar"])
-    
-    # Default to all subjects if none are detected
     if not (im or isc or ien): im = isc = ien = True
         
-    # Determine which grade/stage to look for
     stage_map = {"Grade 6": "_7", "Grade 7": "_8", "Grade 8": "_9"}
-    stage_identifier = stage_map.get(user_grade, "_8") # Default to Stage 8 if something is wrong
+    stage_identifier = stage_map.get(user_grade, "_8") 
 
     sel =[]
     def add(k, act):
@@ -674,7 +667,7 @@ def select_relevant_books(query, file_dict, user_grade="Grade 6"):
             for b in file_dict.get(k,[]):
                 n = b.display_name.lower()
                 if stage_identifier in n and "answers" not in n:
-                    sel.append(b); return # Grab first match and exit
+                    sel.append(b); return 
     
     add("math", im); add("sci", isc); add("eng", ien)
     return sel
@@ -715,7 +708,7 @@ def render_quiz_engine():
                 with st.container(border=True):
                     st.markdown("<h3 style='text-align: center; margin-bottom:20px;'>Generate AI Quiz</h3>", unsafe_allow_html=True)
                     c1, c2, c3 = st.columns(3)
-                    q_subj = c1.selectbox("Subject",["Math", "Science", "English"]) # Quiz UI subjects
+                    q_subj = c1.selectbox("Subject",["Math", "Science", "English"]) 
                     current_active_grade = st.session_state.get("active_grade", user_profile.get("grade", "Grade 6"))
                     q_grade = c2.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"], index=["Grade 6", "Grade 7", "Grade 8"].index(current_active_grade))
                     q_diff = c3.selectbox("Difficulty",["Easy", "Medium", "Hard"])
@@ -1065,13 +1058,8 @@ elif user_role == "teacher":
         with st.form("assign_paper_form", border=False):
             st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
-            assign_title = c1.text_input("Title", "Chapter Quiz")
-            assign_subject = c1.selectbox("Subject",["Math", "Science", "Biology", "Chemistry", "Physics", "English"])
-            assign_grade = c1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
-            assign_difficulty = c2.selectbox("Difficulty",["Easy", "Medium", "Hard"])
-            assign_marks = c2.number_input("Marks", 10, 100, 30, 5)
-            assign_extra = st.text_area("Extra Instructions")
-            
+            assign_title, assign_subject, assign_grade = c1.text_input("Title", "Chapter Quiz"), c1.selectbox("Subject",["Math", "Science", "Biology", "Chemistry", "Physics", "English"]), c1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
+            assign_difficulty, assign_marks, assign_extra = c2.selectbox("Difficulty",["Easy", "Medium", "Hard"]), c2.number_input("Marks", 10, 100, 30, 5), st.text_area("Extra Instructions")
             if st.form_submit_button("🤖 Generate with Helix AI", type="primary", use_container_width=True):
                 with st.spinner("Writing paper..."):
                     books = select_relevant_books(f"{assign_subject} {assign_grade}", st.session_state.get("textbook_handles", {}), assign_grade)
@@ -1153,7 +1141,7 @@ if render_chat_interface:
         st.session_state.messages.append({"role": "user", "content": (chat_input.text or "").strip(), "user_attachment_bytes": f_bytes, "user_attachment_mime": f_mime, "user_attachment_name": f_name})
         save_chat_history(); st.rerun()
 
-    if st.session_state.get("messages") and st.session_state.get("messages")[-1]["role"] == "user":
+    if st.session_state.get("messages") and st.session_state.messages[-1]["role"] == "user":
         msg_data = st.session_state.messages[-1]
         with st.chat_message("assistant"):
             think = st.empty()
@@ -1191,7 +1179,7 @@ if render_chat_interface:
 
                 curr_parts.append(types.Part.from_text(text=f"Context: Student Grade is {student_grade}.\n\nUser Query: {msg_data.get('content')}"))
                 
-                user_msg_count = sum(1 for m in st.session_state.get("messages",[]) if m.get("role") == "user")
+                user_msg_count = sum(1 for m in st.session_state.get("messages",[]) if m["role"] == "user")
                 if user_msg_count > 0 and user_msg_count % 6 == 0:
                     curr_parts.append(types.Part.from_text(text="Please analyze the student's previous inputs. If you detect a clear, specific academic weak point, output the hidden ===ANALYTICS_START=== JSON block. If not, do NOT output it."))
 
