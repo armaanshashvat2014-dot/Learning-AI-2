@@ -73,11 +73,11 @@ You are Helix, an elite Cambridge (CIE) Tutor and Examiner for Grade 6-8 student
 - Search attached PDF textbooks using OCR FIRST.
 - STRICT SCOPE: Restrict all questions/answers ONLY to requested chapters.
 - "Hard" difficulty means applying EXACT concepts from the text to complex scenarios.
-- NEVER introduce outside terminology or concepts not explicitly stated in the provided textbook extract.
+- NEVER introduce outside terminology or advanced concepts not explicitly stated in the provided textbook extract.
 
 ### RULE 2: CAMBRIDGE QUESTION DEPTH
 - Force multi-step reasoning. Do NOT use the word "HOTS".
-- INDIRECT QUESTIONS: NEVER reveal the topic in the heading.
+- INDIRECT QUESTIONS: NEVER reveal the topic in the heading. The student MUST deduce the concept.
 - TABLE FORMATTING: MUST use strict Markdown tables.
 
 ### RULE 3: ANTI-PLAGIARISM PROTOCOL (CRITICAL)
@@ -85,8 +85,10 @@ You are STRICTLY FORBIDDEN from copy-pasting or slightly rephrasing questions di
 
 ### RULE 4: VISUAL SYNTAX (STRICT)
 - YOU ARE CAPABLE OF GENERATING IMAGES. Use IMAGE_GEN:[Detailed description] or PIE_CHART:[Label1:Value1, Label2:Value2]. 
-- Put tags on a NEW LINE.
-- DIAGRAM LIMITATIONS: Image AI CANNOT spell text, draw explicit scientific arrows, or create complex diagrams. For IMAGE_GEN, NEVER ask for text labels or vectors. Ask for clean, high-quality, textless 3D renders or illustrations (e.g., 'A textless 3D render of the Earth and Moon'). Explain the diagram in the chat text instead.
+- CRITICAL DIAGRAM LIMITATION: AI Image generators CANNOT render text, labels, explicit scientific arrows, or exact diagrams. They output gibberish.
+- NEVER ask the image generator for "a diagram with arrows", "labeled cross-sections", or "graphs".
+- Instead, ask for highly detailed, photorealistic 3D renders or generic illustrations (e.g. "A photorealistic 3D render of the Earth and Moon in space", "A clean macro photograph of a leaf surface").
+- Provide all necessary educational context, labels, and arrow explanations in your TEXT, using the image purely as a beautiful visual aid.
 
 ### RULE 5: MARK SCHEME & TITLE
 - TITLE FORMAT: MUST be formatted EXACTLY like this:
@@ -366,7 +368,7 @@ def process_visual_wrapper(vp):
                         result = client.models.generate_images(model=model_name, prompt=v_data, config=types.GenerateImagesConfig(number_of_images=1, aspect_ratio="4:3"))
                         if result.generated_images: return (result.generated_images[0].image.image_bytes, model_name, error_logs)
                     else:
-                        result = client.models.generate_content(model=model_name, contents=[f"{v_data}\n\n(Important: Generate a 1k resolution image with a 4:3 aspect ratio.)"], config=types.GenerateContentConfig(response_modalities=["IMAGE"]))
+                        result = client.models.generate_content(model=model_name, contents=[f"{v_data}\n\n(Important: Generate a photorealistic 1k res image with a 4:3 aspect ratio. NO TEXT OR DIAGRAM LABELS.)"], config=types.GenerateContentConfig(response_modalities=["IMAGE"]))
                         if result.candidates and result.candidates[0].content.parts:
                             for part in result.candidates[0].content.parts:
                                 if getattr(part, "inline_data", None) and part.inline_data.data: return (part.inline_data.data, model_name, error_logs)
@@ -388,12 +390,11 @@ def process_visual_wrapper(vp):
     except Exception as e: return (None, "Crash",[str(e)])
 
 # -----------------------------
-# PDF HELPER
+# 🎯 FIX: REDESIGNED PDF HELPER 
 # -----------------------------
 def md_inline_to_rl(text: str) -> str:
     s = (text or "").replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '').replace(r'\times', ' x ').replace(r'\div', ' ÷ ').replace(r'\circ', '°').replace(r'\pm', '±').replace(r'\leq', '≤').replace(r'\geq', '≥').replace(r'\neq', '≠').replace(r'\approx', '≈').replace(r'\pi', 'π').replace(r'\sqrt', '√').replace('\\', '')
-    s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', s)
-    s = s.replace('$', '') 
+    s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', s).replace('$', '') 
     return re.sub(r"(?<!\*)\*(\S.+?)\*(?!\*)", r"<i>\1</i>", re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")))
 
 def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
@@ -401,7 +402,7 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontSize=18, textColor=colors.HexColor("#00d4ff"), spaceAfter=12, alignment=TA_CENTER, fontName="Helvetica-Bold")
     body_style = ParagraphStyle("CustomBody", parent=styles["BodyText"], fontSize=11, spaceAfter=8, alignment=TA_LEFT, fontName="Helvetica")
-    story, img_idx, table_rows =[], 0,[]
+    story, img_idx, table_rows = [], 0, []
 
     def render_pending_table():
         nonlocal table_rows
@@ -410,29 +411,52 @@ def create_pdf(content: str, images=None, filename="Question_Paper.pdf"):
         norm_rows = [[Paragraph(md_inline_to_rl(c), body_style) for c in list(r) + [""] * (ncols - len(r))] for r in table_rows]
         t = Table(norm_rows, colWidths=[doc.width / max(1, ncols)] * ncols)
         t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#00d4ff")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (0, 0), (-1, -1), "LEFT"), ("BOTTOMPADDING", (0, 0), (-1, 0), 8), ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f8f9fa")), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey)]))
-        story.extend([t, Spacer(1, 0.18*inch)]); table_rows =[]
+        story.extend([t, Spacer(1, 0.18*inch)]); table_rows.clear()
 
-    lines =[re.sub(r"\s*\(Source:.*?\)", "", l).strip() for l in str(content or "⚠️ No content").split("\n") if "[PDF_READY]" not in l.upper() and not l.strip().startswith(("Source(s):", "**Source(s):**"))]
+    lines = [re.sub(r"\s*\(Source:.*?\)", "", l).strip() for l in str(content or "").split("\n") if "[PDF_READY]" not in l.upper() and not l.strip().startswith(("Source(s):", "**Source(s):**"))]
+    
     for s in lines:
-        if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
-            cells =[c.strip() for c in s.split("|")[1:-1]]
-            if not all(re.fullmatch(r":?-+:?", c) for c in cells if c): table_rows.append(cells)
+        # 🎯 FIX: Robust table detection
+        if "|" in s and s.strip().startswith("|"):
+            cells = [c.strip() for c in s.strip().strip('|').split("|")]
+            if not all(re.fullmatch(r":?-+:?", c) for c in cells if c): 
+                table_rows.append(cells)
             continue
+            
         render_pending_table()
-        if not s: story.append(Spacer(1, 0.14*inch)); continue
-        if s.startswith(("IMAGE_GEN:", "PIE_CHART:")):
+        if not s: 
+            story.append(Spacer(1, 0.14*inch))
+            continue
+            
+        # 🎯 FIX: Dynamic Regex Image parsing to stop desync
+        while True:
+            match = re.search(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", s)
+            if not match: break
+            before_text = s[:match.start()].strip()
+            
+            if before_text:
+                if before_text.startswith("# "): story.append(Paragraph(md_inline_to_rl(before_text[2:].strip()), title_style))
+                elif before_text.startswith("## "): story.append(Paragraph(md_inline_to_rl(before_text[3:].strip()), ParagraphStyle("CustomHeading", parent=styles["Heading2"], fontSize=14, spaceAfter=10, spaceBefore=10, fontName="Helvetica-Bold")))
+                elif before_text.startswith("### "): story.append(Paragraph(f"<b>{md_inline_to_rl(before_text[4:].strip())}</b>", body_style))
+                else: story.append(Paragraph(md_inline_to_rl(before_text), body_style))
+            
             if images and img_idx < len(images) and images[img_idx]:
                 try:
-                    img_stream = BytesIO(images[img_idx]); rl_reader = ImageReader(img_stream)
-                    iw, ih = rl_reader.getSize()
-                    story.extend([Spacer(1, 0.12*inch), RLImage(img_stream, width=4.6*inch, height=4.6*inch*(ih/float(iw))), Spacer(1, 0.12*inch)])
+                    i_s = BytesIO(images[img_idx]); r_r = ImageReader(i_s); iw, ih = r_r.getSize()
+                    w = min(iw, 4.6*inch); h = ih * (w/iw)
+                    story.extend([Spacer(1, 0.12*inch), RLImage(i_s, width=w, height=h), Spacer(1, 0.12*inch)])
                 except Exception: pass
-            img_idx += 1; continue
-        if s.startswith("# "): story.append(Paragraph(md_inline_to_rl(s[2:].strip()), title_style))
-        elif s.startswith("## "): story.append(Paragraph(md_inline_to_rl(s[3:].strip()), ParagraphStyle("CustomHeading", parent=styles["Heading2"], fontSize=14, spaceAfter=10, spaceBefore=10, fontName="Helvetica-Bold")))
-        elif s.startswith("### "): story.append(Paragraph(f"<b>{md_inline_to_rl(s[4:].strip())}</b>", body_style))
-        else: story.append(Paragraph(md_inline_to_rl(s), body_style))
-    render_pending_table(); story.extend([Spacer(1, 0.28*inch), Paragraph("<i>Generated by helix.ai - Your CIE Tutor</i>", body_style)])
+            img_idx += 1
+            s = s[match.end():].strip()
+            
+        if s:
+            if s.startswith("# "): story.append(Paragraph(md_inline_to_rl(s[2:].strip()), title_style))
+            elif s.startswith("## "): story.append(Paragraph(md_inline_to_rl(s[3:].strip()), ParagraphStyle("CustomHeading", parent=styles["Heading2"], fontSize=14, spaceAfter=10, spaceBefore=10, fontName="Helvetica-Bold")))
+            elif s.startswith("### "): story.append(Paragraph(f"<b>{md_inline_to_rl(s[4:].strip())}</b>", body_style))
+            else: story.append(Paragraph(md_inline_to_rl(s), body_style))
+            
+    render_pending_table()
+    story.extend([Spacer(1, 0.28*inch), Paragraph("<i>Generated by helix.ai - Your CIE Tutor</i>", body_style)])
     doc.build(story); buffer.seek(0)
     return buffer
 
@@ -597,12 +621,10 @@ def guess_mime(filename: str, fallback: str = "application/octet-stream") -> str
     return "image/jpeg" if n.endswith((".jpg", ".jpeg")) else "image/png" if n.endswith(".png") else "application/pdf" if n.endswith(".pdf") else fallback
 def is_image_mime(m: str) -> bool: return (m or "").lower().startswith("image/")
 
-@st.cache_resource(show_spinner=False)
 def upload_textbooks():
     active_files = {"sci":[], "math": [], "eng":[]}
     pdf_map = {p.name.lower(): p for p in Path.cwd().rglob("*.pdf") if "cie" in p.name.lower()}
     
-    # 🎯 FIX: Intelligent caching to avoid 403 errors
     cache_file = "fast_sync_cache.json"
     if os.path.exists(cache_file):
         try:
@@ -1058,8 +1080,13 @@ elif user_role == "teacher":
         with st.form("assign_paper_form", border=False):
             st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
-            assign_title, assign_subject, assign_grade = c1.text_input("Title", "Chapter Quiz"), c1.selectbox("Subject",["Math", "Science", "Biology", "Chemistry", "Physics", "English"]), c1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
-            assign_difficulty, assign_marks, assign_extra = c2.selectbox("Difficulty",["Easy", "Medium", "Hard"]), c2.number_input("Marks", 10, 100, 30, 5), st.text_area("Extra Instructions")
+            assign_title = c1.text_input("Title", "Chapter Quiz")
+            assign_subject = c1.selectbox("Subject",["Math", "Science", "Biology", "Chemistry", "Physics", "English"])
+            assign_grade = c1.selectbox("Grade",["Grade 6", "Grade 7", "Grade 8"])
+            assign_difficulty = c2.selectbox("Difficulty",["Easy", "Medium", "Hard"])
+            assign_marks = c2.number_input("Marks", 10, 100, 30, 5)
+            assign_extra = st.text_area("Extra Instructions")
+            
             if st.form_submit_button("🤖 Generate with Helix AI", type="primary", use_container_width=True):
                 with st.spinner("Writing paper..."):
                     books = select_relevant_books(f"{assign_subject} {assign_grade}", st.session_state.get("textbook_handles", {}), assign_grade)
@@ -1070,12 +1097,18 @@ elif user_role == "teacher":
                         resp = generate_with_retry("gemini-2.5-flash", parts, types.GenerateContentConfig(system_instruction=PAPER_SYSTEM, temperature=0.1))
                         gen_paper = safe_response_text(resp)
                         draft_imgs, draft_mods = [],[]
+                        
+                        # 🎯 FIX: Robust Regex matching for IMAGE_GEN tags
                         if v_prompts := re.findall(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", gen_paper):
                             with concurrent.futures.ThreadPoolExecutor(5) as exe:
                                 for r in exe.map(process_visual_wrapper, v_prompts):
                                     if r and r[0]: draft_imgs.append(r[0]); draft_mods.append(r[1])
-                        st.session_state.update({"draft_paper": gen_paper, "draft_images": draft_imgs, "draft_models": draft_mods, "draft_title": assign_title}); st.rerun()
-                    except Exception as e: st.error("Failed to generate paper.")
+                        
+                        # 🎯 FIX: Clean the raw tag from the text UI display
+                        clean_paper = re.sub(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", "", gen_paper)
+                        st.session_state.update({"draft_paper": clean_paper, "draft_images": draft_imgs, "draft_models": draft_mods, "draft_title": assign_title})
+                        st.rerun()
+                    except Exception as e: st.error(f"Failed to generate paper: {e}")
             st.markdown("</div>", unsafe_allow_html=True)
             
         if st.session_state.get("draft_paper"):
@@ -1105,6 +1138,8 @@ if render_chat_interface:
     for idx, msg in enumerate(st.session_state.get("messages",[])):
         with st.chat_message(msg["role"]):
             disp = msg.get("content") or ""
+            # 🎯 FIX: Scrub IMAGE_GEN tags from the chat bubbles
+            disp = re.sub(r"(IMAGE_GEN|PIE_CHART):\s*\[(.*?)\]", "", disp)
             disp = re.sub(r"(?i)(?:Here is the )?(?:Analytics|JSON).*?(?:for student)?s?\s*[:-]?\s*", "", disp)
             disp = re.sub(r"===ANALYTICS_START===.*?===ANALYTICS_END===", "", disp, flags=re.IGNORECASE|re.DOTALL)
             disp = re.sub(r"```json\s*\{[^{]*?\"weak_point\".*?\}\s*```", "", disp, flags=re.IGNORECASE|re.DOTALL)
