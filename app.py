@@ -1,178 +1,142 @@
 import streamlit as st
-import time
-import re
-import json
-from google import genai
+from PyPDF2 import PdfReader
+from openai import OpenAI
+import os
+import difflib
 
-# ----------------------------- #
-# CONFIG
-# ----------------------------- #
-st.set_page_config(page_title="helix.ai Tutor", page_icon="📚")
+# ===============================
+# PAGE CONFIG
+# ===============================
+st.set_page_config(
+    page_title="MentorLoop Smart Study AI",
+    page_icon="📚",
+    layout="wide"
+)
 
-API_KEY = "AIzaSyCJ5kTedYLBjbTsCt9p7NBsbE-jsfH7sxM"
+# ===============================
+# OPENAI KEY FROM STREAMLIT SECRET
+# ===============================
+client = OpenAI(
+    api_key=st.secrets["OPENAI_API_KEY"]
+)
 
-client = genai.Client(api_key=API_KEY)
+# ===============================
+# BOOK FOLDER
+# ===============================
+PDF_FOLDER = "books"
 
-# ----------------------------- #
-# SESSION STATE
-# ----------------------------- #
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "👋 I'm Helix! Ask me anything."}
-    ]
+# ===============================
+# LOAD BOOKS
+# ===============================
+@st.cache_resource
+def load_books():
+    database = []
 
-if "user_data" not in st.session_state:
-    st.session_state.user_data = None
+    if not os.path.exists(PDF_FOLDER):
+        return database
 
-if "quiz_active" not in st.session_state:
-    st.session_state.quiz_active = False
+    for filename in os.listdir(PDF_FOLDER):
+        if filename.lower().endswith(".pdf"):
+            path = os.path.join(PDF_FOLDER, filename)
 
-if "answered" not in st.session_state:
-    st.session_state.answered = False
+            try:
+                reader = PdfReader(path)
+                text = ""
 
-# ----------------------------- #
-# AI FUNCTION (NEW SDK)
-# ----------------------------- #
-def get_ai_response(prompt):
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
 
-        return response.text if response.text else "No response."
+                database.append({
+                    "file": filename,
+                    "text": text
+                })
 
-    except Exception as e:
-        return f"⚠️ Error: {e}"
+            except Exception as e:
+                st.warning(f"Could not load {filename}")
 
-# ----------------------------- #
-# LOGIN
-# ----------------------------- #
-if st.session_state.user_data is None:
-    st.title("🚀 helix.ai")
+    return database
 
-    name = st.text_input("Name")
-    email = st.text_input("Email")
-    grade = st.selectbox("Grade", ["Grade 6","Grade 7","Grade 8"])
 
-    if st.button("Start Learning"):
-        if name and email:
-            st.session_state.user_data = {
-                "name": name,
-                "email": email,
-                "grade": grade
-            }
-            st.rerun()
-        else:
-            st.warning("Enter all fields")
+books = load_books()
 
-    st.stop()
+# ===============================
+# FIND BEST MATCH
+# ===============================
+def search_books(question):
+    best_match = None
+    best_score = 0
 
-# ----------------------------- #
-# SIDEBAR
-# ----------------------------- #
-with st.sidebar:
-    st.write(f"👤 {st.session_state.user_data['name']}")
-    mode = st.radio("Mode", ["Tutor","Quiz"])
+    for book in books:
+        sample = book["text"][:5000]
 
-    if st.button("Logout"):
-        st.session_state.user_data = None
-        st.rerun()
+        score = difflib.SequenceMatcher(
+            None,
+            question.lower(),
+            sample.lower()
+        ).ratio()
 
-# ----------------------------- #
-# TUTOR MODE
-# ----------------------------- #
-if mode == "Tutor":
+        if score > best_score:
+            best_score = score
+            best_match = book
 
-    st.title("📚 AI Tutor")
+    return best_match
 
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
 
-    if prompt := st.chat_input("Ask something"):
-        st.session_state.messages.append({"role":"user","content":prompt})
+# ===============================
+# ASK OPENAI
+# ===============================
+def ask_ai(question, context):
+    prompt = f"""
+You are MentorLoop Smart Study AI.
 
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                response = get_ai_response(prompt)
-                st.markdown(response)
-                st.session_state.messages.append({"role":"assistant","content":response})
+Answer ONLY using the textbook information below.
+Do not invent information.
+If the answer is unclear, say:
+"The answer is not clearly available in your textbook."
 
-# ----------------------------- #
-# QUIZ MODE
-# ----------------------------- #
-else:
+TEXTBOOK:
+{context[:6000]}
 
-    st.title("⚡ Quiz Mode")
-
-    if not st.session_state.quiz_active:
-
-        subject = st.selectbox("Subject",["Math","Science","English"])
-        num = st.slider("Questions",3,10,5)
-        topic = st.text_input("Topic")
-
-        if st.button("Generate Quiz"):
-            with st.spinner("Generating..."):
-
-                prompt = f"""
-Create {num} {subject} questions on {topic}.
-
-Return ONLY JSON:
-[
-{{
-"question":"",
-"options":["A","B","C","D"],
-"correct_answer":"A"
-}}
-]
+QUESTION:
+{question}
 """
 
-                raw = get_ai_response(prompt)
-                clean = re.sub(r'```json|```', '', raw).strip()
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
 
-                try:
-                    data = json.loads(clean)
+    return response.choices[0].message.content
 
-                    st.session_state.quiz_questions = data
-                    st.session_state.quiz_score = 0
-                    st.session_state.current_q_idx = 0
-                    st.session_state.quiz_active = True
-                    st.session_state.answered = False
-                    st.rerun()
 
-                except:
-                    st.error("Quiz failed. Try again.")
+# ===============================
+# UI
+# ===============================
+st.title("📚 MentorLoop Smart Study AI")
+st.caption("Answers directly from your school textbooks")
 
+question = st.text_input("Ask a question from your textbook")
+
+if st.button("Get Answer"):
+    if not question.strip():
+        st.warning("Please enter a question.")
     else:
+        with st.spinner("Searching textbooks..."):
+            match = search_books(question)
 
-        q = st.session_state.quiz_questions
-        i = st.session_state.current_q_idx
+            if not match:
+                st.error("No matching textbook found.")
+            else:
+                answer = ask_ai(question, match["text"])
 
-        if i < len(q):
+                st.success("Answer")
+                st.write(answer)
 
-            st.subheader(f"Q{i+1}")
-            st.write(q[i]["question"])
-
-            for opt in q[i]["options"]:
-                if st.button(opt) and not st.session_state.answered:
-
-                    st.session_state.answered = True
-
-                    if opt == q[i]["correct_answer"]:
-                        st.success("Correct!")
-                        st.session_state.quiz_score += 1
-                    else:
-                        st.error(f"Wrong. Correct: {q[i]['correct_answer']}")
-
-                    time.sleep(1)
-                    st.session_state.current_q_idx += 1
-                    st.session_state.answered = False
-                    st.rerun()
-
-        else:
-            st.success(f"Score: {st.session_state.quiz_score}/{len(q)}")
-
-            if st.button("New Quiz"):
-                st.session_state.quiz_active = False
-                st.rerun()
+                st.info(f"📘 Source: {match['file']}")
