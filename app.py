@@ -15,8 +15,7 @@ st.set_page_config(
 )
 
 # Use the latest model alias to prevent the 404 error
-MODEL_NAME = "gemini-1.5-flash-latest"
-
+"MODEL_NAME = "gemini-1.5-flash-8b"
 # The folder where your pre-provided PDFs are stored
 PDF_FOLDER = "."
 
@@ -86,7 +85,7 @@ def load_and_index_books():
     return pages
 
 # Automatically load the library on startup
-with st.spinner("Initializing library..."):
+with st.spinner("Initializing library...Learning...Please wait"):
     books = load_and_index_books()
 
 # ======================================
