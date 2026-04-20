@@ -10,17 +10,33 @@ import google.generativeai as genai
 st.set_page_config(page_title="helix.ai Tutor", page_icon="📚", layout="wide")
 
 API_KEY = "AIzaSyCJ5kTedYLBjbTsCt9p7NBsbE-jsfH7sxM"
-
-# Configure API
 genai.configure(api_key=API_KEY)
 
-# Try best model first, fallback if needed
-MODEL_NAME = "gemini-1.5-flash-latest"
+# ----------------------------- #
+# 🔥 AUTO MODEL FALLBACK SYSTEM
+# ----------------------------- #
+MODEL_CANDIDATES = [
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+    "gemini-pro"
+]
 
-try:
-    model = genai.GenerativeModel(MODEL_NAME)
-except:
-    model = genai.GenerativeModel("gemini-pro")
+model = None
+
+for m in MODEL_CANDIDATES:
+    try:
+        temp_model = genai.GenerativeModel(m)
+        test = temp_model.generate_content("Hello")
+
+        if test and test.text:
+            model = temp_model
+            break
+    except:
+        continue
+
+if model is None:
+    st.error("🚨 No working AI model found. Check API key.")
+    st.stop()
 
 # ----------------------------- #
 # SESSION STATE
@@ -55,7 +71,7 @@ def get_ai_response(prompt):
         return f"⚠️ Error: {e}"
 
 # ----------------------------- #
-# LOGIN
+# LOGIN PAGE
 # ----------------------------- #
 if st.session_state.user_data is None:
     st.title("🚀 helix.ai")
@@ -112,7 +128,7 @@ if mode == "Tutor":
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 response = get_ai_response(
-                    f"You are a clear tutor. Explain step-by-step:\n{prompt}"
+                    f"You are a helpful tutor. Explain step-by-step:\n{prompt}"
                 )
                 st.markdown(response)
                 st.session_state.messages.append({"role":"assistant","content":response})
