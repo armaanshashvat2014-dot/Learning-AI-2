@@ -1,44 +1,30 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-from google import genai  # ✅ New SDK: pip install google-genai
+import google.generativeai as genai
 import os
 import re
 
-# ======================================
-# PAGE CONFIG
-# ======================================
 st.set_page_config(
     page_title="MentorLoop Smart Study AI",
     page_icon="📚",
     layout="wide"
 )
 
-# ======================================
-# GEMINI API — New SDK setup
-# ======================================
 api_key = st.secrets.get("GEMINI_API_KEY")
 if not api_key:
     st.error("Missing GEMINI_API_KEY in Streamlit secrets.")
     st.stop()
 
-client = genai.Client(api_key=api_key)  # ✅ New SDK uses Client
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-2.0-flash")
 
-# ======================================
-# PDF LOCATION
-# ======================================
 PDF_FOLDER = "."
 
-# ======================================
-# CLEAN TEXT
-# ======================================
 def clean_text(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9 ]', ' ', text)
     return text
 
-# ======================================
-# LOAD ALL PDF PAGES
-# ======================================
 @st.cache_resource
 def load_books():
     pages = []
@@ -61,9 +47,6 @@ def load_books():
 
 books = load_books()
 
-# ======================================
-# SEARCH ALL PAGES FAST
-# ======================================
 def search_pages(question):
     words = clean_text(question).split()
     best_page = None
@@ -75,9 +58,6 @@ def search_pages(question):
             best_page = page
     return best_page
 
-# ======================================
-# ASK GEMINI — New SDK call
-# ======================================
 def ask_ai(question, context):
     prompt = f"""
 You are MentorLoop Smart Study AI.
@@ -92,17 +72,11 @@ QUESTION:
 {question}
 """
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",  # ✅ Updated model name
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"AI error: {str(e)}"
 
-# ======================================
-# UI
-# ======================================
 st.title("📚 MentorLoop Smart Study AI")
 st.caption("Searches every textbook page and answers from your books")
 st.write(f"📘 Pages indexed: {len(books)}")
