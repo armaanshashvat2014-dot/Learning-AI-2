@@ -9,7 +9,7 @@ from google import genai
 # ----------------------------- #
 st.set_page_config(page_title="helix.ai Tutor", page_icon="📚")
 
-API_KEY = "AIzaSyBbNzWNCgD3RXZ25dKVdnDMxpjGjqbQ4rs"
+API_KEY = "AIzaSyCJ5kTedYLBjbTsCt9p7NBsbE-jsfH7sxM"
 
 client = genai.Client(api_key=API_KEY)
 
