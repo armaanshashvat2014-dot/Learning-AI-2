@@ -9,34 +9,11 @@ import google.generativeai as genai
 # ----------------------------- #
 st.set_page_config(page_title="helix.ai Tutor", page_icon="📚", layout="wide")
 
-API_KEY = "AIzaSyCJ5kTedYLBjbTsCt9p7NBsbE-jsfH7sxM"
+API_KEY = "AIzaSyBbNzWNCgD3RXZ25dKVdnDMxpjGjqbQ4rs"  # 🔥 keep yours here
 genai.configure(api_key=API_KEY)
 
-# ----------------------------- #
-# 🔥 AUTO MODEL FALLBACK SYSTEM
-# ----------------------------- #
-MODEL_CANDIDATES = [
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-pro"
-]
-
-model = None
-
-for m in MODEL_CANDIDATES:
-    try:
-        temp_model = genai.GenerativeModel(m)
-        test = temp_model.generate_content("Hello")
-
-        if test and test.text:
-            model = temp_model
-            break
-    except:
-        continue
-
-if model is None:
-    st.error("🚨 No working AI model found. Check API key.")
-    st.stop()
+# 🔥 USE SAFE MODEL
+model = genai.GenerativeModel("gemini-pro")
 
 # ----------------------------- #
 # SESSION STATE
@@ -172,7 +149,6 @@ Return ONLY JSON:
                     clean = clean.replace("'", '"')
                     data = json.loads(clean)
 
-                    # Validate
                     if not isinstance(data, list):
                         raise ValueError()
 
