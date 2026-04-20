@@ -1,28 +1,48 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-from openai import OpenAI
+import google.generativeai as genai
 import os
 import re
 
-st.set_page_config(page_title="MentorLoop Smart Study AI")
+# ======================================
+# PAGE CONFIG
+# ======================================
+st.set_page_config(
+    page_title="MentorLoop Smart Study AI",
+    page_icon="📚",
+    layout="wide"
+)
 
-api_key = st.secrets.get("OPENAI_API_KEY")
+# ======================================
+# GEMINI API
+# ======================================
+api_key = st.secrets.get("GEMINI_API_KEY")
+
 if not api_key:
-    st.error("Missing OPENAI_API_KEY")
+    st.error("Missing GEMINI_API_KEY in Streamlit secrets.")
     st.stop()
 
-client = OpenAI(api_key=api_key)
+genai.configure(api_key=api_key)
 
-# PDFs are in repo root
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+# ======================================
+# PDF LOCATION
+# PDFs are stored in repo root
+# ======================================
 PDF_FOLDER = "."
 
-
+# ======================================
+# CLEAN TEXT
+# ======================================
 def clean_text(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9 ]', ' ', text)
     return text
 
-
+# ======================================
+# LOAD ALL PDF PAGES
+# ======================================
 @st.cache_resource
 def load_books():
     pages = []
@@ -43,15 +63,16 @@ def load_books():
                             "clean": clean_text(text)
                         })
 
-            except Exception as e:
-                st.warning(f"Could not read {file}")
+            except Exception:
+                pass
 
     return pages
 
-
 books = load_books()
 
-
+# ======================================
+# SEARCH ALL PAGES FAST
+# ======================================
 def search_pages(question):
     words = clean_text(question).split()
 
@@ -70,44 +91,56 @@ def search_pages(question):
 
     return best_page
 
-
+# ======================================
+# ASK GEMINI
+# ======================================
 def ask_ai(question, context):
     prompt = f"""
-Answer ONLY using this textbook page.
+You are MentorLoop Smart Study AI.
 
-TEXT:
-{context}
+Answer ONLY using the textbook content below.
+Do not invent information.
+Keep the explanation simple for students.
+
+TEXTBOOK PAGE:
+{context[:7000]}
 
 QUESTION:
 {question}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
+    try:
+        response = model.generate_content(prompt)
+        return response.text
 
-    return response.choices[0].message.content
+    except Exception as e:
+        return f"AI error: {str(e)}"
 
-
+# ======================================
+# UI
+# ======================================
 st.title("📚 MentorLoop Smart Study AI")
-st.caption("Searches every textbook page instantly")
+st.caption("Searches every textbook page and answers from your books")
 
-st.write("Books loaded:", len(books))
+st.write(f"📘 Pages indexed: {len(books)}")
 
-question = st.text_input("Ask a question")
+question = st.text_input("Ask a question from your textbook")
 
 if st.button("Search"):
-    if not question:
-        st.warning("Enter a question")
+    if not question.strip():
+        st.warning("Please enter a question.")
     else:
-        match = search_pages(question)
+        with st.spinner("Searching textbooks..."):
+            match = search_pages(question)
 
-        if not match:
-            st.error("No matching textbook found.")
-        else:
-            answer = ask_ai(question, match["text"])
-            st.success(answer)
-            st.info(f"{match['file']} | Page {match['page']}")
+            if not match:
+                st.error("No matching textbook found.")
+            else:
+                answer = ask_ai(question, match["text"])
+
+                st.success("Answer")
+                st.write(answer)
+
+                st.info(
+                    f"Source: {match['file']} | Page {match['page']}"
+                )
