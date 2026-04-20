@@ -2,8 +2,7 @@ import streamlit as st
 import time
 import re
 import json
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 # ----------------------------- #
 # CONFIG
@@ -12,11 +11,16 @@ st.set_page_config(page_title="helix.ai Tutor", page_icon="📚", layout="wide")
 
 API_KEY = "AIzaSyCJ5kTedYLBjbTsCt9p7NBsbE-jsfH7sxM"
 
+# Configure API
+genai.configure(api_key=API_KEY)
+
+# Try best model first, fallback if needed
+MODEL_NAME = "gemini-1.5-flash-latest"
+
 try:
-    client = genai.Client(api_key=API_KEY)
-except Exception as e:
-    st.error(f"API Error: {e}")
-    st.stop()
+    model = genai.GenerativeModel(MODEL_NAME)
+except:
+    model = genai.GenerativeModel("gemini-pro")
 
 # ----------------------------- #
 # SESSION STATE
@@ -32,24 +36,23 @@ if "user_data" not in st.session_state:
 if "quiz_active" not in st.session_state:
     st.session_state.quiz_active = False
 
-# ----------------------------- #
-# AI FUNCTION (SAFE)
-# ----------------------------- #
-def get_ai_response(prompt, system_instruction):
-    try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(system_instruction=system_instruction)
-        )
+if "answered" not in st.session_state:
+    st.session_state.answered = False
 
-        if not response or not hasattr(response, "text") or not response.text:
+# ----------------------------- #
+# SAFE AI FUNCTION
+# ----------------------------- #
+def get_ai_response(prompt):
+    try:
+        response = model.generate_content(prompt)
+
+        if not response or not response.text:
             return "⚠️ No response. Try again."
 
         return response.text.strip()
 
     except Exception as e:
-        return f"⚠️ Error: {str(e)}"
+        return f"⚠️ Error: {e}"
 
 # ----------------------------- #
 # LOGIN
@@ -109,8 +112,7 @@ if mode == "Tutor":
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 response = get_ai_response(
-                    prompt,
-                    "You are a clear tutor. Explain step-by-step."
+                    f"You are a clear tutor. Explain step-by-step:\n{prompt}"
                 )
                 st.markdown(response)
                 st.session_state.messages.append({"role":"assistant","content":response})
@@ -132,28 +134,35 @@ else:
             with st.spinner("Generating..."):
 
                 prompt = f"""
-                Create {num} {subject} questions on {topic}.
-                Return ONLY JSON like:
-                [
-                {{
-                "question":"",
-                "options":["A","B","C","D"],
-                "correct_answer":"A",
-                "explanation":""
-                }}
-                ]
-                """
+Create {num} {subject} questions on {topic} for {st.session_state.user_data['grade']}.
 
-                raw = get_ai_response(prompt, "Return only JSON.")
+Return ONLY JSON:
+[
+{{
+"question":"",
+"options":["A","B","C","D"],
+"correct_answer":"A",
+"explanation":""
+}}
+]
+"""
 
+                raw = get_ai_response(prompt)
+
+                # Clean JSON
                 clean = re.sub(r'```json|```', '', raw).strip()
 
                 try:
                     clean = clean.replace("'", '"')
                     data = json.loads(clean)
 
+                    # Validate
                     if not isinstance(data, list):
                         raise ValueError()
+
+                    for q in data:
+                        if not all(k in q for k in ["question","options","correct_answer"]):
+                            raise ValueError()
 
                     st.session_state.quiz_questions = data
                     st.session_state.quiz_score = 0
@@ -163,7 +172,7 @@ else:
                     st.rerun()
 
                 except:
-                    st.error("Quiz failed. Try again.")
+                    st.error("⚠️ Quiz failed. Try again.")
 
     else:
 
@@ -173,7 +182,6 @@ else:
         if i < len(q):
 
             st.subheader(f"Q{i+1}")
-
             st.write(q[i]["question"])
 
             for opt in q[i]["options"]:
@@ -182,7 +190,7 @@ else:
                     st.session_state.answered = True
 
                     if opt == q[i]["correct_answer"]:
-                        st.success("Correct!")
+                        st.success("Correct! 🎉")
                         st.session_state.quiz_score += 1
                     else:
                         st.error(f"Wrong. Correct: {q[i]['correct_answer']}")
