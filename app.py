@@ -2,18 +2,16 @@ import streamlit as st
 import time
 import re
 import json
-import google.generativeai as genai
+from google import genai
 
 # ----------------------------- #
 # CONFIG
 # ----------------------------- #
-st.set_page_config(page_title="helix.ai Tutor", page_icon="📚", layout="wide")
+st.set_page_config(page_title="helix.ai Tutor", page_icon="📚")
 
-API_KEY = "AIzaSyBbNzWNCgD3RXZ25dKVdnDMxpjGjqbQ4rs"  # 🔥 keep yours here
-genai.configure(api_key=API_KEY)
+API_KEY = "AIzaSyBbNzWNCgD3RXZ25dKVdnDMxpjGjqbQ4rs"
 
-# 🔥 USE SAFE MODEL
-model = genai.GenerativeModel("gemini-pro")
+client = genai.Client(api_key=API_KEY)
 
 # ----------------------------- #
 # SESSION STATE
@@ -33,22 +31,22 @@ if "answered" not in st.session_state:
     st.session_state.answered = False
 
 # ----------------------------- #
-# SAFE AI FUNCTION
+# AI FUNCTION (NEW SDK)
 # ----------------------------- #
 def get_ai_response(prompt):
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
 
-        if not response or not response.text:
-            return "⚠️ No response. Try again."
-
-        return response.text.strip()
+        return response.text if response.text else "No response."
 
     except Exception as e:
         return f"⚠️ Error: {e}"
 
 # ----------------------------- #
-# LOGIN PAGE
+# LOGIN
 # ----------------------------- #
 if st.session_state.user_data is None:
     st.title("🚀 helix.ai")
@@ -77,10 +75,6 @@ with st.sidebar:
     st.write(f"👤 {st.session_state.user_data['name']}")
     mode = st.radio("Mode", ["Tutor","Quiz"])
 
-    if st.button("Clear Chat"):
-        st.session_state.messages = [{"role":"assistant","content":"Memory cleared!"}]
-        st.rerun()
-
     if st.button("Logout"):
         st.session_state.user_data = None
         st.rerun()
@@ -99,14 +93,9 @@ if mode == "Tutor":
     if prompt := st.chat_input("Ask something"):
         st.session_state.messages.append({"role":"user","content":prompt})
 
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                response = get_ai_response(
-                    f"You are a helpful tutor. Explain step-by-step:\n{prompt}"
-                )
+                response = get_ai_response(prompt)
                 st.markdown(response)
                 st.session_state.messages.append({"role":"assistant","content":response})
 
@@ -127,34 +116,23 @@ else:
             with st.spinner("Generating..."):
 
                 prompt = f"""
-Create {num} {subject} questions on {topic} for {st.session_state.user_data['grade']}.
+Create {num} {subject} questions on {topic}.
 
 Return ONLY JSON:
 [
 {{
 "question":"",
 "options":["A","B","C","D"],
-"correct_answer":"A",
-"explanation":""
+"correct_answer":"A"
 }}
 ]
 """
 
                 raw = get_ai_response(prompt)
-
-                # Clean JSON
                 clean = re.sub(r'```json|```', '', raw).strip()
 
                 try:
-                    clean = clean.replace("'", '"')
                     data = json.loads(clean)
-
-                    if not isinstance(data, list):
-                        raise ValueError()
-
-                    for q in data:
-                        if not all(k in q for k in ["question","options","correct_answer"]):
-                            raise ValueError()
 
                     st.session_state.quiz_questions = data
                     st.session_state.quiz_score = 0
@@ -164,7 +142,7 @@ Return ONLY JSON:
                     st.rerun()
 
                 except:
-                    st.error("⚠️ Quiz failed. Try again.")
+                    st.error("Quiz failed. Try again.")
 
     else:
 
@@ -182,12 +160,12 @@ Return ONLY JSON:
                     st.session_state.answered = True
 
                     if opt == q[i]["correct_answer"]:
-                        st.success("Correct! 🎉")
+                        st.success("Correct!")
                         st.session_state.quiz_score += 1
                     else:
                         st.error(f"Wrong. Correct: {q[i]['correct_answer']}")
 
-                    time.sleep(1.5)
+                    time.sleep(1)
                     st.session_state.current_q_idx += 1
                     st.session_state.answered = False
                     st.rerun()
