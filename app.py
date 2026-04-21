@@ -4,7 +4,6 @@ import google.generativeai as genai
 import openai
 import wikipedia
 import os
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===============================
@@ -25,7 +24,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Use format → Subject: Your Question (e.g., Physics: What is force?)")
+st.caption("⚡ Use format → Subject: Your Question (faster answers)")
 
 # ===============================
 # API KEYS
@@ -35,24 +34,23 @@ def get_keys(prefix):
     i=1
     while True:
         k=st.secrets.get(f"{prefix}_{i}")
-        if not k: break
+        if not k:
+            break
         keys.append(k)
         i+=1
     single=st.secrets.get(prefix)
-    if single: keys.append(single)
+    if single:
+        keys.append(single)
     return keys
 
 GEMINI_KEYS = get_keys("GEMINI_API_KEY")
 OPENAI_KEYS = get_keys("OPENAI_API_KEY")
 
 # ===============================
-# PDF BACKGROUND LOADING
+# PDF LOADING (SAFE CACHE)
 # ===============================
-books = []
-pdf_loaded = False
-
+@st.cache_resource
 def load_pdfs():
-    global books, pdf_loaded
     data=[]
     for f in os.listdir("."):
         if f.endswith(".pdf"):
@@ -64,10 +62,10 @@ def load_pdfs():
                         data.append(txt[:1200])
             except:
                 pass
-    books = data
-    pdf_loaded = True
+    return data
 
-threading.Thread(target=load_pdfs).start()
+books = load_pdfs()
+pdf_loaded = len(books) > 0
 
 # ===============================
 # PDF SEARCH
@@ -98,7 +96,7 @@ def wiki(q):
         return ""
 
 # ===============================
-# AI CALLS (3 PROVIDERS)
+# AI CALLS
 # ===============================
 def ask_gemini(prompt):
     for k in GEMINI_KEYS:
@@ -125,29 +123,26 @@ def ask_openai(prompt):
     return None
 
 # ===============================
-# 🧠 MASTER AI (3 AI COMBINE)
+# MASTER AI (COMBINES SOURCES)
 # ===============================
 def master_ai(question, context=""):
 
     prompt = f"""
-You are SmartLoop AI tutor.
+Answer clearly and simply.
 
-Answer clearly and correctly.
-
-CONTEXT:
+Context:
 {context}
 
-QUESTION:
+Question:
 {question}
 """
 
-    results = []
+    results=[]
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=2) as ex:
         futures = [
             ex.submit(ask_gemini, prompt),
-            ex.submit(ask_openai, prompt),
-            ex.submit(lambda p: wiki(question), prompt)
+            ex.submit(ask_openai, prompt)
         ]
 
         for f in as_completed(futures):
@@ -155,20 +150,19 @@ QUESTION:
             if res:
                 results.append(res)
 
-    if not results:
-        return "Try rephrasing."
+    # Wikipedia fallback
+    wiki_res = wiki(question)
+    if wiki_res:
+        results.append(wiki_res)
 
-    # MASTER COMBINE
+    if not results:
+        return "AI temporarily unavailable."
+
     combined = "\n\n".join(results)
 
-    final_prompt = f"""
-Combine the answers into one clear, correct explanation.
+    final = ask_gemini("Combine and simplify:\n" + combined)
 
-{combined}
-"""
-
-    final = ask_gemini(final_prompt)
-    return final or results[0]
+    return final if final else results[0]
 
 # ===============================
 # ANSWER ENGINE
@@ -180,37 +174,39 @@ def get_answer(query):
     else:
         q = query
 
-    # ⚡ If PDF not ready → Gemini only
+    # If PDFs not loaded → Gemini only
     if not pdf_loaded:
-        return ask_gemini(q) or "Loading PDFs..."
+        return ask_gemini(q) or "⚡ Loading knowledge..."
 
-    # 📚 Use PDF context
     context = search_pdf(q)
 
     return master_ai(q, context)
 
 # ===============================
-# 🧪 QUIZ (PDF REQUIRED)
+# QUIZ (PDF REQUIRED)
 # ===============================
-def generate_quiz(subject, topic, num_q):
+def generate_quiz(topic, num_q):
 
     if not pdf_loaded:
-        return "PDFs still loading. Quiz requires textbook knowledge."
+        return None, "⚠️ PDFs not loaded yet."
 
     context = search_pdf(topic)
+
+    if not context:
+        return None, "⚠️ Topic not found in PDFs."
 
     questions=[]
 
     for i in range(num_q):
 
         q = f"""
-Q{i+1}.
+Q{i+1}
 
 (a) Define {topic}. (2 marks)
 
-(b) Explain using knowledge from text. (3 marks)
+(b) Explain how {topic} works. (3 marks)
 
-(c) Using this context:
+(c) Using the context below:
 
 {context[:200]}
 
@@ -218,14 +214,14 @@ Apply the concept. (3 marks)
 """
 
         ms = """
-(a) Definition (2)
+(a) Correct definition (2)
 (b) Explanation (3)
 (c) Application (3)
 """
 
         questions.append({"q":q,"ms":ms})
 
-    return questions
+    return questions, None
 
 # ===============================
 # UI
@@ -239,12 +235,21 @@ num_q = st.selectbox("Questions",[1,2,3,5])
 if st.button("Run"):
 
     if mode=="Tutor":
-        ans = get_answer(query)
-        st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
+
+        if not query.strip():
+            st.warning("Enter a question")
+        else:
+            ans = get_answer(query)
+            st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
 
     else:
-        quiz = generate_quiz("", query, num_q)
-        st.session_state.quiz = quiz
+
+        quiz, err = generate_quiz(query, num_q)
+
+        if err:
+            st.warning(err)
+        else:
+            st.session_state.quiz = quiz
 
 # ===============================
 # DISPLAY QUIZ
@@ -254,7 +259,9 @@ if "quiz" in st.session_state:
     st.markdown("## 📄 IGCSE Quiz")
 
     for i,q in enumerate(st.session_state.quiz):
+
         st.markdown(q["q"])
+
         st.text_area(f"Answer Q{i+1}", key=f"a{i}")
 
         if st.button(f"Mark Scheme {i+1}", key=f"ms{i}"):
@@ -264,6 +271,6 @@ if "quiz" in st.session_state:
 # STATUS
 # ===============================
 if pdf_loaded:
-    st.success("📚 PDFs Ready")
+    st.success(f"📚 PDFs Loaded ({len(books)} chunks)")
 else:
-    st.info("⚡ PDFs loading in background...")
+    st.info("⚡ No PDFs found or loading failed")
