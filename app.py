@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.0-flash-lite"
 PDF_FOLDER = "."
 
 # ======================================
@@ -186,13 +186,13 @@ QUESTION:
         except Exception as e:
             err = str(e)
             if "429" in err:
-                time.sleep(5)
+                time.sleep(20)
                 continue
             return f"AI Error: {err}"
 
     # All keys tried — wait and try once more
-    with st.spinner("Keys busy, waiting 30 seconds and retrying..."):
-        time.sleep(30)
+    with st.spinner("Keys busy, waiting 60 seconds and retrying..."):
+        time.sleep(60)
     try:
         genai.configure(api_key=API_KEYS[0])
         model = genai.GenerativeModel(MODEL_NAME)
