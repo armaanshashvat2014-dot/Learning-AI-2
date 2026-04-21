@@ -2,9 +2,9 @@ import streamlit as st
 from PyPDF2 import PdfReader
 import google.generativeai as genai
 import openai
+import wikipedia
 import os
 import threading
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===============================
@@ -13,58 +13,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 # ===============================
-# 🎨 UI
+# UI
 # ===============================
 st.markdown("""
 <style>
 .main {background: linear-gradient(135deg,#0b1020,#050816); color:white;}
-.stTextInput input {
-    background:#1c223a; border-radius:12px; color:white; padding:12px;
-}
-.stButton button {
-    background:linear-gradient(90deg,#00c6ff,#0072ff);
-    color:white; border-radius:12px; font-weight:bold;
-}
-.card {
-    background:#121a35;
-    padding:20px;
-    border-radius:15px;
-    border:1px solid #2a3a6f;
-    margin-top:15px;
-}
+.stTextInput input {background:#1c223a; border-radius:12px; color:white;}
+.stButton button {background:#0072ff; color:white; border-radius:10px;}
+.card {background:#121a35; padding:20px; border-radius:15px; margin-top:10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ===============================
-# 🧠 MASSIVE BIG BRAIN (x100)
-# ===============================
-CORE_KNOWLEDGE = {
-    "gravity": "Gravity pulls objects toward Earth at 9.8 m/s².",
-    "photosynthesis": "Plants convert sunlight into energy using CO2 and water.",
-    "sound": "Sound travels as vibrations through a medium.",
-    "light": "Light is electromagnetic radiation traveling at 300,000 km/s.",
-    "atom": "Atoms consist of protons, neutrons, and electrons.",
-    "energy": "Energy cannot be created or destroyed.",
-    "cell": "Cells are the building blocks of life.",
-    "ecosystem": "Living and non-living components interacting.",
-    "water cycle": "Evaporation → Condensation → Precipitation."
-}
-
-# Expand intelligently (100x)
-BIG_BRAIN = {}
-for k,v in CORE_KNOWLEDGE.items():
-    for i in range(100):
-        BIG_BRAIN[f"{k}_{i}"] = v
-
-def quick_answer(q):
-    q = q.lower()
-    for k,v in CORE_KNOWLEDGE.items():
-        if k in q:
-            return v
-    return None
+st.title("🧠 SmartLoop AI")
+st.caption("⚡ Use format → Subject: Your Question (e.g., Physics: What is force?)")
 
 # ===============================
-# 🔑 API KEYS
+# API KEYS
 # ===============================
 def get_keys(prefix):
     keys=[]
@@ -78,155 +42,228 @@ def get_keys(prefix):
     if single: keys.append(single)
     return keys
 
-PROVIDERS = []
-for k in get_keys("GEMINI_API_KEY"):
-    PROVIDERS.append({"type":"gemini","key":k})
-for k in get_keys("OPENAI_API_KEY"):
-    PROVIDERS.append({"type":"openai","key":k})
+GEMINI_KEYS = get_keys("GEMINI_API_KEY")
+OPENAI_KEYS = get_keys("OPENAI_API_KEY")
 
 # ===============================
-# 📚 BACKGROUND PDF LOADING
+# PDF BACKGROUND LOADING
 # ===============================
-books=[]
-loaded=False
+books = []
+pdf_loaded = False
 
 def load_pdfs():
-    global books, loaded
-    folder="."
+    global books, pdf_loaded
     data=[]
-    for f in os.listdir(folder):
+    for f in os.listdir("."):
         if f.endswith(".pdf"):
             try:
-                reader=PdfReader(os.path.join(folder,f))
+                reader = PdfReader(f)
                 for p in reader.pages:
-                    txt=p.extract_text()
+                    txt = p.extract_text()
                     if txt:
-                        data.append(txt[:1500])
+                        data.append(txt[:1200])
             except:
                 pass
-    books=data
-    loaded=True
+    books = data
+    pdf_loaded = True
 
 threading.Thread(target=load_pdfs).start()
 
 # ===============================
-# 🔍 SEARCH
+# PDF SEARCH
 # ===============================
-def search_books(q):
+def search_pdf(q):
     if not books:
         return ""
+
     best=""
     score_max=0
+    words=set(q.lower().split())
+
     for b in books:
-        score=sum(b.lower().count(w) for w in q.lower().split())
+        score=len(words & set(b.lower().split()))
         if score>score_max:
             score_max=score
             best=b
+
     return best[:1000]
 
 # ===============================
-# 🤖 AI (FAST PARALLEL)
+# WIKIPEDIA
 # ===============================
-def ask_ai(prompt):
+def wiki(q):
+    try:
+        return wikipedia.summary(q, sentences=3)
+    except:
+        return ""
 
-    def worker(p):
+# ===============================
+# AI CALLS (3 PROVIDERS)
+# ===============================
+def ask_gemini(prompt):
+    for k in GEMINI_KEYS:
         try:
-            if p["type"]=="gemini":
-                genai.configure(api_key=p["key"])
-                model=genai.GenerativeModel("gemini-2.0-flash")
-                return model.generate_content(prompt).text
-            else:
-                client=openai.OpenAI(api_key=p["key"])
-                r=client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role":"user","content":prompt}],
-                    max_tokens=300
-                )
-                return r.choices[0].message.content
+            genai.configure(api_key=k)
+            model = genai.GenerativeModel("gemini-2.0-flash")
+            return model.generate_content(prompt).text
         except:
-            return None
+            continue
+    return None
 
-    with ThreadPoolExecutor(max_workers=len(PROVIDERS)) as ex:
-        futures=[ex.submit(worker,p) for p in PROVIDERS]
-        for f in as_completed(futures):
-            res=f.result()
-            if res:
-                return res
+def ask_openai(prompt):
+    for k in OPENAI_KEYS:
+        try:
+            client = openai.OpenAI(api_key=k)
+            r = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role":"user","content":prompt}],
+                max_tokens=400
+            )
+            return r.choices[0].message.content
+        except:
+            continue
     return None
 
 # ===============================
-# 🧠 ANSWER ENGINE
+# 🧠 MASTER AI (3 AI COMBINE)
 # ===============================
-def get_answer(q):
+def master_ai(question, context=""):
 
-    # ⚡ instant
-    quick=quick_answer(q)
-    if quick:
-        return quick
+    prompt = f"""
+You are SmartLoop AI tutor.
 
-    # 📚 PDF
-    context=search_books(q)
+Answer clearly and correctly.
 
-    prompt=f"""
-Answer simply in 3 lines.
-
-Context:
+CONTEXT:
 {context}
 
-Question:
-{q}
+QUESTION:
+{question}
 """
 
-    ai=ask_ai(prompt)
-    if ai:
-        return ai
+    results = []
 
-    return context if context else "Try rephrasing your question."
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futures = [
+            ex.submit(ask_gemini, prompt),
+            ex.submit(ask_openai, prompt),
+            ex.submit(lambda p: wiki(question), prompt)
+        ]
 
-# ===============================
-# 🧪 QUIZ GENERATOR
-# ===============================
-def generate_quiz(topic):
+        for f in as_completed(futures):
+            res = f.result()
+            if res:
+                results.append(res)
 
-    context=search_books(topic)
+    if not results:
+        return "Try rephrasing."
 
-    prompt=f"""
-Create a short quiz (5 questions + answers) from this topic:
+    # MASTER COMBINE
+    combined = "\n\n".join(results)
 
-{context}
+    final_prompt = f"""
+Combine the answers into one clear, correct explanation.
+
+{combined}
 """
 
-    quiz=ask_ai(prompt)
-    if quiz:
-        return quiz
-
-    return "Quiz unavailable right now."
+    final = ask_gemini(final_prompt)
+    return final or results[0]
 
 # ===============================
-# 🖥 UI
+# ANSWER ENGINE
 # ===============================
-st.title("🧠 SmartLoop AI")
-st.caption("Next-gen AI Tutor")
+def get_answer(query):
 
-mode=st.radio("Select Mode",["Ask AI","Generate Quiz"])
+    if ":" in query:
+        subject, q = query.split(":",1)
+    else:
+        q = query
 
-query=st.text_input("Enter your question or topic")
+    # ⚡ If PDF not ready → Gemini only
+    if not pdf_loaded:
+        return ask_gemini(q) or "Loading PDFs..."
+
+    # 📚 Use PDF context
+    context = search_pdf(q)
+
+    return master_ai(q, context)
+
+# ===============================
+# 🧪 QUIZ (PDF REQUIRED)
+# ===============================
+def generate_quiz(subject, topic, num_q):
+
+    if not pdf_loaded:
+        return "PDFs still loading. Quiz requires textbook knowledge."
+
+    context = search_pdf(topic)
+
+    questions=[]
+
+    for i in range(num_q):
+
+        q = f"""
+Q{i+1}.
+
+(a) Define {topic}. (2 marks)
+
+(b) Explain using knowledge from text. (3 marks)
+
+(c) Using this context:
+
+{context[:200]}
+
+Apply the concept. (3 marks)
+"""
+
+        ms = """
+(a) Definition (2)
+(b) Explanation (3)
+(c) Application (3)
+"""
+
+        questions.append({"q":q,"ms":ms})
+
+    return questions
+
+# ===============================
+# UI
+# ===============================
+mode = st.radio("Mode", ["Tutor","Quiz"])
+
+query = st.text_input("Enter (Subject: Question or Topic)")
+
+num_q = st.selectbox("Questions",[1,2,3,5])
 
 if st.button("Run"):
-    if query:
 
-        if mode=="Ask AI":
-            ans=get_answer(query)
-            st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
+    if mode=="Tutor":
+        ans = get_answer(query)
+        st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
 
-        else:
-            quiz=generate_quiz(query)
-            st.markdown(f'<div class="card">{quiz}</div>', unsafe_allow_html=True)
+    else:
+        quiz = generate_quiz("", query, num_q)
+        st.session_state.quiz = quiz
+
+# ===============================
+# DISPLAY QUIZ
+# ===============================
+if "quiz" in st.session_state:
+
+    st.markdown("## 📄 IGCSE Quiz")
+
+    for i,q in enumerate(st.session_state.quiz):
+        st.markdown(q["q"])
+        st.text_area(f"Answer Q{i+1}", key=f"a{i}")
+
+        if st.button(f"Mark Scheme {i+1}", key=f"ms{i}"):
+            st.info(q["ms"])
 
 # ===============================
 # STATUS
 # ===============================
-if loaded:
-    st.success(f"📚 {len(books)} PDF chunks loaded")
+if pdf_loaded:
+    st.success("📚 PDFs Ready")
 else:
-    st.info("⚡ Loading PDFs in background... Ask anything meanwhile!")
+    st.info("⚡ PDFs loading in background...")
