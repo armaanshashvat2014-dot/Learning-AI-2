@@ -1,6 +1,7 @@
 import streamlit as st
 from PyPDF2 import PdfReader
 import google.generativeai as genai
+import openai
 import os
 import re
 import time
@@ -11,7 +12,8 @@ st.set_page_config(
     layout="wide"
 )
 
-MODEL_NAME = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-2.0-flash"
+OPENAI_MODEL = "gpt-3.5-turbo"
 PDF_FOLDER = "."
 
 # ======================================
@@ -53,7 +55,6 @@ QUICK_KNOWLEDGE = {
     "evolution": "Evolution is the change in species over time through natural selection. Organisms with favorable traits survive and reproduce more. Charles Darwin proposed the theory of evolution.",
     "plate tectonics": "The Earth's crust is made of plates that move slowly. When plates collide, mountains form. When they separate, rift valleys form. Earthquakes and volcanoes occur at plate boundaries.",
     "climate change": "Climate change refers to long-term shifts in temperatures and weather patterns. Human activities like burning fossil fuels release CO2, which traps heat in the atmosphere (greenhouse effect), causing global warming.",
-    "fractions decimals percentages": "To convert: fraction to decimal — divide numerator by denominator. Decimal to percentage — multiply by 100. Example: 1/4 = 0.25 = 25%.",
     "area": "Area formulas: Rectangle = length × width. Triangle = ½ × base × height. Circle = π × r². Parallelogram = base × height. Units are squared (cm², m²).",
     "volume": "Volume formulas: Cuboid = length × width × height. Cylinder = π × r² × h. Sphere = 4/3 × π × r³. Units are cubed (cm³, m³).",
     "ratio": "A ratio compares two quantities. Example: 3:2 means for every 3 of one thing there are 2 of another. To simplify, divide both by the highest common factor.",
@@ -70,7 +71,7 @@ def get_quick_answer(question):
 # ======================================
 # API KEY MANAGEMENT
 # ======================================
-def get_api_keys():
+def get_gemini_keys():
     keys = []
     i = 1
     while True:
@@ -84,18 +85,39 @@ def get_api_keys():
         keys.append(single)
     return keys
 
-API_KEYS = get_api_keys()
+def get_openai_keys():
+    keys = []
+    i = 1
+    while True:
+        key = st.secrets.get(f"OPENAI_API_KEY_{i}")
+        if not key:
+            break
+        keys.append(key)
+        i += 1
+    single = st.secrets.get("OPENAI_API_KEY")
+    if single and single not in keys:
+        keys.append(single)
+    return keys
 
-if not API_KEYS:
-    st.error("Missing API Keys! Add them to Streamlit Secrets.")
+GEMINI_KEYS = get_gemini_keys()
+OPENAI_KEYS = get_openai_keys()
+ALL_PROVIDERS = []
+
+for k in GEMINI_KEYS:
+    ALL_PROVIDERS.append({"provider": "gemini", "key": k})
+for k in OPENAI_KEYS:
+    ALL_PROVIDERS.append({"provider": "openai", "key": k})
+
+if not ALL_PROVIDERS:
+    st.error("No API keys found. Add Gemini or OpenAI keys to Streamlit Secrets.")
     st.stop()
 
-def get_next_key():
-    if "key_index" not in st.session_state:
-        st.session_state.key_index = 0
-    key = API_KEYS[st.session_state.key_index % len(API_KEYS)]
-    st.session_state.key_index += 1
-    return key
+def get_next_provider():
+    if "provider_index" not in st.session_state:
+        st.session_state.provider_index = 0
+    p = ALL_PROVIDERS[st.session_state.provider_index % len(ALL_PROVIDERS)]
+    st.session_state.provider_index += 1
+    return p
 
 # ======================================
 # PDF INDEXING
@@ -146,7 +168,6 @@ def search_library(question):
     words = [w for w in words if w not in stopwords]
     if not words:
         return None
-
     best_page = None
     best_score = 0
     for page in books:
@@ -154,15 +175,28 @@ def search_library(question):
         if score > best_score:
             best_score = score
             best_page = page
-
     if best_score < 2:
         return None
-
     return best_page
 
 # ======================================
-# ASK GEMINI
+# ASK AI — tries Gemini then OpenAI
 # ======================================
+def ask_gemini(prompt, key):
+    genai.configure(api_key=key)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    response = model.generate_content(prompt)
+    return response.text
+
+def ask_openai(prompt, key):
+    client = openai.OpenAI(api_key=key)
+    response = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=500
+    )
+    return response.choices[0].message.content
+
 def ask_ai(question, context):
     prompt = f"""
 You are MentorLoop Smart Study AI, a helpful tutor for students.
@@ -176,30 +210,31 @@ TEXTBOOK EXCERPT:
 QUESTION:
 {question}
 """
-    for attempt in range(len(API_KEYS)):
-        key = get_next_key()
+    for attempt in range(len(ALL_PROVIDERS)):
+        provider = get_next_provider()
         try:
-            genai.configure(api_key=key)
-            model = genai.GenerativeModel(MODEL_NAME)
-            response = model.generate_content(prompt)
-            return response.text
+            if provider["provider"] == "gemini":
+                return ask_gemini(prompt, provider["key"])
+            else:
+                return ask_openai(prompt, provider["key"])
         except Exception as e:
             err = str(e)
-            if "429" in err:
-                time.sleep(20)
+            if "429" in err or "rate" in err.lower() or "quota" in err.lower():
+                time.sleep(10)
                 continue
             return f"AI Error: {err}"
 
-    # All keys tried — wait and try once more
-    with st.spinner("Keys busy, waiting 60 seconds and retrying..."):
+    # All providers exhausted — wait and retry
+    with st.spinner("All providers busy, waiting 60 seconds..."):
         time.sleep(60)
     try:
-        genai.configure(api_key=API_KEYS[0])
-        model = genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(prompt)
-        return response.text
+        p = ALL_PROVIDERS[0]
+        if p["provider"] == "gemini":
+            return ask_gemini(prompt, p["key"])
+        else:
+            return ask_openai(prompt, p["key"])
     except:
-        return "Still busy. Please try again in a minute."
+        return "All AI providers are currently busy. Please try again in a minute."
 
 # ======================================
 # UI
@@ -213,25 +248,20 @@ if st.button("Search Library"):
     if not query.strip():
         st.warning("Please enter a question.")
     else:
-        # Step 1: Check built-in knowledge (instant, no API call)
         quick = get_quick_answer(query)
         if quick:
             st.subheader("Answer")
             st.write(quick)
             st.caption("Answered from built-in knowledge base")
-
         else:
-            # Step 2: Search PDFs
             with st.spinner("Scanning textbooks..."):
                 match = search_library(query)
-
                 if match:
                     answer = ask_ai(query, match["text"])
                     st.subheader("Answer")
                     st.write(answer)
                     st.caption(f"Found in: **{match['file']}** — Page {match['page']}")
                 else:
-                    # Step 3: No good PDF match — use Gemini general knowledge
                     answer = ask_ai(query, "No specific textbook content found for this topic.")
                     st.subheader("Answer")
                     st.write(answer)
