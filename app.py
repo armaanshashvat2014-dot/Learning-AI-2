@@ -5,6 +5,9 @@ import openai
 import os
 import re
 import time
+import pickle
+import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(
     page_title="MentorLoop Smart Study AI",
@@ -120,36 +123,75 @@ def get_next_provider():
     return p
 
 # ======================================
-# PDF INDEXING
+# PDF INDEXING WITH CACHE
 # ======================================
 def clean_text(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9 ]', ' ', text)
     return text
 
+def get_pdf_hash():
+    h = hashlib.md5()
+    for f in sorted(os.listdir(PDF_FOLDER)):
+        if f.lower().endswith(".pdf"):
+            h.update(f.encode())
+            h.update(str(os.path.getmtime(
+                os.path.join(PDF_FOLDER, f))).encode())
+    return h.hexdigest()
+
+def load_single_pdf(file):
+    pages = []
+    try:
+        path = os.path.join(PDF_FOLDER, file)
+        reader = PdfReader(path)
+        for page_num, page in enumerate(reader.pages):
+            text = page.extract_text()
+            if text and len(text.strip()) > 20:
+                pages.append({
+                    "file": file,
+                    "page": page_num + 1,
+                    "text": text,
+                    "clean": clean_text(text)
+                })
+    except Exception as e:
+        print(f"Error loading {file}: {e}")
+    return pages
+
 @st.cache_resource
 def load_and_index_books():
-    pages = []
     if not os.path.exists(PDF_FOLDER):
-        return pages
-    for file in os.listdir(PDF_FOLDER):
-        if file.lower().endswith(".pdf"):
-            try:
-                path = os.path.join(PDF_FOLDER, file)
-                reader = PdfReader(path)
-                for page_num, page in enumerate(reader.pages):
-                    text = page.extract_text()
-                    if text and len(text.strip()) > 20:
-                        pages.append({
-                            "file": file,
-                            "page": page_num + 1,
-                            "text": text,
-                            "clean": clean_text(text)
-                        })
-            except Exception as e:
-                print(f"Error loading {file}: {e}")
-                continue
-    return pages
+        return []
+
+    cache_file = "book_index.pkl"
+    hash_file = "book_hash.txt"
+    current_hash = get_pdf_hash()
+
+    # Load from disk cache if PDFs haven't changed
+    if os.path.exists(cache_file) and os.path.exists(hash_file):
+        with open(hash_file, "r") as f:
+            saved_hash = f.read()
+        if saved_hash == current_hash:
+            with open(cache_file, "rb") as f:
+                return pickle.load(f)
+
+    # Re-index in parallel
+    pdf_files = [f for f in os.listdir(PDF_FOLDER)
+                 if f.lower().endswith(".pdf")]
+    all_pages = []
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(load_single_pdf, f): f
+                   for f in pdf_files}
+        for future in as_completed(futures):
+            all_pages.extend(future.result())
+
+    # Save to disk
+    with open(cache_file, "wb") as f:
+        pickle.dump(all_pages, f)
+    with open(hash_file, "w") as f:
+        f.write(current_hash)
+
+    return all_pages
 
 with st.spinner("Initializing library... Please wait"):
     books = load_and_index_books()
@@ -157,7 +199,7 @@ with st.spinner("Initializing library... Please wait"):
 # ======================================
 # SEARCH
 # ======================================
-def search_library(question):
+def search_library_chunk(question, chunk):
     words = clean_text(question).split()
     stopwords = {
         "what","is","are","how","why","when","who","the","a","an",
@@ -167,102 +209,199 @@ def search_library(question):
     }
     words = [w for w in words if w not in stopwords]
     if not words:
-        return None
+        return None, 0
     best_page = None
     best_score = 0
-    for page in books:
+    for page in chunk:
         score = sum(page["clean"].count(word) for word in words)
         if score > best_score:
             best_score = score
             best_page = page
-    if best_score < 2:
-        return None
-    return best_page
+    return best_page, best_score
 
 # ======================================
-# ASK AI — tries Gemini then OpenAI
+# ASK SINGLE PROVIDER
 # ======================================
-def ask_gemini(prompt, key):
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel(GEMINI_MODEL)
-    response = model.generate_content(prompt)
-    return response.text
+def ask_single_provider(prompt, provider):
+    try:
+        if provider["provider"] == "gemini":
+            genai.configure(api_key=provider["key"])
+            model = genai.GenerativeModel(GEMINI_MODEL)
+            response = model.generate_content(prompt)
+            return response.text
+        else:
+            client = openai.OpenAI(api_key=provider["key"])
+            response = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500
+            )
+            return response.choices[0].message.content
+    except Exception as e:
+        err = str(e)
+        if "429" in err or "rate" in err.lower() or "quota" in err.lower():
+            return None
+        return f"AI Error: {err}"
 
-def ask_openai(prompt, key):
-    client = openai.OpenAI(api_key=key)
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=500
-    )
-    return response.choices[0].message.content
+# ======================================
+# PARALLEL AI — all providers at once
+# ======================================
+def ask_ai_parallel(question, fallback_context=""):
+    if not ALL_PROVIDERS:
+        return "No API keys available."
 
-def ask_ai(question, context):
-    prompt = f"""
+    if len(ALL_PROVIDERS) == 1:
+        provider = ALL_PROVIDERS[0]
+        best_page, score = search_library_chunk(question, books)
+        ctx = best_page["text"][:3000] if best_page and score >= 2 \
+            else fallback_context
+        prompt = f"""
 You are MentorLoop Smart Study AI, a helpful tutor for students.
 Answer the question clearly and simply.
-If textbook content is provided, prefer using it.
-If not, answer from your general knowledge.
+Use the content below if relevant, otherwise use general knowledge.
 
-TEXTBOOK EXCERPT:
-{context[:4000]}
+CONTENT:
+{ctx}
 
 QUESTION:
 {question}
 """
-    for attempt in range(len(ALL_PROVIDERS)):
-        provider = get_next_provider()
-        try:
-            if provider["provider"] == "gemini":
-                return ask_gemini(prompt, provider["key"])
-            else:
-                return ask_openai(prompt, provider["key"])
-        except Exception as e:
-            err = str(e)
-            if "429" in err or "rate" in err.lower() or "quota" in err.lower():
-                time.sleep(10)
-                continue
-            return f"AI Error: {err}"
+        result = ask_single_provider(prompt, provider)
+        return result or "Provider busy. Please try again."
 
-    # All providers exhausted — wait and retry
-    with st.spinner("All providers busy, waiting 60 seconds..."):
-        time.sleep(60)
-    try:
-        p = ALL_PROVIDERS[0]
-        if p["provider"] == "gemini":
-            return ask_gemini(prompt, p["key"])
+    # Split library into chunks — one per provider
+    num_workers = len(ALL_PROVIDERS)
+    chunk_size = max(1, len(books) // num_workers)
+    chunks = [books[i:i + chunk_size]
+              for i in range(0, len(books), chunk_size)]
+
+    # Pad chunks list if fewer chunks than providers
+    while len(chunks) < num_workers:
+        chunks.append([])
+
+    def worker(provider, chunk):
+        best_page, score = search_library_chunk(question, chunk)
+        if best_page and score >= 2:
+            ctx = best_page["text"][:2000]
+            source = f"{best_page['file']} Page {best_page['page']}"
         else:
-            return ask_openai(prompt, p["key"])
-    except:
-        return "All AI providers are currently busy. Please try again in a minute."
+            ctx = fallback_context[:2000]
+            source = "general knowledge"
+
+        prompt = f"""
+You are MentorLoop Smart Study AI.
+Answer this student question clearly and simply using the content below.
+Give a clear, concise answer in 3-5 sentences.
+
+CONTENT:
+{ctx}
+
+QUESTION:
+{question}
+"""
+        answer = ask_single_provider(prompt, provider)
+        return {
+            "answer": answer,
+            "source": source,
+            "score": score,
+            "provider": provider["provider"]
+        }
+
+    # Run all workers simultaneously
+    results = []
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = [
+            executor.submit(worker, ALL_PROVIDERS[i], chunks[i])
+            for i in range(num_workers)
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            if result["answer"] and not result["answer"].startswith("AI Error"):
+                results.append(result)
+
+    if not results:
+        # All failed — wait and try once more with first provider
+        time.sleep(15)
+        provider = ALL_PROVIDERS[0]
+        best_page, score = search_library_chunk(question, books)
+        ctx = best_page["text"][:3000] if best_page and score >= 2 \
+            else fallback_context
+        prompt = f"""
+You are MentorLoop Smart Study AI.
+Answer this student question clearly and simply.
+
+CONTENT:
+{ctx}
+
+QUESTION:
+{question}
+"""
+        result = ask_single_provider(prompt, provider)
+        return result or "All providers busy. Please try again in a minute."
+
+    # Only one result — return directly
+    if len(results) == 1:
+        return results[0]["answer"]
+
+    # Multiple results — master combines them
+    combined = "\n\n".join([
+        f"Source {i+1} ({r['source']}):\n{r['answer']}"
+        for i, r in enumerate(results)
+    ])
+
+    master_prompt = f"""
+You are MentorLoop Smart Study AI.
+Multiple sources answered a student's question.
+Combine them into ONE clear, accurate, simple answer.
+Remove repetition. Keep it easy to understand for a student.
+Do not mention "sources" or "source 1/2/3" in your answer.
+Just give the final clean answer directly.
+
+STUDENT QUESTION:
+{question}
+
+ANSWERS TO COMBINE:
+{combined}
+
+Final combined answer:
+"""
+
+    # Try each provider as master until one works
+    for provider in ALL_PROVIDERS:
+        final = ask_single_provider(master_prompt, provider)
+        if final and not final.startswith("AI Error"):
+            return final
+
+    # Master failed — return best individual answer
+    best = max(results, key=lambda r: r["score"])
+    return best["answer"]
 
 # ======================================
 # UI
 # ======================================
 st.title("📚 MentorLoop Smart Study AI")
-st.markdown(f"**Library Status:** {len(books)} pages indexed from pre-loaded textbooks.")
+st.markdown(
+    f"**Library Status:** {len(books)} pages indexed from pre-loaded textbooks."
+)
 
-query = st.text_input("What would you like to learn today?", placeholder="e.g., What is sound?")
+query = st.text_input(
+    "What would you like to learn today?",
+    placeholder="e.g., What is sound?"
+)
 
 if st.button("Search Library"):
     if not query.strip():
         st.warning("Please enter a question.")
     else:
+        # Step 1: Built-in knowledge — instant, no API
         quick = get_quick_answer(query)
         if quick:
             st.subheader("Answer")
             st.write(quick)
             st.caption("Answered from built-in knowledge base")
         else:
-            with st.spinner("Scanning textbooks..."):
-                match = search_library(query)
-                if match:
-                    answer = ask_ai(query, match["text"])
-                    st.subheader("Answer")
-                    st.write(answer)
-                    st.caption(f"Found in: **{match['file']}** — Page {match['page']}")
-                else:
-                    answer = ask_ai(query, "No specific textbook content found for this topic.")
-                    st.subheader("Answer")
-                    st.write(answer)
-                    st.caption("Answered from AI general knowledge")
+            # Step 2: All AIs search in parallel
+            with st.spinner("All AIs scanning textbooks simultaneously..."):
+                answer = ask_ai_parallel(query)
+            st.subheader("Answer")
+            st.write(answer)
