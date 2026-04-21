@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-MODEL_NAME = "gemini-1.5-flash"
+MODEL_NAME = "gemini-2.0-flash"
 PDF_FOLDER = "."
 
 # ======================================
@@ -26,7 +26,7 @@ QUICK_KNOWLEDGE = {
     "fractions": "A fraction represents part of a whole. It has a numerator (top number) and denominator (bottom number). Example: 3/4 means 3 parts out of 4. To add fractions, make the denominators the same first.",
     "percentage": "A percentage is a number out of 100. To convert a fraction to a percentage, divide and multiply by 100. Example: 3/4 = 0.75 = 75%. To find 20% of 50: 50 × 20/100 = 10.",
     "algebra": "Algebra uses letters (variables) to represent unknown numbers. To solve an equation, do the same operation on both sides. Example: x + 5 = 10, so x = 10 - 5 = 5.",
-    "pythagoras": "Pythagoras theorem: In a right-angled triangle, a² + b² = c², where c is the hypotenuse (longest side). Example: if a=3, b=4, then c = √(9+16) = √25 = 5.",
+    "pythagoras theorum": "Pythagoras theorem: In a right-angled triangle, a² + b² = c², where c is the hypotenuse (longest side). Example: if a=3, b=4, then c = √(9+16) = √25 = 5.",
     "gravity": "Gravity is a force that pulls objects toward each other. On Earth, gravity pulls things downward at 9.8 m/s². The formula is F = mg, where m is mass and g is gravitational acceleration.",
     "newton": "Newton's 3 Laws of Motion: 1) An object stays at rest or in motion unless acted on by a force. 2) Force = Mass × Acceleration (F=ma). 3) Every action has an equal and opposite reaction.",
     "speed": "Speed = Distance ÷ Time. Velocity is speed in a specific direction. Acceleration = Change in Speed ÷ Time. Units: speed in m/s or km/h.",
