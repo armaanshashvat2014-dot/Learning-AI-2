@@ -44,6 +44,10 @@ if not GEMINI_KEYS and not OPENAI_KEYS:
     st.error("No API keys found. Add them to Streamlit Secrets.")
     st.stop()
 
+# Debug sidebar
+st.sidebar.write(f"Gemini keys loaded: {len(GEMINI_KEYS)}")
+st.sidebar.write(f"OpenAI keys loaded: {len(OPENAI_KEYS)}")
+
 # ======================================
 # PDF LOADING
 # ======================================
@@ -76,6 +80,12 @@ def search_pdf(q):
     best = ""
     score_max = 0
     words = set(q.lower().split())
+    stopwords = {
+        "what","is","are","how","why","when","who","the","a","an",
+        "of","in","to","and","does","do","explain","define","tell",
+        "me","about","give","can","you","please","describe"
+    }
+    words = words - stopwords
     for b in books:
         score = len(words & set(b.lower().split()))
         if score > score_max:
@@ -107,8 +117,7 @@ def ask_gemini(prompt):
             model = genai.GenerativeModel("gemini-2.0-flash")
             return model.generate_content(prompt).text
         except Exception as e:
-            if "429" in str(e):
-                continue
+            st.sidebar.warning(f"Gemini error: {str(e)[:120]}")
             continue
     return None
 
@@ -123,8 +132,7 @@ def ask_openai(prompt):
             )
             return r.choices[0].message.content
         except Exception as e:
-            if "429" in str(e):
-                continue
+            st.sidebar.warning(f"OpenAI error: {str(e)[:120]}")
             continue
     return None
 
@@ -159,13 +167,12 @@ Question:
         results.append(wiki_res)
 
     if not results:
-        return "AI temporarily unavailable. Please try again."
+        return "AI temporarily unavailable. Check API keys in the sidebar."
 
     if len(results) == 1:
         return results[0]
 
     combined = "\n\n".join(results)
-
     combine_prompt = f"""
 Combine these answers into ONE clear, simple answer for a student.
 Remove repetition. Do not mention sources.
@@ -201,32 +208,57 @@ def get_answer(query):
 # ======================================
 def generate_quiz(topic, num_q):
     if not pdf_loaded:
-        return None, "PDFs not loaded yet."
-
-    context = search_pdf(topic)
-    if not context:
         context = f"General knowledge about {topic}"
+    else:
+        context = search_pdf(topic)
+        if not context:
+            context = f"General knowledge about {topic}"
 
     questions = []
     for i in range(num_q):
-        q_prompt = f"""
-Create an IGCSE exam-style question about "{topic}" using this context:
-{context[:500]}
 
-Format:
-(a) Define {topic}. [2 marks]
-(b) Explain how it works. [3 marks]
-(c) Give a real-world application. [3 marks]
+        q_prompt = f"""
+You are an IGCSE examiner. Write ONE real exam question about "{topic}".
+Use this context if helpful: {context[:600]}
+
+Write exactly in this format:
+(a) [Simple recall question about {topic}] [2 marks]
+(b) [Explanation question about {topic}] [3 marks]
+(c) [Application or calculation question about {topic}] [3 marks]
+
+Write actual exam questions, not placeholders. Replace the brackets with real questions.
 """
+
         ms_prompt = f"""
-Create a mark scheme for an IGCSE question about "{topic}".
-Include key points for:
-(a) Definition [2 marks]
-(b) Explanation [3 marks]
-(c) Application [3 marks]
+You are an IGCSE examiner. Write a detailed mark scheme for an exam question about "{topic}".
+Context: {context[:600]}
+
+Write exactly in this format:
+(a) [2 marks]
+- Award 1 mark for: [specific marking point 1]
+- Award 1 mark for: [specific marking point 2]
+
+(b) [3 marks]
+- Award 1 mark for: [specific marking point 1]
+- Award 1 mark for: [specific marking point 2]
+- Award 1 mark for: [specific marking point 3]
+
+(c) [3 marks]
+- Award 1 mark for: [specific marking point 1]
+- Award 1 mark for: [specific marking point 2]
+- Award 1 mark for: [specific marking point 3]
+
+Be specific to "{topic}". Replace brackets with real marking points.
 """
-        q_text = ask_gemini(q_prompt) or ask_openai(q_prompt) or f"Question {i+1} about {topic}"
-        ms_text = ask_gemini(ms_prompt) or ask_openai(ms_prompt) or "Mark scheme unavailable."
+
+        q_text = ask_gemini(q_prompt) or ask_openai(q_prompt)
+        ms_text = ask_gemini(ms_prompt) or ask_openai(ms_prompt)
+
+        if not q_text:
+            q_text = "AI unavailable. Check your API keys in the sidebar."
+        if not ms_text:
+            ms_text = "AI unavailable. Check your API keys in the sidebar."
+
         questions.append({"q": q_text, "ms": ms_text})
 
     return questions, None
@@ -235,7 +267,10 @@ Include key points for:
 # UI
 # ======================================
 mode = st.radio("Mode", ["Tutor", "Quiz"])
-query = st.text_input("Enter your question or topic", placeholder="e.g. Physics: What is sound?")
+query = st.text_input(
+    "Enter your question or topic",
+    placeholder="e.g. Physics: What is sound?"
+)
 num_q = st.selectbox("Number of Questions", [1, 2, 3, 5])
 
 if st.button("Run"):
@@ -244,7 +279,10 @@ if st.button("Run"):
     elif mode == "Tutor":
         with st.spinner("Thinking..."):
             ans = get_answer(query)
-        st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="card">{ans}</div>',
+            unsafe_allow_html=True
+        )
     else:
         with st.spinner("Generating quiz..."):
             quiz, err = generate_quiz(query, num_q)
@@ -262,7 +300,7 @@ if "quiz" in st.session_state:
     for i, q in enumerate(st.session_state.quiz):
         st.markdown(f"### Question {i+1}")
         st.markdown(q["q"])
-        st.text_area(f"Your Answer", key=f"ans_{i}", height=120)
+        st.text_area("Your Answer", key=f"ans_{i}", height=120)
         if st.button(f"Show Mark Scheme", key=f"ms_{i}"):
             st.info(q["ms"])
     st.divider()
