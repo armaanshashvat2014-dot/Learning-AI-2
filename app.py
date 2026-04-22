@@ -644,4 +644,4 @@ def render_quiz_engine():
 
         q_data = q_list[q_idx]
 
-        with st.conta
+        
