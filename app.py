@@ -644,4 +644,263 @@ def render_quiz_engine():
 
         q_data = q_list[q_idx]
 
-        
+        with st.container(border=True):
+            st.markdown(f"<div class='quiz-counter'>Question {q_idx+1} of {len(q_list)}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='quiz-question-text'>{q_data.get('question','')}</div>", unsafe_allow_html=True)
+
+            if st.session_state.get("quiz_user_answer") is None:
+                if q_data.get("type", "MCQ") == "MCQ":
+                    for oi, opt in enumerate(q_data.get("options", [])):
+                        if st.button(opt, use_container_width=True, key=f"opt_{q_idx}_{oi}"):
+                            st.session_state.quiz_user_answer = opt
+                            st.rerun()
+                else:
+                    sa = st.text_area("Your answer:")
+                    if st.button("Submit", type="primary"):
+                        with st.spinner("Evaluating..."):
+                            ev = evaluate_short_answer(
+                                q_data.get("question"),
+                                sa,
+                                q_data.get("correct_answer")
+                            )
+                            st.session_state.quiz_sa_eval = ev
+                        st.session_state.quiz_user_answer = sa
+                        st.rerun()
+            else:
+                user_ans = st.session_state.quiz_user_answer
+                if q_data.get("type", "MCQ") == "MCQ":
+                    is_correct = (user_ans == q_data.get("correct_answer"))
+                    explanation = q_data.get("explanation", "")
+                else:
+                    ev = st.session_state.get("quiz_sa_eval", {})
+                    is_correct = ev.get("is_correct", False)
+                    explanation = ev.get("explanation", "")
+
+                if is_correct:
+                    st.success(f"✅ Correct! {explanation}")
+                    if not st.session_state.get(f"scored_{q_idx}"):
+                        st.session_state.quiz_score += 1
+                        st.session_state[f"scored_{q_idx}"] = True
+                else:
+                    st.error(f"❌ Incorrect. Correct answer: **{q_data.get('correct_answer')}**\n\n{explanation}")
+
+                is_last = q_idx + 1 == len(q_list)
+                if st.button(
+                    "Finish Quiz" if is_last else "Next Question",
+                    type="primary",
+                    use_container_width=True
+                ):
+                    if is_last:
+                        st.session_state.quiz_finished = True
+                    else:
+                        st.session_state.quiz_current_q += 1
+                    st.session_state.quiz_user_answer = None
+                    st.session_state.pop("quiz_sa_eval", None)
+                    st.rerun()
+
+# ======================================
+# PAPER GENERATOR
+# ======================================
+def render_paper_generator():
+    st.markdown("<div class='big-title' style='font-size:32px;'>📝 Paper Generator</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        subj = c1.selectbox("Subject", ["Math", "Science", "English", "Physics", "Chemistry", "Biology"])
+        grade = c2.selectbox("Grade", ["Grade 6", "Grade 7", "Grade 8"])
+        diff = c1.selectbox("Difficulty", ["Easy", "Medium", "Hard"])
+        marks = c2.number_input("Total Marks", 10, 100, 40, 5)
+        topic = st.text_input("Topic / Chapter", placeholder="e.g. Chapter 3, Forces...")
+        extra = st.text_area("Extra Instructions (optional)")
+
+        if st.button("🤖 Generate Paper", type="primary", use_container_width=True):
+            context = search_pdf(f"{subj} {topic}") if pdf_loaded else ""
+            prompt = f"""
+Generate a full CIE {subj} practice paper for {grade} students.
+Difficulty: {diff}. Total Marks: {marks}.
+Topic: {topic}.
+Extra: {extra}
+
+Context from textbooks:
+{context[:3000]}
+
+Format:
+# SmartLoop AI
+## Practice Paper
+### {subj} - {grade}
+
+Include numbered questions with marks. End with ## Mark Scheme.
+Append [PDF_READY] at the very end.
+"""
+            with st.spinner("Writing paper..."):
+                paper = ask_gemini(prompt, PAPER_SYSTEM) or ask_openai(prompt, PAPER_SYSTEM)
+
+            if paper:
+                st.session_state.draft_paper = paper
+                st.rerun()
+            else:
+                st.error("Failed to generate paper. Check API keys.")
+
+    if st.session_state.get("draft_paper"):
+        with st.expander("📄 Preview Paper", expanded=True):
+            clean = re.sub(r"\[PDF_READY\]", "", st.session_state.draft_paper, flags=re.IGNORECASE)
+            st.markdown(f'<div class="card">{clean}</div>', unsafe_allow_html=True)
+        try:
+            pdf_buffer = create_pdf(st.session_state.draft_paper)
+            st.download_button(
+                "📥 Download PDF",
+                data=pdf_buffer,
+                file_name="SmartLoop_Paper.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.error(f"PDF error: {e}")
+
+# ======================================
+# ANALYTICS UI
+# ======================================
+def render_analytics():
+    st.markdown("<div class='big-title' style='font-size:32px;'>📊 My Analytics</div>", unsafe_allow_html=True)
+
+    quiz_history = st.session_state.get("quiz_history_log", [])
+    total_q = len(quiz_history)
+    correct = sum(1 for q in quiz_history if q.get("is_correct"))
+    mastery = int((correct / total_q) * 100) if total_q > 0 else 0
+
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Questions Answered", total_q)
+        col2.metric("Correct", correct)
+        col3.metric("Mastery", f"{mastery}%")
+
+    weak_spots = st.session_state.get("weak_spots", [])
+    st.markdown("### ⚠️ Detected Weak Spots")
+    if not weak_spots:
+        st.markdown("<div class='success-item'>No weak spots detected yet. Keep studying! 🎉</div>", unsafe_allow_html=True)
+    else:
+        for i, ws in enumerate(weak_spots):
+            col1, col2 = st.columns([0.85, 0.15])
+            col1.markdown(f"<div class='weak-spot-item'>{ws}</div>", unsafe_allow_html=True)
+            if col2.button("Dismiss", key=f"dismiss_{i}"):
+                st.session_state.weak_spots.pop(i)
+                st.rerun()
+
+# ======================================
+# SIDEBAR
+# ======================================
+with st.sidebar:
+    st.markdown("<div style='color:#00d4ff;font-weight:800;font-size:20px;'>🧠 SmartLoop AI</div>", unsafe_allow_html=True)
+    st.divider()
+    mode = st.radio(
+        "Mode",
+        ["💬 AI Tutor", "⚡ Interactive Quiz", "📝 Paper Generator", "📊 Analytics"],
+        label_visibility="collapsed"
+    )
+    st.divider()
+    if pdf_loaded:
+        st.success(f"📚 {len(books)} PDF chunks loaded")
+    else:
+        st.info("No PDFs found")
+
+# ======================================
+# MAIN APP ROUTER
+# ======================================
+if mode == "⚡ Interactive Quiz":
+    render_quiz_engine()
+
+elif mode == "📝 Paper Generator":
+    render_paper_generator()
+
+elif mode == "📊 Analytics":
+    render_analytics()
+
+else:
+    # ======================================
+    # AI TUTOR CHAT
+    # ======================================
+    st.markdown("<div class='big-title'>🧠 SmartLoop AI</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-title'>Your IGCSE AI Tutor — Subject: Question for faster answers</div>", unsafe_allow_html=True)
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{
+            "role": "assistant",
+            "content": "👋 **Hey! I'm SmartLoop AI!**\n\nI'm your IGCSE tutor for Grade 6-8. Ask me anything!\n\nTip: Use **Subject: Question** format for faster answers.\nExample: *Math: What are fractions?*"
+        }]
+    if "msg_count" not in st.session_state:
+        st.session_state.msg_count = 0
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            content = msg.get("content", "")
+            content = re.sub(r"===ANALYTICS_START===.*?===ANALYTICS_END===", "", content, flags=re.IGNORECASE | re.DOTALL)
+            content = re.sub(r"\[PDF_READY\]", "", content, flags=re.IGNORECASE)
+            st.markdown(content)
+            if msg.get("is_downloadable"):
+                try:
+                    pdf_buf = create_pdf(msg.get("content", ""))
+                    st.download_button(
+                        "📥 Download PDF",
+                        data=pdf_buf,
+                        file_name="SmartLoop_Paper.pdf",
+                        mime="application/pdf",
+                        key=f"dl_{st.session_state.messages.index(msg)}"
+                    )
+                except:
+                    pass
+
+    query = st.chat_input("Ask SmartLoop... (Subject: Question)")
+
+    if query:
+        st.session_state.messages.append({"role": "user", "content": query})
+        st.session_state.msg_count += 1
+        st.rerun()
+
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        with st.chat_message("assistant"):
+            think = st.empty()
+            think.markdown("""
+<div class="thinking-container">
+    <span class="thinking-text">Thinking</span>
+    <div class="thinking-dots">
+        <div class="thinking-dot"></div>
+        <div class="thinking-dot"></div>
+        <div class="thinking-dot"></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+            last_query = st.session_state.messages[-1]["content"]
+
+            # Every 6th message trigger analytics check
+            if st.session_state.msg_count % 6 == 0:
+                last_query += "\n\n[Please silently check for weak spots in this conversation and output the ANALYTICS block if found.]"
+
+            answer = get_answer(last_query)
+            think.empty()
+
+            is_dl = bool(
+                re.search(r"\[PDF_READY\]", answer or "", re.IGNORECASE) or
+                (re.search(r"##\s*Mark Scheme", answer or "", re.IGNORECASE))
+            )
+
+            clean_answer = re.sub(r"\[PDF_READY\]", "", answer or "", flags=re.IGNORECASE).strip()
+            st.markdown(clean_answer)
+
+            if is_dl:
+                try:
+                    pdf_buf = create_pdf(answer)
+                    st.download_button(
+                        "📥 Download PDF",
+                        data=pdf_buf,
+                        file_name="SmartLoop_Paper.pdf",
+                        mime="application/pdf"
+                    )
+                except:
+                    pass
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer,
+                "is_downloadable": is_dl
+            })
+            st.rerun()
