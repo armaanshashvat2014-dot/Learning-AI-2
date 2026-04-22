@@ -3,3 +3,4 @@ openai
 wikipedia
 PyPDF2
 streamlit
+reportlab
