@@ -6,105 +6,109 @@ import wikipedia
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ===============================
-# CONFIG
-# ===============================
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
-# ===============================
-# UI
-# ===============================
 st.markdown("""
 <style>
 .main {background: linear-gradient(135deg,#0b1020,#050816); color:white;}
 .stTextInput input {background:#1c223a; border-radius:12px; color:white;}
 .stButton button {background:#0072ff; color:white; border-radius:10px;}
-.card {background:#121a35; padding:20px; border-radius:15px; margin-top:10px;}
+.card {background:#121a35; padding:20px; border-radius:15px; margin-top:10px; color:white;}
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🧠 SmartLoop AI")
 st.caption("⚡ Use format → Subject: Your Question (faster answers)")
 
-# ===============================
+# ======================================
 # API KEYS
-# ===============================
+# ======================================
 def get_keys(prefix):
-    keys=[]
-    i=1
+    keys = []
+    i = 1
     while True:
-        k=st.secrets.get(f"{prefix}_{i}")
+        k = st.secrets.get(f"{prefix}_{i}")
         if not k:
             break
         keys.append(k)
-        i+=1
-    single=st.secrets.get(prefix)
-    if single:
+        i += 1
+    single = st.secrets.get(prefix)
+    if single and single not in keys:
         keys.append(single)
     return keys
 
 GEMINI_KEYS = get_keys("GEMINI_API_KEY")
 OPENAI_KEYS = get_keys("OPENAI_API_KEY")
 
-# ===============================
-# PDF LOADING (SAFE CACHE)
-# ===============================
+if not GEMINI_KEYS and not OPENAI_KEYS:
+    st.error("No API keys found. Add them to Streamlit Secrets.")
+    st.stop()
+
+# ======================================
+# PDF LOADING
+# ======================================
 @st.cache_resource
 def load_pdfs():
-    data=[]
+    data = []
     for f in os.listdir("."):
         if f.endswith(".pdf"):
             try:
                 reader = PdfReader(f)
                 for p in reader.pages:
                     txt = p.extract_text()
-                    if txt:
+                    if txt and len(txt.strip()) > 20:
                         data.append(txt[:1200])
             except:
                 pass
     return data
 
-books = load_pdfs()
+with st.spinner("Loading library..."):
+    books = load_pdfs()
+
 pdf_loaded = len(books) > 0
 
-# ===============================
+# ======================================
 # PDF SEARCH
-# ===============================
+# ======================================
 def search_pdf(q):
     if not books:
         return ""
-
-    best=""
-    score_max=0
-    words=set(q.lower().split())
-
+    best = ""
+    score_max = 0
+    words = set(q.lower().split())
     for b in books:
-        score=len(words & set(b.lower().split()))
-        if score>score_max:
-            score_max=score
-            best=b
+        score = len(words & set(b.lower().split()))
+        if score > score_max:
+            score_max = score
+            best = b
+    return best[:1000] if score_max > 1 else ""
 
-    return best[:1000]
-
-# ===============================
+# ======================================
 # WIKIPEDIA
-# ===============================
+# ======================================
 def wiki(q):
     try:
-        return wikipedia.summary(q, sentences=3)
+        return wikipedia.summary(q, sentences=3, auto_suggest=False)
+    except wikipedia.exceptions.DisambiguationError as e:
+        try:
+            return wikipedia.summary(e.options[0], sentences=3)
+        except:
+            return ""
     except:
         return ""
 
-# ===============================
+# ======================================
 # AI CALLS
-# ===============================
+# ======================================
 def ask_gemini(prompt):
     for k in GEMINI_KEYS:
         try:
             genai.configure(api_key=k)
             model = genai.GenerativeModel("gemini-2.0-flash")
             return model.generate_content(prompt).text
-        except:
+        except Exception as e:
+            if "429" in str(e):
+                continue
             continue
     return None
 
@@ -114,21 +118,23 @@ def ask_openai(prompt):
             client = openai.OpenAI(api_key=k)
             r = client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":prompt}],
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=400
             )
             return r.choices[0].message.content
-        except:
+        except Exception as e:
+            if "429" in str(e):
+                continue
             continue
     return None
 
-# ===============================
-# MASTER AI (COMBINES SOURCES)
-# ===============================
+# ======================================
+# MASTER AI
+# ======================================
 def master_ai(question, context=""):
-
     prompt = f"""
-Answer clearly and simply.
+You are SmartLoop AI, a helpful tutor for students.
+Answer clearly and simply. Use the context if relevant.
 
 Context:
 {context}
@@ -136,141 +142,141 @@ Context:
 Question:
 {question}
 """
-
-    results=[]
+    results = []
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         futures = [
             ex.submit(ask_gemini, prompt),
             ex.submit(ask_openai, prompt)
         ]
-
         for f in as_completed(futures):
             res = f.result()
             if res:
                 results.append(res)
 
-    # Wikipedia fallback
     wiki_res = wiki(question)
     if wiki_res:
         results.append(wiki_res)
 
     if not results:
-        return "AI temporarily unavailable."
+        return "AI temporarily unavailable. Please try again."
+
+    if len(results) == 1:
+        return results[0]
 
     combined = "\n\n".join(results)
 
-    final = ask_gemini("Combine and simplify:\n" + combined)
+    combine_prompt = f"""
+Combine these answers into ONE clear, simple answer for a student.
+Remove repetition. Do not mention sources.
 
+Question: {question}
+
+Answers:
+{combined}
+
+Final answer:
+"""
+    final = ask_gemini(combine_prompt) or ask_openai(combine_prompt)
     return final if final else results[0]
 
-# ===============================
+# ======================================
 # ANSWER ENGINE
-# ===============================
+# ======================================
 def get_answer(query):
-
     if ":" in query:
-        subject, q = query.split(":",1)
+        _, q = query.split(":", 1)
+        q = q.strip()
     else:
-        q = query
+        q = query.strip()
 
-    # If PDFs not loaded → Gemini only
     if not pdf_loaded:
-        return ask_gemini(q) or "⚡ Loading knowledge..."
+        return ask_gemini(q) or ask_openai(q) or "AI temporarily unavailable."
 
     context = search_pdf(q)
-
     return master_ai(q, context)
 
-# ===============================
-# QUIZ (PDF REQUIRED)
-# ===============================
+# ======================================
+# QUIZ GENERATOR
+# ======================================
 def generate_quiz(topic, num_q):
-
     if not pdf_loaded:
-        return None, "⚠️ PDFs not loaded yet."
+        return None, "PDFs not loaded yet."
 
     context = search_pdf(topic)
-
     if not context:
-        return None, "⚠️ Topic not found in PDFs."
+        context = f"General knowledge about {topic}"
 
-    questions=[]
-
+    questions = []
     for i in range(num_q):
+        q_prompt = f"""
+Create an IGCSE exam-style question about "{topic}" using this context:
+{context[:500]}
 
-        q = f"""
-Q{i+1}
-
-(a) Define {topic}. (2 marks)
-
-(b) Explain how {topic} works. (3 marks)
-
-(c) Using the context below:
-
-{context[:200]}
-
-Apply the concept. (3 marks)
+Format:
+(a) Define {topic}. [2 marks]
+(b) Explain how it works. [3 marks]
+(c) Give a real-world application. [3 marks]
 """
-
-        ms = """
-(a) Correct definition (2)
-(b) Explanation (3)
-(c) Application (3)
+        ms_prompt = f"""
+Create a mark scheme for an IGCSE question about "{topic}".
+Include key points for:
+(a) Definition [2 marks]
+(b) Explanation [3 marks]
+(c) Application [3 marks]
 """
-
-        questions.append({"q":q,"ms":ms})
+        q_text = ask_gemini(q_prompt) or ask_openai(q_prompt) or f"Question {i+1} about {topic}"
+        ms_text = ask_gemini(ms_prompt) or ask_openai(ms_prompt) or "Mark scheme unavailable."
+        questions.append({"q": q_text, "ms": ms_text})
 
     return questions, None
 
-# ===============================
+# ======================================
 # UI
-# ===============================
-mode = st.radio("Mode", ["Tutor","Quiz"])
-
-query = st.text_input("Enter (Subject: Question or Topic)")
-
-num_q = st.selectbox("Questions",[1,2,3,5])
+# ======================================
+mode = st.radio("Mode", ["Tutor", "Quiz"])
+query = st.text_input("Enter your question or topic", placeholder="e.g. Physics: What is sound?")
+num_q = st.selectbox("Number of Questions", [1, 2, 3, 5])
 
 if st.button("Run"):
-
-    if mode=="Tutor":
-
-        if not query.strip():
-            st.warning("Enter a question")
-        else:
+    if not query.strip():
+        st.warning("Please enter a question or topic.")
+    elif mode == "Tutor":
+        with st.spinner("Thinking..."):
             ans = get_answer(query)
-            st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
-
+        st.markdown(f'<div class="card">{ans}</div>', unsafe_allow_html=True)
     else:
-
-        quiz, err = generate_quiz(query, num_q)
-
+        with st.spinner("Generating quiz..."):
+            quiz, err = generate_quiz(query, num_q)
         if err:
             st.warning(err)
         else:
             st.session_state.quiz = quiz
+            st.session_state.quiz_topic = query
 
-# ===============================
+# ======================================
 # DISPLAY QUIZ
-# ===============================
+# ======================================
 if "quiz" in st.session_state:
-
-    st.markdown("## 📄 IGCSE Quiz")
-
-    for i,q in enumerate(st.session_state.quiz):
-
+    st.markdown("## 📄 Quiz")
+    for i, q in enumerate(st.session_state.quiz):
+        st.markdown(f"### Question {i+1}")
         st.markdown(q["q"])
-
-        st.text_area(f"Answer Q{i+1}", key=f"a{i}")
-
-        if st.button(f"Mark Scheme {i+1}", key=f"ms{i}"):
+        st.text_area(f"Your Answer", key=f"ans_{i}", height=120)
+        if st.button(f"Show Mark Scheme", key=f"ms_{i}"):
             st.info(q["ms"])
+    st.divider()
 
-# ===============================
-# STATUS
-# ===============================
-if pdf_loaded:
-    st.success(f"📚 PDFs Loaded ({len(books)} chunks)")
-else:
-    st.info("⚡ No PDFs found or loading failed")
+# ======================================
+# STATUS BAR
+# ======================================
+col1, col2, col3 = st.columns(3)
+with col1:
+    if pdf_loaded:
+        st.success(f"📚 {len(books)} PDF chunks loaded")
+    else:
+        st.info("No PDFs found")
+with col2:
+    st.info(f"🔑 {len(GEMINI_KEYS)} Gemini key(s)")
+with col3:
+    st.info(f"🔑 {len(OPENAI_KEYS)} OpenAI key(s)")
