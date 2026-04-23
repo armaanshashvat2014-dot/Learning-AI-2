@@ -4,164 +4,230 @@ import google.generativeai as genai
 import openai
 import wikipedia
 import os
+import time, random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
+# ===============================
+# 🎨 UI
+# ===============================
+st.markdown("""
+<style>
+.stApp {
+    background: radial-gradient(800px circle at 50% 0%, rgba(0,212,255,0.10), rgba(0,212,255,0.00) 60%), #0a0a1a !important;
+    color: #f5f5f7 !important;
+}
+.card {
+    background: rgba(255,255,255,0.05);
+    border-radius: 20px;
+    padding: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Use Subject: Question for faster answers")
+st.caption("Use Subject: Question for best results")
 
 # ===============================
-# KEYS
+# 🔑 KEYS
 # ===============================
 def get_keys(prefix):
     keys=[]
     i=1
     while True:
         k=st.secrets.get(f"{prefix}_{i}")
-        if not k:
-            break
+        if not k: break
         keys.append(k)
         i+=1
+    single=st.secrets.get(prefix)
+    if single: keys.append(single)
     return keys
 
 GEMINI_KEYS = get_keys("GEMINI_API_KEY")
 OPENAI_KEYS = get_keys("OPENAI_API_KEY")
 
 # ===============================
-# PDF MEMORY SYSTEM
+# ⚡ CACHE
+# ===============================
+if "cache" not in st.session_state:
+    st.session_state.cache = {}
+
+def cache_get(k):
+    return st.session_state.cache.get(k)
+
+def cache_set(k,v):
+    st.session_state.cache[k]=v
+
+# ===============================
+# ⏱ RATE LIMIT TRACKER
+# ===============================
+if "rl" not in st.session_state:
+    st.session_state.rl={}
+
+def allow_request(key,limit=30):
+    now=time.time()
+    arr=st.session_state.rl.setdefault(key,[])
+    arr=[t for t in arr if now-t<60]
+    st.session_state.rl[key]=arr
+    if len(arr)>=limit:
+        return False
+    arr.append(now)
+    return True
+
+def pick(keys):
+    return random.choice(keys) if keys else None
+
+# ===============================
+# 🔁 RETRY
+# ===============================
+def retry(fn):
+    delay=1
+    for _ in range(3):
+        try:
+            return fn()
+        except Exception as e:
+            if "429" in str(e):
+                time.sleep(delay+random.random())
+                delay*=2
+            else:
+                break
+    return None
+
+# ===============================
+# 🤖 AI CALLS
+# ===============================
+def ask_gemini(q):
+    if not GEMINI_KEYS: return None
+    def call():
+        k=pick(GEMINI_KEYS)
+        if not allow_request(k): raise Exception("429")
+        genai.configure(api_key=k)
+        m=genai.GenerativeModel("gemini-1.5-flash")
+        return m.generate_content(q).text
+    return retry(call)
+
+def ask_openai(q):
+    if not OPENAI_KEYS: return None
+    def call():
+        k=pick(OPENAI_KEYS)
+        if not allow_request(k): raise Exception("429")
+        client=openai.OpenAI(api_key=k)
+        r=client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role":"user","content":q}],
+            max_tokens=400
+        )
+        return r.choices[0].message.content
+    return retry(call)
+
+# ===============================
+# 🌐 WIKI
+# ===============================
+def wiki(q):
+    try:
+        return wikipedia.summary(q[:60], sentences=2)
+    except:
+        return None
+
+# ===============================
+# 📚 PDF MEMORY
 # ===============================
 @st.cache_resource
 def load_pdfs():
-    chunks=[]
+    data=[]
     for f in os.listdir("."):
         if f.endswith(".pdf"):
             try:
-                reader = PdfReader(f)
-                for p in reader.pages:
-                    txt = p.extract_text()
-                    if txt:
-                        chunks.append(txt[:1500])
+                r=PdfReader(f)
+                for p in r.pages:
+                    t=p.extract_text()
+                    if t:
+                        data.append({"text":t[:1500],"file":f})
             except:
                 pass
-    return chunks
+    return data
 
-books = load_pdfs()
+books=load_pdfs()
 
-# MEMORY INDEX (persistent in session)
-if "memory_index" not in st.session_state:
-    st.session_state.memory_index = books.copy()
-
-# ===============================
-# SEARCH MEMORY
-# ===============================
-def search_memory(q):
+def search_pdf(q):
+    if not books: return None
     words=set(q.lower().split())
-    best=""
-    score_max=0
-
-    for chunk in st.session_state.memory_index:
-        score=len(words & set(chunk.lower().split()))
-        if score>score_max:
-            score_max=score
-            best=chunk
-
-    return best[:1000]
+    best=None
+    score=0
+    for b in books:
+        s=sum(1 for w in words if w in b["text"].lower())
+        if s>score:
+            score=s
+            best=b
+    return best if score>1 else None
 
 # ===============================
-# AI CALLS
+# 🧠 CORE AI
 # ===============================
-def ask_gemini(prompt):
-    for k in GEMINI_KEYS:
-        try:
-            genai.configure(api_key=k)
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            return model.generate_content(prompt).text
-        except:
-            continue
-    return None
+def ask_ai(q):
+    # cache
+    if q in st.session_state.cache:
+        return st.session_state.cache[q]
 
-def ask_openai(prompt):
-    for k in OPENAI_KEYS:
-        try:
-            client=openai.OpenAI(api_key=k)
-            r=client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":prompt}],
-                max_tokens=400
-            )
-            return r.choices[0].message.content
-        except:
-            continue
-    return None
+    # try Gemini
+    res=ask_gemini(q)
+    if res:
+        cache_set(q,res)
+        return res
 
-# ===============================
-# PARALLEL AI
-# ===============================
-def ask_ai_parallel(prompt):
+    # try OpenAI
+    res=ask_openai(q)
+    if res:
+        cache_set(q,res)
+        return res
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futures = [
-            ex.submit(ask_gemini, prompt),
-            ex.submit(ask_openai, prompt),
-            ex.submit(lambda: wikipedia.summary(prompt, sentences=2))
-        ]
+    # wiki fallback
+    res=wiki(q)
+    if res:
+        cache_set(q,res)
+        return res
 
-        for f in as_completed(futures):
-            try:
-                res = f.result()
-                if res:
-                    return res
-            except:
-                pass
-
-    return None
+    return "⚡ Thinking... refining answer..."
 
 # ===============================
-# ANSWER ENGINE
+# 🧠 ANSWER ENGINE
 # ===============================
-def get_answer(query):
+def get_answer(q):
 
-    if ":" in query:
-        subject, q = query.split(":",1)
-    else:
-        q = query
+    if ":" in q:
+        _,q=q.split(":",1)
 
-    # 1️⃣ MEMORY SEARCH (PDF learned)
-    context = search_memory(q)
+    # PDF FIRST
+    pdf=search_pdf(q)
+    if pdf:
+        prompt=f"Use this:\n{pdf['text']}\n\nQ:{q}"
+        ans=ask_ai(prompt)
+        return ans, f"📖 {pdf['file']}"
 
-    if context:
-        prompt = f"""
-Answer based ONLY on this knowledge:
-
-{context}
-
-Question:
-{q}
-"""
-        ans = ask_ai_parallel(prompt)
-        if ans:
-            return ans + "\n\n📚 Source: Memory (PDF)"
-
-    # 2️⃣ AI fallback
-    ans = ask_ai_parallel(q)
-    if ans:
-        return ans + "\n\n💡 Source: AI"
-
-    return "⚡ Still thinking... try again"
+    # AI
+    ans=ask_ai(q)
+    return ans, "💡 AI"
 
 # ===============================
-# UI
+# 💬 UI
 # ===============================
-query = st.text_input("Ask your doubt")
+if "msgs" not in st.session_state:
+    st.session_state.msgs=[]
 
-if st.button("Ask"):
-    if query:
+for m in st.session_state.msgs:
+    with st.chat_message(m["role"]):
+        st.write(m["content"])
+
+q=st.chat_input("Ask anything...")
+
+if q:
+    st.session_state.msgs.append({"role":"user","content":q})
+
+    with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            ans = get_answer(query)
+            ans,src=get_answer(q)
         st.write(ans)
+        st.caption(src)
 
-# ===============================
-# STATUS
-# ===============================
-st.write(f"📚 Memory chunks: {len(st.session_state.memory_index)}")
+    st.session_state.msgs.append({"role":"assistant","content":ans})
