@@ -4,8 +4,6 @@ import google.generativeai as genai
 import openai
 import wikipedia
 import os
-import time
-import random
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
@@ -34,61 +32,64 @@ OPENAI_KEYS = get_keys("OPENAI_API_KEY")
 if "cache" not in st.session_state:
     st.session_state.cache={}
 
-def cache_get(q):
-    return st.session_state.cache.get(q)
-
-def cache_set(q,a):
-    st.session_state.cache[q]=a
-
 # ===============================
-# 📚 LOAD PDF INDEX (FAST)
+# 📚 LOAD ALL PDF PAGES (ONCE)
 # ===============================
 @st.cache_resource
-def load_index():
-    index={}
+def load_all_pages():
+    data=[]
+
     for f in os.listdir("."):
         if f.endswith(".pdf"):
-            name=f.lower()
+            try:
+                reader=PdfReader(f)
 
-            if "math" in name:
-                subject="math"
-            elif "phy" in name:
-                subject="physics"
-            elif "chem" in name:
-                subject="chemistry"
-            elif "bio" in name:
-                subject="biology"
-            else:
-                subject="general"
+                # detect subject
+                name=f.lower()
+                if "math" in name:
+                    subject="math"
+                elif "physics" in name:
+                    subject="physics"
+                elif "chemistry" in name:
+                    subject="chemistry"
+                elif "biology" in name:
+                    subject="biology"
+                else:
+                    subject="general"
 
-            index.setdefault(subject, []).append(f)
-    return index
+                for i,page in enumerate(reader.pages):
+                    txt=page.extract_text()
+                    if txt:
+                        data.append({
+                            "text":txt[:1000],
+                            "file":f,
+                            "page":i,
+                            "subject":subject
+                        })
+            except:
+                pass
 
-pdf_index = load_index()
+    return data
+
+pages_db = load_all_pages()
 
 # ===============================
-# 📖 SKIM PDF (FAST)
+# ⚡ FAST SKIM (NO WAIT)
 # ===============================
-def skim_pdf(subject, query):
+def skim(subject, query):
 
-    files = pdf_index.get(subject.lower(), [])
+    words = query.lower().split()
 
-    for f in files:
-        try:
-            reader = PdfReader(f)
-
-            for page in reader.pages[:5]:  # only first few pages
-                text = page.extract_text()
-                if not text:
-                    continue
-
-                if query.lower() in text.lower():
-                    return text[:500], f
-
-        except:
+    for p in pages_db:
+        if p["subject"] != subject:
             continue
 
-    return None, None
+        text = p["text"].lower()
+
+        if any(w in text for w in words):
+            return p
+
+    return None
 
 # ===============================
 # 🤖 AI
@@ -131,11 +132,9 @@ def wiki(q):
 # ===============================
 def get_answer(query):
 
-    # cache
     if query in st.session_state.cache:
         return st.session_state.cache[query]
 
-    # split subject
     if ":" in query:
         subject, q = query.split(":",1)
     else:
@@ -144,29 +143,36 @@ def get_answer(query):
     subject = subject.strip().lower()
     q = q.strip()
 
-    # 1️⃣ PDF SKIM
-    text, file = skim_pdf(subject, q)
+    # 1️⃣ SKIM ALL PAGES (FAST)
+    page = skim(subject, q)
 
-    if text:
-        prompt=f"Answer using this:\n{text}\n\nQ:{q}"
+    if page:
+        prompt=f"""
+Use this textbook content:
+
+{page['text']}
+
+Answer:
+{q}
+"""
         ans=ask_gemini(prompt)
 
         if ans:
-            result=(ans, f"📖 {file}")
-            cache_set(query, result)
+            result=(ans, f"📖 {page['file']} (p{page['page']})")
+            st.session_state.cache[query]=result
             return result
 
     # 2️⃣ AI
-    ans = ask_gemini(q) or ask_openai(q)
+    ans=ask_gemini(q) or ask_openai(q)
     if ans:
         result=(ans,"💡 AI")
-        cache_set(query, result)
+        st.session_state.cache[query]=result
         return result
 
     # 3️⃣ LAST
-    ans = wiki(q)
+    ans=wiki(q)
     result=(ans or "Try rephrasing","🌐 Wiki")
-    cache_set(query, result)
+    st.session_state.cache[query]=result
     return result
 
 # ===============================
@@ -185,10 +191,15 @@ if q:
     st.session_state.chat.append({"role":"user","content":q})
 
     with st.chat_message("assistant"):
-        with st.spinner("⚡ Fast thinking..."):
+        with st.spinner("⚡ Instant answer..."):
             ans,src=get_answer(q)
 
         st.write(ans)
         st.caption(src)
 
     st.session_state.chat.append({"role":"assistant","content":ans})
+
+# ===============================
+# STATUS
+# ===============================
+st.write(f"📚 Pages indexed: {len(pages_db)}")
