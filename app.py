@@ -23,7 +23,7 @@ mode = st.sidebar.selectbox(
 )
 
 # ===============================
-# CLEAN TEXT (FIXED)
+# CLEAN TEXT
 # ===============================
 def clean_text(t):
     t = t.lower()
@@ -31,14 +31,14 @@ def clean_text(t):
     bad = [
         "indb","contents","chapter","section","©",
         "youtube","http","exercise","worked example",
-        "talk with","978","am","pm"
+        "talk with","978"
     ]
 
     for b in bad:
         if b in t:
             return None
 
-    # remove non-English garbage
+    # remove non-English junk
     if not re.match(r'^[a-z0-9\s\.\,\-\+\*/\(\)]+$', t):
         return None
 
@@ -54,7 +54,6 @@ def load_pdfs():
         if f.endswith(".pdf"):
             try:
                 reader=PdfReader(f)
-
                 for i,page in enumerate(reader.pages):
                     txt=page.extract_text()
                     if txt:
@@ -99,26 +98,38 @@ def search_pdf(q):
     return [r[1] for r in results[:5]]
 
 # ===============================
-# MATH
+# MATH PARSER
 # ===============================
 def parse_math(q):
-    q=q.lower()
-    q=q.replace("plus","+").replace("add","+")
-    q=q.replace("minus","-").replace("subtract","-")
-    q=q.replace("times","*").replace("multiply","*")
-    q=q.replace("divide","/").replace("divided by","/")
-    q=q.replace("^","**")
+    q = q.lower()
 
-    q=re.sub(r"square root of (\d+)", r"math.sqrt(\1)", q)
-    q=re.sub(r"cube root of (\d+)", r"(\1)**(1/3)", q)
+    q = q.replace("plus","+").replace("add","+")
+    q = q.replace("minus","-").replace("subtract","-")
+    q = q.replace("times","*").replace("multiply","*")
+    q = q.replace("divide","/").replace("divided by","/")
+    q = q.replace("^","**")
+
+    # square & cube
+    q = re.sub(r"square of (\d+)", r"(\1**2)", q)
+    q = re.sub(r"square (\d+)", r"(\1**2)", q)
+    q = re.sub(r"cube of (\d+)", r"(\1**3)", q)
+    q = re.sub(r"cube (\d+)", r"(\1**3)", q)
+
+    # roots
+    q = re.sub(r"square root of (\d+)", r"math.sqrt(\1)", q)
+    q = re.sub(r"cube root of (\d+)", r"(\1)**(1/3)", q)
 
     return q
 
 def is_calc(q):
-    return any(x in q.lower() for x in [
-        "+","-","*","/","root","square","cube",
-        "add","subtract","multiply","divide"
-    ])
+    q=q.lower()
+    return (
+        bool(re.fullmatch(r"[0-9\.\+\-\*/\(\)\^\s]+", q.strip()))
+        or any(word in q for word in [
+            "add","subtract","multiply","divide",
+            "square","cube","root","plus","minus"
+        ])
+    )
 
 def solve_math(q):
     try:
@@ -132,10 +143,22 @@ def solve_math(q):
 # ===============================
 knowledge = {
     "integer":"An integer is a whole number. It can be positive, negative, or zero. Example: -3, 0, 5.",
+    "fractions":"""Fractions represent parts of a whole.
+
+Example:
+1/2 means one part out of two equal parts.
+
+Types:
+- Proper: 1/2
+- Improper: 5/3
+- Mixed: 1 2/3
+
+Example operations:
+1/2 + 1/4 = 3/4
+""",
     "indices":"Indices are powers showing repeated multiplication. Example: 2^3 = 2×2×2.",
     "laws of indices":"a^m × a^n = a^(m+n), a^m ÷ a^n = a^(m−n), (a^m)^n = a^(mn).",
-    "algebra":"Algebra uses symbols like x to represent unknown values.",
-    "fraction":"A fraction represents part of a whole. Example: 1/2."
+    "algebra":"Algebra uses symbols like x to represent unknown values."
 }
 
 def get_knowledge(q):
@@ -148,11 +171,12 @@ def get_knowledge(q):
 # LOCAL ANSWER
 # ===============================
 def local_answer(chunks):
-    combined="\n".join([c["text"] for c in chunks])
-    return ". ".join(combined.split(". ")[:3])
+    text = " ".join([c["text"] for c in chunks])
+    sentences = [s for s in text.split(". ") if len(s)<200]
+    return ". ".join(sentences[:2])
 
 # ===============================
-# WIKIPEDIA (SAFE)
+# WIKIPEDIA SAFE
 # ===============================
 def safe_wiki(q):
     try:
@@ -164,13 +188,24 @@ def safe_wiki(q):
 # QUIZ
 # ===============================
 def generate_quiz(topic):
-    if "indices" in topic.lower():
+    topic=topic.lower()
+
+    if "fraction" in topic:
+        return [
+            "1/2 + 1/4",
+            "3/4 - 1/2",
+            "2/3 * 3/5",
+            "5/6 / 1/2"
+        ]
+
+    if "indices" in topic:
         return [
             "2^3 × 2^4",
             "5^6 ÷ 5^2",
             "(3^2)^3",
             "10^0"
         ]
+
     return [
         "45 + 67",
         "120 - 89",
@@ -208,7 +243,7 @@ def get_answer(q):
         st.session_state.cache[q]=res
         return res
 
-    # wiki
+    # wiki (not math)
     if not is_calc(q):
         w=safe_wiki(q)
         if w:
@@ -222,7 +257,7 @@ def get_answer(q):
 # MODES
 # ===============================
 
-# TEST MODE
+# TEST
 if mode == "Test Mode":
     st.subheader("🧪 Test Mode")
 
@@ -249,7 +284,7 @@ if mode == "Test Mode":
 
             st.success(f"Score: {score}/{len(st.session_state.questions)}")
 
-# QUIZ MODE
+# QUIZ
 elif mode == "Quiz Mode":
     st.subheader("📝 Quiz Mode")
     topic=st.text_input("Enter topic")
@@ -257,7 +292,7 @@ elif mode == "Quiz Mode":
         for q in generate_quiz(topic):
             st.write("•",q)
 
-# TEACHER MODE
+# TEACHER
 elif mode == "Teacher Mode":
     st.subheader("👨‍🏫 Teacher Mode")
     topic=st.text_input("Enter topic")
@@ -273,7 +308,7 @@ elif mode == "Teacher Mode":
         for q in generate_quiz(topic):
             st.write("-",q)
 
-# TUTOR MODE
+# TUTOR
 elif mode == "Tutor Mode":
     if "chat" not in st.session_state:
         st.session_state.chat=[]
