@@ -7,13 +7,38 @@ import wikipedia
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Fast • 📚 Offline-capable • 🧠 Stable")
+st.caption("⚡ Clean • Smart • Offline")
 
 # ===============================
 # CACHE
 # ===============================
 if "cache" not in st.session_state:
     st.session_state.cache = {}
+
+# ===============================
+# CLEAN TEXT (IMPORTANT FIX)
+# ===============================
+def clean_text(t):
+    t = t.lower()
+
+    bad_phrases = [
+        "how to use this book",
+        "worked example",
+        "let’s talk",
+        "history of mathematics",
+        "exercise",
+        "questions",
+        "give one criticism",
+        "talk with a partner",
+        "for each question",
+        "diagram shows"
+    ]
+
+    for b in bad_phrases:
+        if b in t:
+            return None
+
+    return t
 
 # ===============================
 # LOAD PDFS
@@ -25,35 +50,50 @@ def load_pdfs():
         if f.endswith(".pdf"):
             try:
                 reader = PdfReader(f)
+
+                subject = "math" if "math" in f.lower() else "general"
+
                 for i, page in enumerate(reader.pages):
                     txt = page.extract_text()
+
                     if txt:
+                        txt = clean_text(txt)
+                        if not txt:
+                            continue
+
                         parts = txt.split(". ")
+
                         for p in parts:
                             if len(p) > 50:
                                 data.append({
                                     "text": p.strip(),
                                     "file": f,
-                                    "page": i
+                                    "page": i,
+                                    "subject": subject
                                 })
+
             except Exception as e:
                 st.warning(f"Error loading {f}: {e}")
+
     return data
 
 pages_db = load_pdfs()
 
 # ===============================
-# SEARCH PDF
+# SEARCH PDF (SMART)
 # ===============================
-def search_pdf(q):
+def search_pdf(q, subject):
     words = set(q.lower().split())
     results = []
 
     for c in pages_db:
-        text = c["text"].lower()
+        if c["subject"] != subject:
+            continue
+
+        text = c["text"]
         score = sum(1 for w in words if w in text)
 
-        if score > 1:
+        if score > 2 and len(text) > 50:
             results.append((score, c))
 
     results.sort(reverse=True, key=lambda x: x[0])
@@ -76,9 +116,9 @@ def solve_math(q):
 # ===============================
 knowledge = {
     "einstein": "Albert Einstein was a physicist known for developing the theory of relativity.",
+    "what is gold": "Gold is a chemical element with symbol Au, known for its use in jewelry and electronics.",
     "what is gravity": "Gravity is a force that attracts objects with mass.",
-    "what are decimals": "Decimals are numbers written with a decimal point to represent fractions.",
-    "photosynthesis": "Photosynthesis is the process by which plants make food using sunlight."
+    "what are decimals": "Decimals are numbers written with a decimal point to represent fractions."
 }
 
 def get_knowledge(q):
@@ -113,7 +153,7 @@ def generate_local_answer(text, question):
     return sentences[0] if sentences else None
 
 # ===============================
-# WIKIPEDIA
+# WIKI
 # ===============================
 def wiki(q):
     try:
@@ -122,16 +162,24 @@ def wiki(q):
         return None
 
 # ===============================
-# ANSWER ENGINE (SAFE)
+# SUBJECT DETECTION
+# ===============================
+def detect_subject(q):
+    math_keywords = ["add", "subtract", "multiply", "divide", "fraction", "decimal", "+", "-", "*", "/"]
+    if any(k in q.lower() for k in math_keywords):
+        return "math"
+    return "general"
+
+# ===============================
+# ANSWER ENGINE
 # ===============================
 def get_answer(q):
 
     try:
-        # cache
         if q in st.session_state.cache:
             return st.session_state.cache[q]
 
-        # 1️⃣ math
+        # math calculation
         if is_calc(q):
             ans = solve_math(q)
             if ans:
@@ -139,33 +187,37 @@ def get_answer(q):
                 st.session_state.cache[q] = res
                 return res
 
-        # 2️⃣ knowledge
+        # knowledge
         k = get_knowledge(q)
         if k:
             res = (k, "📚 Knowledge")
             st.session_state.cache[q] = res
             return res
 
-        # 3️⃣ pdf
-        chunks = search_pdf(q)
-        if chunks:
-            combined = " ".join([c["text"] for c in chunks])
+        # subject detection
+        subject = detect_subject(q)
 
-            ans = generate_local_answer(combined, q)
+        # PDF only if math
+        if subject == "math":
+            chunks = search_pdf(q, subject)
 
-            if ans:
-                res = (ans, f"📖 {chunks[0]['file']}")
-                st.session_state.cache[q] = res
-                return res
+            if chunks:
+                combined = " ".join([c["text"] for c in chunks])
+                ans = generate_local_answer(combined, q)
 
-        # 4️⃣ wikipedia
+                if ans:
+                    res = (ans, f"📖 {chunks[0]['file']}")
+                    st.session_state.cache[q] = res
+                    return res
+
+        # wiki for general
         w = wiki(q)
         if w:
             res = (w, "🌐 Wikipedia")
             st.session_state.cache[q] = res
             return res
 
-        # 5️⃣ fallback local
+        # fallback
         ans = generate_local_answer(q, q)
 
         if ans:
