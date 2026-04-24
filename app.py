@@ -1,6 +1,7 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-import os, re, math, random
+import os, re, math
+import wikipedia  # ✅ FIXED IMPORT
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
@@ -14,7 +15,7 @@ if "cache" not in st.session_state:
     st.session_state.cache = {}
 
 # ===============================
-# MODE SELECTOR
+# MODE
 # ===============================
 mode = st.sidebar.selectbox(
     "Mode",
@@ -70,8 +71,10 @@ pages_db = load_pdfs()
 def expand_query(q):
     synonyms = {
         "indices": ["indices","powers","exponents"],
-        "laws": ["laws","rules"]
+        "laws": ["laws","rules"],
+        "algebra": ["algebra","equations"]
     }
+
     words = q.lower().split()
     expanded = words.copy()
 
@@ -82,7 +85,7 @@ def expand_query(q):
     return " ".join(expanded)
 
 # ===============================
-# SEARCH PDF (SMART)
+# SEARCH PDF
 # ===============================
 def search_pdf(q):
     ql = expand_query(q)
@@ -92,7 +95,6 @@ def search_pdf(q):
         text = c["text"]
 
         score = 0
-
         if ql in text:
             score += 10
 
@@ -111,6 +113,7 @@ def search_pdf(q):
 # ===============================
 def parse_math(q):
     q=q.lower()
+
     q=q.replace("plus","+").replace("add","+")
     q=q.replace("minus","-").replace("subtract","-")
     q=q.replace("times","*").replace("multiply","*")
@@ -123,7 +126,10 @@ def parse_math(q):
     return q
 
 def is_calc(q):
-    return any(w in q.lower() for w in ["+","-","*","/","root","square","cube","add","subtract"])
+    return any(w in q.lower() for w in [
+        "+","-","*","/","root","square","cube",
+        "add","subtract","multiply","divide"
+    ])
 
 def solve_math(q):
     try:
@@ -138,7 +144,8 @@ def solve_math(q):
 knowledge={
     "indices":"Indices are powers showing repeated multiplication. Example: 2^3 = 2×2×2.",
     "laws of indices":"a^m × a^n = a^(m+n), a^m ÷ a^n = a^(m−n), (a^m)^n = a^(mn).",
-    "algebra":"Algebra uses symbols like x to represent unknown values."
+    "algebra":"Algebra uses symbols like x to represent unknown values.",
+    "einstein":"Albert Einstein was a physicist known for relativity."
 }
 
 def get_knowledge(q):
@@ -150,66 +157,50 @@ def get_knowledge(q):
 # ===============================
 # LOCAL ANSWER
 # ===============================
-def local_answer(chunks,q):
+def local_answer(chunks):
     combined="\n".join([c["text"] for c in chunks])
     sentences=combined.split(". ")
     return ". ".join(sentences[:3])
 
 # ===============================
+# SAFE WIKIPEDIA
+# ===============================
+def safe_wiki(q):
+    try:
+        return wikipedia.summary(q, sentences=2)
+    except:
+        return None
+
+# ===============================
 # QUIZ GENERATOR
 # ===============================
 def generate_quiz(topic):
-    if "indices" in topic.lower():
+    topic=topic.lower()
+
+    if "indices" in topic:
         return [
-            "Simplify: 2^3 × 2^4",
-            "Simplify: 5^6 ÷ 5^2",
-            "Work out: (3^2)^3",
-            "What is 10^0?"
+            "2^3 × 2^4",
+            "5^6 ÷ 5^2",
+            "(3^2)^3",
+            "10^0"
         ]
+
     return [
         "45 + 67",
-        "120 − 89",
-        "8 × 7",
-        "144 ÷ 12"
+        "120 - 89",
+        "8 * 7",
+        "144 / 12"
     ]
 
 # ===============================
-# TEST MODE
-# ===============================
-if mode == "Test Mode":
-    topic = st.text_input("Enter topic")
-    if st.button("Start Test"):
-        qs = generate_quiz(topic)
-        score = 0
-
-        for q in qs:
-            ans = st.text_input(q)
-            correct = solve_math(q) if is_calc(q) else None
-
-            if ans and correct and ans.strip() == correct:
-                score += 1
-
-        st.write(f"Score: {score}/{len(qs)}")
-
-# ===============================
-# QUIZ MODE
-# ===============================
-elif mode == "Quiz Mode":
-    topic = st.text_input("Enter topic")
-    if topic:
-        qs = generate_quiz(topic)
-        for q in qs:
-            st.write("•", q)
-
-# ===============================
-# TUTOR MODE
+# ANSWER ENGINE
 # ===============================
 def get_answer(q):
 
     if q in st.session_state.cache:
         return st.session_state.cache[q]
 
-    # math
+    # 1️⃣ math
     if is_calc(q):
         ans = solve_math(q)
         if ans:
@@ -217,32 +208,70 @@ def get_answer(q):
             st.session_state.cache[q]=res
             return res
 
-    # knowledge
+    # 2️⃣ knowledge
     k=get_knowledge(q)
     if k:
         res=(k,"📚 Knowledge")
         st.session_state.cache[q]=res
         return res
 
-    # pdf
+    # 3️⃣ pdf
     chunks=search_pdf(q)
     if chunks:
-        res=(local_answer(chunks,q),f"📖 {chunks[0]['file']}")
+        res=(local_answer(chunks),f"📖 {chunks[0]['file']}")
         st.session_state.cache[q]=res
         return res
 
-    return ("I couldn't find a clear answer.","Fallback")
+    # 4️⃣ wikipedia (NOT for math)
+    if not is_calc(q):
+        w = safe_wiki(q)
+        if w:
+            res = (w, "🌐 Wikipedia")
+            st.session_state.cache[q]=res
+            return res
+
+    # 5️⃣ fallback
+    res=("I couldn't find a clear answer.","Fallback")
+    st.session_state.cache[q]=res
+    return res
 
 # ===============================
-# TEACHER MODE (INTEGRATED)
+# MODES
 # ===============================
+
+if mode == "Test Mode":
+    st.subheader("🧪 Test Mode")
+    topic = st.text_input("Enter topic")
+
+    if st.button("Start Test"):
+        qs = generate_quiz(topic)
+        score = 0
+
+        for q in qs:
+            user = st.text_input(q, key=q)
+            correct = solve_math(q)
+
+            if user and correct and user.strip() == correct:
+                score += 1
+
+        st.write(f"Score: {score}/{len(qs)}")
+
+elif mode == "Quiz Mode":
+    st.subheader("📝 Quiz Mode")
+    topic = st.text_input("Enter topic")
+
+    if topic:
+        for q in generate_quiz(topic):
+            st.write("•", q)
+
 elif mode == "Teacher Mode":
-    st.write("👨‍🏫 Teacher Mode Active")
+    st.subheader("👨‍🏫 Teacher Mode")
 
-    q = st.text_input("Ask or give topic")
+    q = st.text_input("Enter topic or question")
 
     if q:
         ans,src = get_answer(q)
+
         st.write("### Explanation")
         st.write(ans)
         st.caption(src)
@@ -251,10 +280,8 @@ elif mode == "Teacher Mode":
         for qq in generate_quiz(q):
             st.write("-", qq)
 
-# ===============================
-# TUTOR MODE UI
-# ===============================
-if mode == "Tutor Mode":
+elif mode == "Tutor Mode":
+
     if "chat" not in st.session_state:
         st.session_state.chat=[]
 
