@@ -1,12 +1,12 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-import os, re, math
+import os, re, math, random
 import wikipedia
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Clean • Smart • Stable")
+st.caption("⚡ Multi-Subject • Dynamic • Smart")
 
 # ===============================
 # STATE
@@ -23,28 +23,39 @@ mode = st.sidebar.selectbox(
 )
 
 # ===============================
-# CLEAN TEXT
+# SUBJECT DETECTION
+# ===============================
+def detect_subject(q):
+    q = q.lower()
+
+    if any(w in q for w in ["add","subtract","fraction","decimal","algebra","equation"]):
+        return "math"
+    if any(w in q for w in ["force","energy","motion","gravity"]):
+        return "physics"
+    if any(w in q for w in ["atom","molecule","acid","reaction"]):
+        return "chemistry"
+    if any(w in q for w in ["cell","plant","photosynthesis","human"]):
+        return "biology"
+    if any(w in q for w in ["noun","verb","grammar","synonym"]):
+        return "english"
+    if any(w in q for w in ["हिंदी","अर्थ","वाक्य"]):
+        return "hindi"
+
+    return "general"
+
+# ===============================
+# CLEAN PDF
 # ===============================
 def clean_text(t):
     t = t.lower()
-
-    bad = [
-        "indb","contents","chapter","section","©",
-        "youtube","http","exercise","worked example",
-        "talk with","978"
-    ]
-
-    for b in bad:
-        if b in t:
-            return None
-
+    if any(x in t for x in ["indb","chapter","exercise","http","©"]):
+        return None
     if not re.match(r'^[a-z0-9\s\.\,\-\+\*/\(\)]+$', t):
         return None
-
-    return t.strip()
+    return t
 
 # ===============================
-# LOAD PDFS
+# LOAD PDF
 # ===============================
 @st.cache_resource
 def load_pdfs():
@@ -53,19 +64,12 @@ def load_pdfs():
         if f.endswith(".pdf"):
             try:
                 reader=PdfReader(f)
-                for i,page in enumerate(reader.pages):
+                for page in reader.pages:
                     txt=page.extract_text()
                     if txt:
                         txt=clean_text(txt)
-                        if not txt: continue
-
-                        for p in txt.split(". "):
-                            if len(p)>60:
-                                data.append({
-                                    "text":p,
-                                    "file":f,
-                                    "page":i
-                                })
+                        if txt:
+                            data.append({"text":txt,"file":f})
             except:
                 pass
     return data
@@ -73,67 +77,33 @@ def load_pdfs():
 pages_db = load_pdfs()
 
 # ===============================
-# SEARCH PDF (FIXED SORT)
+# SEARCH PDF
 # ===============================
 def search_pdf(q):
-    ql=q.lower()
     results=[]
-
     for c in pages_db:
-        text=c["text"]
-        score=0
-
-        if ql in text:
-            score+=10
-
-        for w in ql.split():
-            if w in text:
-                score+=1
-
+        score=sum(1 for w in q.lower().split() if w in c["text"])
         if score>0:
             results.append((score,c))
 
-    # 🔥 FIXED: safe sort
-    results.sort(key=lambda x: x[0], reverse=True)
-
-    return [r[1] for r in results[:5]]
+    results.sort(key=lambda x:x[0], reverse=True)
+    return [r[1] for r in results[:2]]
 
 # ===============================
 # MATH
 # ===============================
 def parse_math(q):
     q=q.lower()
-
-    q=q.replace("plus","+").replace("add","+")
-    q=q.replace("minus","-").replace("subtract","-")
-    q=q.replace("times","*").replace("multiply","*")
-    q=q.replace("divide","/").replace("divided by","/")
     q=q.replace("^","**")
+    q=q.replace("plus","+").replace("minus","-")
+    q=q.replace("times","*").replace("divide","/")
 
-    q=re.sub(r"square of (\d+)", r"(\1**2)", q)
     q=re.sub(r"square (\d+)", r"(\1**2)", q)
-    q=re.sub(r"cube of (\d+)", r"(\1**3)", q)
-    q=re.sub(r"cube (\d+)", r"(\1**3)", q)
-
-    q=re.sub(r"square root of (\d+)", r"math.sqrt(\1)", q)
-    q=re.sub(r"cube root of (\d+)", r"(\1)**(1/3)", q)
-
     return q
-
-def is_calc(q):
-    q=q.lower()
-    return (
-        bool(re.fullmatch(r"[0-9\.\+\-\*/\(\)\^\s]+", q.strip()))
-        or any(word in q for word in [
-            "add","subtract","multiply","divide",
-            "square","cube","root","plus","minus"
-        ])
-    )
 
 def solve_math(q):
     try:
-        q=parse_math(q)
-        return str(eval(q))
+        return str(eval(parse_math(q)))
     except:
         return None
 
@@ -141,11 +111,11 @@ def solve_math(q):
 # KNOWLEDGE
 # ===============================
 knowledge = {
-    "einstein":"Albert Einstein was a physicist who developed the theory of relativity.",
-    "integer":"An integer is a whole number. It can be positive, negative, or zero.",
-    "fractions":"Fractions represent parts of a whole. Example: 1/2.",
-    "indices":"Indices are powers showing repeated multiplication.",
-    "algebra":"Algebra uses symbols like x to represent unknown values."
+    "gravity":"Gravity is a force that attracts objects.",
+    "atom":"Atom is the smallest unit of matter.",
+    "cell":"Cell is the basic unit of life.",
+    "noun":"A noun is a naming word.",
+    "अर्थ":"अर्थ का मतलब किसी शब्द का मतलब होता है।"
 }
 
 def get_knowledge(q):
@@ -155,50 +125,63 @@ def get_knowledge(q):
     return None
 
 # ===============================
-# LOCAL ANSWER
+# HINDI AI (SIMULATED)
 # ===============================
-def local_answer(chunks):
-    text = " ".join([c["text"] for c in chunks])
-    sentences = [s for s in text.split(". ") if len(s)<200]
-    return ". ".join(sentences[:2])
+def quantum_hindi_ai(q):
+    return f"🤖 Quantum Hindi AI: यह प्रश्न '{q}' से संबंधित है। कृपया और संदर्भ दें।"
 
 # ===============================
-# WIKIPEDIA
-# ===============================
-def safe_wiki(q):
-    try:
-        return wikipedia.summary(q, sentences=2)
-    except:
-        return None
-
-# ===============================
-# QUIZ
+# DYNAMIC QUIZ GENERATOR
 # ===============================
 def generate_quiz(topic):
-    topic=topic.lower()
+    subject = detect_subject(topic)
+    qs = []
 
-    if "fraction" in topic:
-        return [
-            "1/2 + 1/4",
-            "3/4 - 1/2",
-            "2/3 * 3/5",
-            "5/6 / 1/2"
+    if subject == "math":
+        for _ in range(5):
+            a,b=random.randint(1,20),random.randint(1,20)
+            op=random.choice(["+","-","*","/"])
+            qs.append(f"{a} {op} {b}")
+
+    elif subject == "physics":
+        qs=random.sample([
+            "What is force?",
+            "Define energy.",
+            "What is gravity?",
+            "What is motion?"
+        ],3)
+
+    elif subject == "chemistry":
+        qs=random.sample([
+            "What is an atom?",
+            "Define molecule.",
+            "What is an acid?"
+        ],3)
+
+    elif subject == "biology":
+        qs=random.sample([
+            "What is a cell?",
+            "Define photosynthesis.",
+            "What is respiration?"
+        ],3)
+
+    elif subject == "english":
+        qs=random.sample([
+            "What is a noun?",
+            "Define verb.",
+            "What is synonym?"
+        ],3)
+
+    elif subject == "hindi":
+        qs=[
+            "अर्थ क्या होता है?",
+            "वाक्य क्या होता है?"
         ]
 
-    if "indices" in topic:
-        return [
-            "2^3 × 2^4",
-            "5^6 ÷ 5^2",
-            "(3^2)^3",
-            "10^0"
-        ]
+    else:
+        qs=["No quiz available"]
 
-    return [
-        "45 + 67",
-        "120 - 89",
-        "8 * 7",
-        "144 / 12"
-    ]
+    return qs
 
 # ===============================
 # ANSWER ENGINE
@@ -208,113 +191,82 @@ def get_answer(q):
     if q in st.session_state.cache:
         return st.session_state.cache[q]
 
+    subject = detect_subject(q)
+
     # math
-    if is_calc(q):
-        ans=solve_math(q)
-        if ans:
-            res=(f"🧮 {ans}","Calculator")
-            st.session_state.cache[q]=res
-            return res
+    ans = solve_math(q)
+    if ans:
+        return (f"🧮 {ans}","Calculator")
 
     # knowledge
     k=get_knowledge(q)
     if k:
-        res=(k,"📚 Knowledge")
-        st.session_state.cache[q]=res
-        return res
+        return (k,f"📚 {subject}")
 
     # pdf
     chunks=search_pdf(q)
-    if chunks and len(chunks[0]["text"])>80:
-        res=(local_answer(chunks),f"📖 {chunks[0]['file']}")
-        st.session_state.cache[q]=res
-        return res
+    if chunks:
+        return (chunks[0]["text"],"📖 PDF")
 
-    # wiki
-    if not is_calc(q):
-        w=safe_wiki(q)
-        if w:
-            res=(w,"🌐 Wikipedia")
-            st.session_state.cache[q]=res
-            return res
+    # hindi AI fallback
+    if subject=="hindi":
+        return (quantum_hindi_ai(q),"🤖 Hindi AI")
 
-    return ("I couldn't find a clear answer.","Fallback")
+    # wiki fallback
+    try:
+        return (wikipedia.summary(q,2),"🌐 Wikipedia")
+    except:
+        return ("No answer found.","Fallback")
 
 # ===============================
 # MODES
 # ===============================
 
-# TEST MODE
-if mode == "Test Mode":
-    st.subheader("🧪 Test Mode")
-
-    if "test_started" not in st.session_state:
-        st.session_state.test_started=False
-
-    topic=st.text_input("Enter topic")
-
-    if st.button("Start Test"):
-        st.session_state.test_started=True
-        st.session_state.questions=generate_quiz(topic)
-        st.session_state.answers=[""]*len(st.session_state.questions)
-
-    if st.session_state.test_started:
-        for i,q in enumerate(st.session_state.questions):
-            st.session_state.answers[i]=st.text_input(q,key=f"q{i}")
-
-        if st.button("Submit"):
-            score=0
-            for i,q in enumerate(st.session_state.questions):
-                correct=solve_math(q)
-                if correct and st.session_state.answers[i].strip()==correct:
-                    score+=1
-
-            st.success(f"Score: {score}/{len(st.session_state.questions)}")
-
-# QUIZ MODE
-elif mode == "Quiz Mode":
-    st.subheader("📝 Quiz Mode")
+# QUIZ
+if mode=="Quiz Mode":
     topic=st.text_input("Enter topic")
     if topic:
         for q in generate_quiz(topic):
             st.write("•",q)
 
-# TEACHER MODE
-elif mode == "Teacher Mode":
-    st.subheader("👨‍🏫 Teacher Mode")
+# TEST
+elif mode=="Test Mode":
     topic=st.text_input("Enter topic")
 
+    if st.button("Start Test"):
+        st.session_state.qs=generate_quiz(topic)
+        st.session_state.ans=[""]*len(st.session_state.qs)
+
+    if "qs" in st.session_state:
+        for i,q in enumerate(st.session_state.qs):
+            st.session_state.ans[i]=st.text_input(q,key=i)
+
+        if st.button("Submit"):
+            score=0
+            for i,q in enumerate(st.session_state.qs):
+                correct=solve_math(q)
+                if correct and st.session_state.ans[i]==correct:
+                    score+=1
+            st.write(f"Score: {score}/{len(st.session_state.qs)}")
+
+# TEACHER
+elif mode=="Teacher Mode":
+    topic=st.text_input("Enter topic")
     if topic:
         ans,src=get_answer(topic)
-
-        st.write("### 📘 Explanation")
         st.write(ans)
         st.caption(src)
 
-        st.write("### 📝 Practice")
+        st.write("### Practice")
         for q in generate_quiz(topic):
             st.write("-",q)
 
-# TUTOR MODE
-elif mode == "Tutor Mode":
-    if "chat" not in st.session_state:
-        st.session_state.chat=[]
-
-    for m in st.session_state.chat:
-        with st.chat_message(m["role"]):
-            st.write(m["content"])
-
-    q=st.chat_input("Ask anything...")
-
+# TUTOR
+elif mode=="Tutor Mode":
+    q=st.chat_input("Ask anything")
     if q:
-        st.session_state.chat.append({"role":"user","content":q})
+        ans,src=get_answer(q)
+        st.write(ans)
+        st.caption(src)
 
-        with st.chat_message("assistant"):
-            ans,src=get_answer(q)
-            st.write(ans)
-            st.caption(src)
-
-        st.session_state.chat.append({"role":"assistant","content":ans})
-
-# STATUS
 st.write(f"📚 Loaded chunks: {len(pages_db)}")
