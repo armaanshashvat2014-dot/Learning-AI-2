@@ -38,7 +38,6 @@ def clean_text(t):
         if b in t:
             return None
 
-    # remove non-English junk
     if not re.match(r'^[a-z0-9\s\.\,\-\+\*/\(\)]+$', t):
         return None
 
@@ -74,7 +73,7 @@ def load_pdfs():
 pages_db = load_pdfs()
 
 # ===============================
-# SEARCH PDF
+# SEARCH PDF (FIXED SORT)
 # ===============================
 def search_pdf(q):
     ql=q.lower()
@@ -94,30 +93,30 @@ def search_pdf(q):
         if score>0:
             results.append((score,c))
 
-    results.sort(reverse=True)
+    # 🔥 FIXED: safe sort
+    results.sort(key=lambda x: x[0], reverse=True)
+
     return [r[1] for r in results[:5]]
 
 # ===============================
-# MATH PARSER
+# MATH
 # ===============================
 def parse_math(q):
-    q = q.lower()
+    q=q.lower()
 
-    q = q.replace("plus","+").replace("add","+")
-    q = q.replace("minus","-").replace("subtract","-")
-    q = q.replace("times","*").replace("multiply","*")
-    q = q.replace("divide","/").replace("divided by","/")
-    q = q.replace("^","**")
+    q=q.replace("plus","+").replace("add","+")
+    q=q.replace("minus","-").replace("subtract","-")
+    q=q.replace("times","*").replace("multiply","*")
+    q=q.replace("divide","/").replace("divided by","/")
+    q=q.replace("^","**")
 
-    # square & cube
-    q = re.sub(r"square of (\d+)", r"(\1**2)", q)
-    q = re.sub(r"square (\d+)", r"(\1**2)", q)
-    q = re.sub(r"cube of (\d+)", r"(\1**3)", q)
-    q = re.sub(r"cube (\d+)", r"(\1**3)", q)
+    q=re.sub(r"square of (\d+)", r"(\1**2)", q)
+    q=re.sub(r"square (\d+)", r"(\1**2)", q)
+    q=re.sub(r"cube of (\d+)", r"(\1**3)", q)
+    q=re.sub(r"cube (\d+)", r"(\1**3)", q)
 
-    # roots
-    q = re.sub(r"square root of (\d+)", r"math.sqrt(\1)", q)
-    q = re.sub(r"cube root of (\d+)", r"(\1)**(1/3)", q)
+    q=re.sub(r"square root of (\d+)", r"math.sqrt(\1)", q)
+    q=re.sub(r"cube root of (\d+)", r"(\1)**(1/3)", q)
 
     return q
 
@@ -142,22 +141,10 @@ def solve_math(q):
 # KNOWLEDGE
 # ===============================
 knowledge = {
-    "integer":"An integer is a whole number. It can be positive, negative, or zero. Example: -3, 0, 5.",
-    "fractions":"""Fractions represent parts of a whole.
-
-Example:
-1/2 means one part out of two equal parts.
-
-Types:
-- Proper: 1/2
-- Improper: 5/3
-- Mixed: 1 2/3
-
-Example operations:
-1/2 + 1/4 = 3/4
-""",
-    "indices":"Indices are powers showing repeated multiplication. Example: 2^3 = 2×2×2.",
-    "laws of indices":"a^m × a^n = a^(m+n), a^m ÷ a^n = a^(m−n), (a^m)^n = a^(mn).",
+    "einstein":"Albert Einstein was a physicist who developed the theory of relativity.",
+    "integer":"An integer is a whole number. It can be positive, negative, or zero.",
+    "fractions":"Fractions represent parts of a whole. Example: 1/2.",
+    "indices":"Indices are powers showing repeated multiplication.",
     "algebra":"Algebra uses symbols like x to represent unknown values."
 }
 
@@ -176,7 +163,7 @@ def local_answer(chunks):
     return ". ".join(sentences[:2])
 
 # ===============================
-# WIKIPEDIA SAFE
+# WIKIPEDIA
 # ===============================
 def safe_wiki(q):
     try:
@@ -243,7 +230,7 @@ def get_answer(q):
         st.session_state.cache[q]=res
         return res
 
-    # wiki (not math)
+    # wiki
     if not is_calc(q):
         w=safe_wiki(q)
         if w:
@@ -257,7 +244,7 @@ def get_answer(q):
 # MODES
 # ===============================
 
-# TEST
+# TEST MODE
 if mode == "Test Mode":
     st.subheader("🧪 Test Mode")
 
@@ -284,7 +271,7 @@ if mode == "Test Mode":
 
             st.success(f"Score: {score}/{len(st.session_state.questions)}")
 
-# QUIZ
+# QUIZ MODE
 elif mode == "Quiz Mode":
     st.subheader("📝 Quiz Mode")
     topic=st.text_input("Enter topic")
@@ -292,7 +279,7 @@ elif mode == "Quiz Mode":
         for q in generate_quiz(topic):
             st.write("•",q)
 
-# TEACHER
+# TEACHER MODE
 elif mode == "Teacher Mode":
     st.subheader("👨‍🏫 Teacher Mode")
     topic=st.text_input("Enter topic")
@@ -308,7 +295,7 @@ elif mode == "Teacher Mode":
         for q in generate_quiz(topic):
             st.write("-",q)
 
-# TUTOR
+# TUTOR MODE
 elif mode == "Tutor Mode":
     if "chat" not in st.session_state:
         st.session_state.chat=[]
