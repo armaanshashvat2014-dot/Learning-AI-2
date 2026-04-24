@@ -16,7 +16,7 @@ if "cache" not in st.session_state:
     st.session_state.cache = {}
 
 # ===============================
-# CLEAN TEXT (IMPORTANT FIX)
+# CLEAN TEXT
 # ===============================
 def clean_text(t):
     t = t.lower()
@@ -50,12 +50,10 @@ def load_pdfs():
         if f.endswith(".pdf"):
             try:
                 reader = PdfReader(f)
-
                 subject = "math" if "math" in f.lower() else "general"
 
                 for i, page in enumerate(reader.pages):
                     txt = page.extract_text()
-
                     if txt:
                         txt = clean_text(txt)
                         if not txt:
@@ -71,16 +69,14 @@ def load_pdfs():
                                     "page": i,
                                     "subject": subject
                                 })
-
-            except Exception as e:
-                st.warning(f"Error loading {f}: {e}")
-
+            except:
+                pass
     return data
 
 pages_db = load_pdfs()
 
 # ===============================
-# SEARCH PDF (SMART)
+# SEARCH PDF
 # ===============================
 def search_pdf(q, subject):
     words = set(q.lower().split())
@@ -93,20 +89,21 @@ def search_pdf(q, subject):
         text = c["text"]
         score = sum(1 for w in words if w in text)
 
-        if score > 2 and len(text) > 50:
+        if score > 2:
             results.append((score, c))
 
     results.sort(reverse=True, key=lambda x: x[0])
     return [r[1] for r in results[:3]]
 
 # ===============================
-# MATH
+# MATH (FIXED)
 # ===============================
 def is_calc(q):
-    return bool(re.fullmatch(r"[0-9\.\+\-\*/\(\)\s]+", q.strip()))
+    return bool(re.fullmatch(r"[0-9\.\+\-\*/\(\)\^\s]+", q.strip()))
 
 def solve_math(q):
     try:
+        q = q.replace("^", "**")  # 🔥 FIX exponent
         return str(eval(q.replace(" ", "")))
     except:
         return None
@@ -116,7 +113,7 @@ def solve_math(q):
 # ===============================
 knowledge = {
     "einstein": "Albert Einstein was a physicist known for developing the theory of relativity.",
-    "what is gold": "Gold is a chemical element with symbol Au, known for its use in jewelry and electronics.",
+    "what is gold": "Gold is a chemical element with symbol Au. It is a dense, soft metal used in jewelry and electronics.",
     "what is gravity": "Gravity is a force that attracts objects with mass.",
     "what are decimals": "Decimals are numbers written with a decimal point to represent fractions."
 }
@@ -153,7 +150,7 @@ def generate_local_answer(text, question):
     return sentences[0] if sentences else None
 
 # ===============================
-# WIKI
+# WIKIPEDIA (CONTROLLED)
 # ===============================
 def wiki(q):
     try:
@@ -165,13 +162,17 @@ def wiki(q):
 # SUBJECT DETECTION
 # ===============================
 def detect_subject(q):
-    math_keywords = ["add", "subtract", "multiply", "divide", "fraction", "decimal", "+", "-", "*", "/"]
-    if any(k in q.lower() for k in math_keywords):
+    if is_calc(q):
         return "math"
+
+    math_words = ["add", "subtract", "multiply", "divide", "fraction", "decimal"]
+    if any(w in q.lower() for w in math_words):
+        return "math"
+
     return "general"
 
 # ===============================
-# ANSWER ENGINE
+# ANSWER ENGINE (FIXED)
 # ===============================
 def get_answer(q):
 
@@ -179,7 +180,7 @@ def get_answer(q):
         if q in st.session_state.cache:
             return st.session_state.cache[q]
 
-        # math calculation
+        # 1️⃣ math
         if is_calc(q):
             ans = solve_math(q)
             if ans:
@@ -187,17 +188,16 @@ def get_answer(q):
                 st.session_state.cache[q] = res
                 return res
 
-        # knowledge
+        # 2️⃣ knowledge
         k = get_knowledge(q)
         if k:
             res = (k, "📚 Knowledge")
             st.session_state.cache[q] = res
             return res
 
-        # subject detection
         subject = detect_subject(q)
 
-        # PDF only if math
+        # 3️⃣ PDF (only for math)
         if subject == "math":
             chunks = search_pdf(q, subject)
 
@@ -210,14 +210,15 @@ def get_answer(q):
                     st.session_state.cache[q] = res
                     return res
 
-        # wiki for general
-        w = wiki(q)
-        if w:
-            res = (w, "🌐 Wikipedia")
-            st.session_state.cache[q] = res
-            return res
+        # 4️⃣ Wikipedia (NOT for math)
+        if not is_calc(q):
+            w = wiki(q)
+            if w:
+                res = (w, "🌐 Wikipedia")
+                st.session_state.cache[q] = res
+                return res
 
-        # fallback
+        # 5️⃣ fallback
         ans = generate_local_answer(q, q)
 
         if ans:
