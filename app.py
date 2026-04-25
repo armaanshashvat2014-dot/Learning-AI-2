@@ -1,5 +1,6 @@
 import streamlit as st
 import itertools, re, wikipedia, random
+from PyPDF2 import PdfReader
 
 # =========================
 # API SETUP
@@ -11,6 +12,7 @@ GOOGLE_KEYS = [
     st.secrets["GOOGLE_API_KEY_1"],
     st.secrets["GOOGLE_API_KEY_2"]
 ]
+
 OPENAI_KEYS = [
     st.secrets["OPENAI_API_KEY_1"],
     st.secrets["OPENAI_API_KEY_2"]
@@ -26,42 +28,44 @@ def get_openai():
     return OpenAI(api_key=next(openai_cycle))
 
 # =========================
+# SESSION STATE
+# =========================
+if "chats" not in st.session_state:
+    st.session_state.chats = {"Chat 1": []}
+
+if "current_chat" not in st.session_state:
+    st.session_state.current_chat = "Chat 1"
+
+if "pdf_chunks" not in st.session_state:
+    st.session_state.pdf_chunks = []
+
+# =========================
 # 🧠 CONSCIOUS ENGINE
 # =========================
 def conscious_engine(q, history):
     ql = q.lower()
 
-    if "ice cream" in ql and ("200" in ql or "heat" in ql or "hot" in ql):
-        return "❌ No. Ice cream melts at high temperatures."
-
-    if "breathe in space" in ql:
-        return "❌ No. Humans cannot breathe in space."
+    if "ice cream" in ql and ("200" in ql or "heat" in ql):
+        return "❌ Ice cream melts at high temperatures."
 
     if "fire cold" in ql:
-        return "❌ No. Fire produces heat."
+        return "❌ Fire produces heat."
+
+    if "breathe in space" in ql:
+        return "❌ Humans cannot breathe in space."
 
     if "hot and cold" in ql:
-        return "❌ Something cannot be both hot and cold at the same time."
+        return "❌ Cannot be both hot and cold."
 
-    # simple context use
     if history:
         last = history[-1]["text"].lower()
         if "sound" in last and "how" in ql:
-            return "🔊 Sound travels as vibrations through a medium like air."
+            return "🔊 Sound travels as vibrations through a medium."
 
     return None
 
 # =========================
-# 🔎 SEARCH (FREE)
-# =========================
-def search_answer(q):
-    try:
-        return "🌐 " + wikipedia.summary(q, 2)
-    except:
-        return None
-
-# =========================
-# 🧮 MATH (ROBUST)
+# 🧮 MATH ENGINE
 # =========================
 def extract_math(q):
     matches = re.findall(r"[0-9\+\-\*/\^\(\)\.]+", q)
@@ -79,83 +83,37 @@ def solve_math(q):
 
 def math_response(q):
     ans = solve_math(q)
-    if not ans:
+    if ans:
+        return f"🧮 Answer: {ans}"
+    return None
+
+# =========================
+# 📄 PDF SEARCH
+# =========================
+def search_pdf(q):
+    q = q.lower()
+    results = []
+
+    for chunk in st.session_state.pdf_chunks:
+        score = sum(1 for w in q.split() if w in chunk)
+        if score > 0:
+            results.append((score, chunk))
+
+    results.sort(reverse=True)
+
+    if results:
+        return "📖 " + results[0][1][:300]
+
+    return None
+
+# =========================
+# 🔎 SEARCH
+# =========================
+def search_wiki(q):
+    try:
+        return "🌐 " + wikipedia.summary(q, 2)
+    except:
         return None
-    if any(w in q.lower() for w in ["explain","why","how"]):
-        return f"🧮 The answer is {ans}.\n\nUsing BODMAS, powers are solved first, then multiplication/division, then addition/subtraction."
-    return f"🧮 {ans}"
-
-# =========================
-# SUBJECT DETECTION
-# =========================
-def detect_subject(q):
-    ql = q.lower()
-
-    math_words = ["add","subtract","multiply","divide","fraction","decimal","algebra","indices","exponent","equation","+","-","*","/","^","bodmas","order"]
-    science_words = ["sound","light","heat","force","energy","cell","atom","gravity","friction","wave","electric","current","voltage","motion","speed","mass","density","pressure","photosynthesis","respiration","digestion","ecosystem","plant","animal","human","biology","physics","chemistry","gas","liquid","solid","matter","temperature"]
-    english_words = ["noun","verb","grammar","sentence","adjective","adverb","pronoun","tense","english","language","paragraph","essay","letter","comprehension","synonym","antonym","word","phrase"]
-
-    scores = {"math":0,"science":0,"english":0}
-    for w in math_words:
-        if w in ql: scores["math"] += 2
-    for w in science_words:
-        if w in ql: scores["science"] += 2
-    for w in english_words:
-        if w in ql: scores["english"] += 2
-
-    best = max(scores, key=scores.get)
-    return best if scores[best] > 0 else "science"
-
-# =========================
-# QUESTION GENERATORS
-# =========================
-def gen_math(topic, mode):
-    topic = topic.lower()
-    qs = []
-    n = {"Quiz Mode":5,"Test Mode":6}.get(mode,4)
-
-    for _ in range(n):
-        if "indice" in topic or "power" in topic:
-            a = random.randint(2,10); b = random.randint(2,4)
-            qs.append(f"{a}^{b}")
-        elif "fraction" in topic:
-            a,b = random.randint(1,9), random.randint(1,9)
-            c,d = random.randint(1,9), random.randint(1,9)
-            qs.append(f"{a}/{b} + {c}/{d}")
-        elif "algebra" in topic:
-            x = random.randint(1,10)
-            qs.append(f"Solve: x + {x} = {x+5}")
-        elif "bodmas" in topic or "order" in topic:
-            a,b,c = random.randint(1,10), random.randint(1,10), random.randint(1,10)
-            qs.append(f"({a} + {b}) * {c}")
-        else:
-            a = random.randint(1,10); b = random.randint(2,5); c = random.randint(2,3)
-            qs.append(f"{a} + {b}^{c}")
-    return qs
-
-def gen_science(topic):
-    return [
-        f"What is {topic}?",
-        f"Why is {topic} important?",
-        f"How does {topic} work?",
-        f"Who discovered {topic}?",
-        f"When is {topic} used?"
-    ]
-
-def gen_english(topic):
-    return [
-        f"What is {topic}?",
-        f"How do you use {topic} in a sentence?",
-        f"Why is {topic} important in language?"
-    ]
-
-def generate_questions(q, mode):
-    sub = detect_subject(q)
-    if sub == "science":
-        return gen_science(q)
-    if sub == "english":
-        return gen_english(q)
-    return gen_math(q, mode)
 
 # =========================
 # 🤖 AI ANSWER
@@ -163,20 +121,28 @@ def generate_questions(q, mode):
 def ai_answer(q):
     history = st.session_state.chats[st.session_state.current_chat]
 
-    # 1. conscious
+    # 1 conscious
     cs = conscious_engine(q, history)
-    if cs: return cs
+    if cs:
+        return cs
 
-    # 2. math
+    # 2 math
     m = math_response(q)
-    if m: return m
+    if m:
+        return m
 
-    # 3. search
-    s = search_answer(q)
-    if s: return s
+    # 3 PDF
+    pdf = search_pdf(q)
+    if pdf:
+        return pdf
 
-    # 4. AI fallback
-    prompt = f"Answer clearly and logically like a teacher:\n{q}"
+    # 4 wiki
+    wiki = search_wiki(q)
+    if wiki:
+        return wiki
+
+    # 5 AI fallback
+    prompt = f"Answer clearly: {q}"
 
     for _ in range(2):
         try:
@@ -198,29 +164,46 @@ def ai_answer(q):
         except:
             pass
 
-    return "⚠️ I'm not sure. Try rephrasing."
+    return "⚠️ AI busy."
 
 # =========================
-# 🎨 UI STYLE
+# QUESTION GENERATORS
+# =========================
+def gen_math(topic, mode):
+    qs=[]
+    for _ in range(5):
+        a,b,c = random.randint(1,10),random.randint(1,10),random.randint(2,3)
+        qs.append(f"{a} + {b}^{c}")
+    return qs
+
+def gen_science(topic):
+    return [
+        f"What is {topic}?",
+        f"Why is {topic} important?",
+        f"How does {topic} work?",
+        f"Who discovered {topic}?"
+    ]
+
+def gen_english(topic):
+    return [
+        f"What is {topic}?",
+        f"How do you use {topic}?",
+        f"Why is {topic} important?"
+    ]
+
+# =========================
+# UI STYLE
 # =========================
 st.markdown("""
 <style>
 .stApp {background: linear-gradient(135deg,#0a0f1f,#020617); color:white;}
-.chat-user {background:#1e293b;padding:10px;border-radius:10px;margin:6px 0;}
-.chat-ai {background:#111827;padding:10px;border-radius:10px;border-left:4px solid #38bdf8;margin:6px 0;}
+.chat-user {background:#1e293b;padding:10px;border-radius:10px;margin:6px;}
+.chat-ai {background:#111827;padding:10px;border-radius:10px;border-left:4px solid #38bdf8;margin:6px;}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# SESSION STATE
-# =========================
-if "chats" not in st.session_state:
-    st.session_state.chats = {"Chat 1": []}
-if "current_chat" not in st.session_state:
-    st.session_state.current_chat = "Chat 1"
-
-# =========================
-# SIDEBAR (CHATS + MODES)
+# SIDEBAR
 # =========================
 st.sidebar.title("💬 Chats")
 
@@ -233,40 +216,59 @@ for chat in st.session_state.chats:
     if st.sidebar.button(chat):
         st.session_state.current_chat = chat
 
-if st.sidebar.button("🗑 Delete Current Chat"):
-    if len(st.session_state.chats) > 1:
+if st.sidebar.button("🗑 Delete Chat"):
+    if len(st.session_state.chats)>1:
         del st.session_state.chats[st.session_state.current_chat]
-        st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+        st.session_state.current_chat=list(st.session_state.chats.keys())[0]
 
 st.sidebar.markdown("---")
+
+# PDF upload
+st.sidebar.markdown("### ➕ Add PDF")
+pdf_file = st.sidebar.file_uploader("Upload PDF", type=["pdf"])
+
+if pdf_file:
+    reader = PdfReader(pdf_file)
+    text = ""
+
+    for page in reader.pages:
+        t = page.extract_text()
+        if t:
+            text += t
+
+    chunks = text.split(". ")
+
+    for c in chunks:
+        if len(c) > 50:
+            st.session_state.pdf_chunks.append(c.lower())
+
+    st.sidebar.success("✅ PDF Loaded")
+
+# Mode
 mode = st.sidebar.selectbox("Mode", ["Tutor Mode","Teacher Mode","Quiz Mode","Test Mode"])
 
 # =========================
 # HEADER
 # =========================
 st.title("🧠 SmartLoop AI")
-st.caption("CIE Tutor • Smart Chat")
 
 st.info("""
 👋 Hey there! I'm SmartLoop AI! 
 
 I'm your CIE tutor here to help you ace your exams! 📚
-
-I can answer your doubts, draw diagrams, and create quizzes! 
-Attach photos, PDFs, or text files below! 📸📄
 """)
 
 # =========================
 # CHAT DISPLAY
 # =========================
 for msg in st.session_state.chats[st.session_state.current_chat]:
-    if msg["role"] == "user":
+    if msg["role"]=="user":
         st.markdown(f"<div class='chat-user'>🧑 {msg['text']}</div>", unsafe_allow_html=True)
     else:
         st.markdown(f"<div class='chat-ai'>🤖 {msg['text']}</div>", unsafe_allow_html=True)
 
 # =========================
-# INPUT + NON-BLOCKING LOADER
+# INPUT
 # =========================
 q = st.text_input("Ask SmartLoop...")
 
@@ -274,22 +276,19 @@ if q:
     st.session_state.chats[st.session_state.current_chat].append({"role":"user","text":q})
 
     with st.spinner("Thinking..."):
-        # ===== Mode logic =====
-        if mode == "Tutor Mode":
+
+        if mode=="Tutor Mode":
             ans = ai_answer(q)
 
-        elif mode == "Teacher Mode":
-            base = ai_answer(q)
-            qs = generate_questions(q, "Teacher Mode")
-            ans = base + "\n\n📝 Practice:\n" + "\n".join([f"- {x}" for x in qs])
+        elif mode=="Teacher Mode":
+            ans = ai_answer(q)
+            ans += "\n\n📝 Practice:\n- Try similar questions."
 
-        elif mode == "Quiz Mode":
-            qs = generate_questions(q, "Quiz Mode")
-            ans = "📝 Quiz:\n" + "\n".join([f"• {x}" for x in qs])
+        elif mode=="Quiz Mode":
+            ans = "\n".join(gen_math(q,mode))
 
-        elif mode == "Test Mode":
-            qs = generate_questions(q, "Test Mode")
-            ans = "🧪 Test:\n" + "\n".join([f"Q{i+1}. {x}" for i, x in enumerate(qs)])
+        elif mode=="Test Mode":
+            ans = "\n".join([f"Q{i+1}. {x}" for i,x in enumerate(gen_math(q,mode))])
 
     st.session_state.chats[st.session_state.current_chat].append({"role":"ai","text":ans})
     st.rerun()
