@@ -2,13 +2,98 @@ import streamlit as st
 from PyPDF2 import PdfReader
 import os, re
 import wikipedia
-import sympy as sp
-from sympy import sympify
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("📚 Learns from textbooks • Solves math • Explains clearly")
+st.caption("✅ Stable • Predictable • No nonsense")
+
+# ===============================
+# NORMALIZATION (LANGUAGE UNDERSTANDING)
+# ===============================
+def normalize(q):
+    q = q.lower()
+
+    mapping = {
+        "indices": "exponents",
+        "index": "exponent",
+        "powers": "exponents",
+        "maths": "math",
+        "multiplication": "*",
+        "division": "/"
+    }
+
+    for k, v in mapping.items():
+        q = q.replace(k, v)
+
+    return q
+
+
+# ===============================
+# CORE KNOWLEDGE (NEVER FAIL)
+# ===============================
+def core_knowledge(q):
+    q = normalize(q)
+
+    if "exponent" in q:
+        return """Indices (exponents) show repeated multiplication.
+
+Example:
+2^3 = 2 × 2 × 2 = 8
+
+Laws:
+a^m × a^n = a^(m+n)
+a^m ÷ a^n = a^(m−n)
+(a^m)^n = a^(mn)
+"""
+
+    if "fraction" in q:
+        return """A fraction represents a part of a whole.
+
+Example:
+1/2 means one out of two equal parts.
+
+1/2 + 1/4 = 3/4
+"""
+
+    if "decimal" in q:
+        return """Decimals are numbers with a decimal point.
+
+Example:
+0.5 = 1/2
+"""
+
+    return None
+
+
+# ===============================
+# MATH SOLVER (SAFE)
+# ===============================
+def parse_math(q):
+    q = q.lower()
+
+    q = q.replace("plus","+")
+    q = q.replace("minus","-")
+    q = q.replace("times","*")
+    q = q.replace("multiply","*")
+    q = q.replace("divide","/")
+    q = q.replace("^","**")
+
+    q = re.sub(r"square (\d+)", r"(\1**2)", q)
+    q = re.sub(r"cube (\d+)", r"(\1**3)", q)
+
+    return q
+
+def is_math(q):
+    return bool(re.search(r"[0-9\+\-\*/\^]", q))
+
+def solve_math(q):
+    try:
+        expr = parse_math(q)
+        return str(eval(expr, {"__builtins__": None}, {}))
+    except:
+        return None
+
 
 # ===============================
 # CLEAN TEXT
@@ -23,11 +108,12 @@ def clean_text(text):
     text = re.sub(r'[^a-z0-9\s\.\-]', '', text)
     return text.strip()
 
+
 # ===============================
-# BUILD KNOWLEDGE FROM PDF
+# LOAD TEXTBOOK
 # ===============================
 @st.cache_resource
-def build_knowledge():
+def load_kb():
     kb = []
 
     for file in os.listdir("."):
@@ -43,12 +129,10 @@ def build_knowledge():
                         if not text:
                             continue
 
-                        sentences = text.split(". ")
-
-                        for s in sentences:
-                            if 40 < len(s) < 200:
+                        for line in text.split(". "):
+                            if 40 < len(line) < 200:
                                 kb.append({
-                                    "text": s,
+                                    "text": line,
                                     "source": file
                                 })
 
@@ -57,14 +141,15 @@ def build_knowledge():
 
     return kb
 
-knowledge_db = build_knowledge()
+knowledge_db = load_kb()
+
 
 # ===============================
-# SEARCH KNOWLEDGE
+# SEARCH ENGINE
 # ===============================
-def search_knowledge(query):
-    query = query.lower()
-    q_words = query.split()
+def search_kb(query):
+    query = normalize(query)
+    words = query.split()
 
     results = []
 
@@ -73,7 +158,7 @@ def search_knowledge(query):
 
         score = 0
 
-        for w in q_words:
+        for w in words:
             if w in text:
                 score += 2
 
@@ -87,36 +172,6 @@ def search_knowledge(query):
 
     return [r[1] for r in results[:3]]
 
-# ===============================
-# MATH ENGINE
-# ===============================
-def parse_math(q):
-    q = q.lower()
-
-    q = q.replace("plus","add","+")
-    q = q.replace("minus","remove","-")
-    q = q.replace("times","x","*")
-    q = q.replace("multiply","*","x")
-    q = q.replace("divide","/")
-    q = q.replace("^","**")
-
-    q = re.sub(r"square (\d+)", r"(\1**2)", q)
-    q = re.sub(r"cube (\d+)", r"(\1**3)", q)
-
-    return q
-
-def solve_math(q):
-    try:
-        expr = parse_math(q)
-        result = sympify(expr)
-        return str(result)
-    except:
-        return None
-
-def is_math(q):
-    return bool(re.search(r"[0-9\+\-\*/\^]", q)) or any(
-        w in q.lower() for w in ["plus","minus","square","divide","times"]
-    )
 
 # ===============================
 # EXPLAIN
@@ -130,33 +185,40 @@ def explain(text):
 {text.split('.')[0]}.
 
 🧠 Tip:
-Understand the concept, not memorize blindly.
+Focus on understanding.
 """
 
+
 # ===============================
-# ANSWER ENGINE
+# MAIN ENGINE
 # ===============================
 def get_answer(q):
 
-    # 1️⃣ MATH FIRST
+    # 1️⃣ CORE KNOWLEDGE (never fail topics)
+    core = core_knowledge(q)
+    if core:
+        return (explain(core), "📚 Core Knowledge")
+
+    # 2️⃣ MATH
     if is_math(q):
         ans = solve_math(q)
         if ans:
             return (f"🧮 Answer: {ans}", "Calculator")
 
-    # 2️⃣ TEXTBOOK KNOWLEDGE
-    results = search_knowledge(q)
-
+    # 3️⃣ TEXTBOOK
+    results = search_kb(q)
     if results:
         return (explain(results[0]["text"]), f"📖 {results[0]['source']}")
 
-    # 3️⃣ WIKIPEDIA
+    # 4️⃣ WIKIPEDIA
     try:
         return (explain(wikipedia.summary(q, 2)), "🌐 Wikipedia")
     except:
         pass
 
-    return ("I couldn't find a clear answer.", "Fallback")
+    # 5️⃣ FINAL
+    return ("I couldn't find a clear answer. Try being more specific.", "Fallback")
+
 
 # ===============================
 # UI
@@ -170,7 +232,4 @@ if q:
     st.write(ans)
     st.caption(src)
 
-# ===============================
-# STATUS
-# ===============================
 st.write(f"📚 Learned concepts: {len(knowledge_db)}")
