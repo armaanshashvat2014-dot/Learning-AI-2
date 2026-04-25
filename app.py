@@ -1,177 +1,109 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-import os, re
-import wikipedia
+import os, re, random
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("✅ Stable • Predictable • No nonsense")
+st.caption("📚 Grade-based • Chapter-aware • Smart Questions")
 
 # ===============================
-# NORMALIZATION (LANGUAGE UNDERSTANDING)
+# SELECT GRADE + MODE
 # ===============================
-def normalize(q):
-    q = q.lower()
-
-    mapping = {
-        "indices": "exponents",
-        "index": "exponent",
-        "powers": "exponents",
-        "maths": "math",
-        "multiplication": "*",
-        "division": "/"
-    }
-
-    for k, v in mapping.items():
-        q = q.replace(k, v)
-
-    return q
-
+grade = st.sidebar.selectbox("Select Grade", ["6","7","8"])
+mode = st.sidebar.selectbox("Mode", ["Tutor","Teacher","Quiz","Test"])
 
 # ===============================
-# CORE KNOWLEDGE (NEVER FAIL)
-# ===============================
-def core_knowledge(q):
-    q = normalize(q)
-
-    if "exponent" in q:
-        return """Indices (exponents) show repeated multiplication.
-
-Example:
-2^3 = 2 × 2 × 2 = 8
-
-Laws:
-a^m × a^n = a^(m+n)
-a^m ÷ a^n = a^(m−n)
-(a^m)^n = a^(mn)
-"""
-
-    if "fraction" in q:
-        return """A fraction represents a part of a whole.
-
-Example:
-1/2 means one out of two equal parts.
-
-1/2 + 1/4 = 3/4
-"""
-
-    if "decimal" in q:
-        return """Decimals are numbers with a decimal point.
-
-Example:
-0.5 = 1/2
-"""
-
-    return None
-
-
-# ===============================
-# MATH SOLVER (SAFE)
-# ===============================
-def parse_math(q):
-    q = q.lower()
-
-    q = q.replace("plus","+")
-    q = q.replace("minus","-")
-    q = q.replace("times","*")
-    q = q.replace("multiply","*")
-    q = q.replace("divide","/")
-    q = q.replace("^","**")
-
-    q = re.sub(r"square (\d+)", r"(\1**2)", q)
-    q = re.sub(r"cube (\d+)", r"(\1**3)", q)
-
-    return q
-
-def is_math(q):
-    return bool(re.search(r"[0-9\+\-\*/\^]", q))
-
-def solve_math(q):
-    try:
-        expr = parse_math(q)
-        return str(eval(expr, {"__builtins__": None}, {}))
-    except:
-        return None
-
-
-# ===============================
-# CLEAN TEXT
-# ===============================
-def clean_text(text):
-    text = text.lower()
-
-    bad = ["indb","chapter","exercise","©","http","youtube"]
-    if any(b in text for b in bad):
-        return None
-
-    text = re.sub(r'[^a-z0-9\s\.\-]', '', text)
-    return text.strip()
-
-
-# ===============================
-# LOAD TEXTBOOK
+# LOAD PDFs BY GRADE
 # ===============================
 @st.cache_resource
-def load_kb():
-    kb = []
+def load_books():
+    data = []
 
-    for file in os.listdir("."):
-        if file.endswith(".pdf"):
-            try:
-                reader = PdfReader(file)
+    for f in os.listdir("."):
+        if f.endswith(".pdf"):
 
-                for page in reader.pages:
-                    text = page.extract_text()
+            if f"_{grade}" in f or f"grade{grade}" in f.lower():
 
-                    if text:
-                        text = clean_text(text)
-                        if not text:
-                            continue
+                try:
+                    reader = PdfReader(f)
 
-                        for line in text.split(". "):
-                            if 40 < len(line) < 200:
-                                kb.append({
-                                    "text": line,
-                                    "source": file
-                                })
+                    for page in reader.pages:
+                        text = page.extract_text()
 
-            except:
-                pass
+                        if text:
+                            text = text.lower()
 
-    return kb
+                            for chunk in text.split(". "):
+                                if 50 < len(chunk) < 200:
+                                    data.append({
+                                        "text": chunk,
+                                        "file": f
+                                    })
 
-knowledge_db = load_kb()
+                except:
+                    pass
 
+    return data
+
+kb = load_books()
 
 # ===============================
-# SEARCH ENGINE
+# FIND CHAPTER CONTENT
 # ===============================
-def search_kb(query):
-    query = normalize(query)
-    words = query.split()
+def get_chapter(topic):
 
+    topic = topic.lower()
     results = []
 
-    for item in knowledge_db:
-        text = item["text"]
-
+    for item in kb:
         score = 0
 
-        for w in words:
-            if w in text:
-                score += 2
-
-        if query in text:
+        if topic in item["text"]:
             score += 5
+
+        for w in topic.split():
+            if w in item["text"]:
+                score += 2
 
         if score > 0:
             results.append((score, item))
 
-    results.sort(key=lambda x: x[0], reverse=True)
+    results.sort(reverse=True)
 
-    return [r[1] for r in results[:3]]
+    return [r[1] for r in results[:5]]
 
+# ===============================
+# QUESTION GENERATOR
+# ===============================
+def generate_questions(topic):
+
+    topic = topic.lower()
+
+    # math topics
+    if "fraction" in topic:
+        return [
+            "1/2 + 1/4",
+            "3/5 + 2/5",
+            "4/7 - 1/7",
+            "Convert 3/4 to decimal",
+            "What is 2/3 of 12?"
+        ]
+
+    if "exponent" in topic or "indice" in topic:
+        return [
+            "2^3",
+            "5^2",
+            "3^4",
+            "Simplify 2^3 × 2^2",
+            "What is 10^0?"
+        ]
+
+    # fallback
+    return [
+        f"{random.randint(1,20)} + {random.randint(1,20)}"
+        for _ in range(5)
+    ]
 
 # ===============================
 # EXPLAIN
@@ -183,53 +115,61 @@ def explain(text):
 
 💡 Simple:
 {text.split('.')[0]}.
-
-🧠 Tip:
-Focus on understanding.
 """
 
+# ===============================
+# MAIN UI
+# ===============================
+topic = st.text_input("Enter Chapter / Topic")
+
+if topic:
+
+    chapter_data = get_chapter(topic)
+
+    if mode == "Tutor":
+        if chapter_data:
+            st.write(explain(chapter_data[0]["text"]))
+            st.caption(f"📖 {chapter_data[0]['file']}")
+        else:
+            st.write("No chapter found.")
+
+    elif mode == "Teacher":
+        if chapter_data:
+            st.write(explain(chapter_data[0]["text"]))
+
+            st.subheader("📝 Practice")
+            for q in generate_questions(topic):
+                st.write("-", q)
+
+    elif mode == "Quiz":
+        st.subheader("📝 Quiz")
+        for q in generate_questions(topic):
+            st.write("•", q)
+
+    elif mode == "Test":
+
+        if st.button("Start Test"):
+            st.session_state.qs = generate_questions(topic)
+            st.session_state.ans = [""] * len(st.session_state.qs)
+
+        if "qs" in st.session_state:
+            for i, q in enumerate(st.session_state.qs):
+                st.session_state.ans[i] = st.text_input(q, key=i)
+
+            if st.button("Submit"):
+                score = 0
+
+                for i, q in enumerate(st.session_state.qs):
+                    try:
+                        correct = eval(q.replace("^","**"))
+                        if str(correct) == st.session_state.ans[i]:
+                            score += 1
+                    except:
+                        pass
+
+                st.write(f"Score: {score}/{len(st.session_state.qs)}")
 
 # ===============================
-# MAIN ENGINE
+# STATUS
 # ===============================
-def get_answer(q):
-
-    # 1️⃣ CORE KNOWLEDGE (never fail topics)
-    core = core_knowledge(q)
-    if core:
-        return (explain(core), "📚 Core Knowledge")
-
-    # 2️⃣ MATH
-    if is_math(q):
-        ans = solve_math(q)
-        if ans:
-            return (f"🧮 Answer: {ans}", "Calculator")
-
-    # 3️⃣ TEXTBOOK
-    results = search_kb(q)
-    if results:
-        return (explain(results[0]["text"]), f"📖 {results[0]['source']}")
-
-    # 4️⃣ WIKIPEDIA
-    try:
-        return (explain(wikipedia.summary(q, 2)), "🌐 Wikipedia")
-    except:
-        pass
-
-    # 5️⃣ FINAL
-    return ("I couldn't find a clear answer. Try being more specific.", "Fallback")
-
-
-# ===============================
-# UI
-# ===============================
-st.subheader("💬 Ask Your Doubt")
-
-q = st.text_input("Enter your question")
-
-if q:
-    ans, src = get_answer(q)
-    st.write(ans)
-    st.caption(src)
-
-st.write(f"📚 Learned concepts: {len(knowledge_db)}")
+st.write(f"📚 Loaded content: {len(kb)} chunks")
