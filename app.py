@@ -6,7 +6,7 @@ import wikipedia
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Accurate • Clean • Teacher Mode AI")
+st.caption("⚡ Subject-aware • Accurate • Smart")
 
 # ===============================
 # STATE
@@ -15,50 +15,41 @@ if "cache" not in st.session_state:
     st.session_state.cache = {}
 
 # ===============================
-# MODE
+# SUBJECT SELECTOR
 # ===============================
+subject = st.sidebar.selectbox(
+    "Select Subject",
+    ["Math", "Physics", "Chemistry", "Biology", "English", "Hindi", "General"]
+)
+
 mode = st.sidebar.selectbox(
     "Mode",
     ["Tutor Mode", "Quiz Mode", "Test Mode", "Teacher Mode"]
 )
 
 # ===============================
-# SUBJECT DETECTION
-# ===============================
-def detect_subject(q):
-    q=q.lower()
-
-    if any(w in q for w in ["add","subtract","fraction","decimal","algebra","equation"]):
-        return "math"
-    if any(w in q for w in ["force","energy","gravity","motion"]):
-        return "physics"
-    if any(w in q for w in ["atom","acid","reaction","molecule"]):
-        return "chemistry"
-    if any(w in q for w in ["cell","plant","photosynthesis"]):
-        return "biology"
-    if any(w in q for w in ["noun","verb","grammar"]):
-        return "english"
-    if any(w in q for w in ["हिंदी","अर्थ","वाक्य"]):
-        return "hindi"
-
-    return "general"
-
-# ===============================
 # CLEAN PDF TEXT
 # ===============================
 def clean_text(t):
-    t=t.lower()
-    if any(x in t for x in ["indb","chapter","exercise","http","©","youtube"]):
-        return None
-    if not re.match(r'^[a-z0-9\s\.\,\-\+\*/\(\)]+$', t):
+    t = t.lower()
+    if any(x in t for x in ["indb","chapter","exercise","http","©"]):
         return None
     return t
 
+# ===============================
+# LOAD PDF
+# ===============================
 @st.cache_resource
 def load_pdfs():
     data=[]
     for f in os.listdir("."):
         if f.endswith(".pdf"):
+            sub = "general"
+            if "math" in f.lower(): sub="math"
+            if "phy" in f.lower(): sub="physics"
+            if "chem" in f.lower(): sub="chemistry"
+            if "bio" in f.lower(): sub="biology"
+
             try:
                 reader=PdfReader(f)
                 for page in reader.pages:
@@ -66,71 +57,34 @@ def load_pdfs():
                     if txt:
                         txt=clean_text(txt)
                         if txt:
-                            data.append({"text":txt,"file":f})
+                            data.append({
+                                "text":txt,
+                                "file":f,
+                                "subject":sub
+                            })
             except:
                 pass
     return data
 
-pages_db=load_pdfs()
+pages_db = load_pdfs()
 
 # ===============================
-# SEARCH PDF
+# SEARCH PDF (SUBJECT FILTERED)
 # ===============================
-def search_pdf(q):
+def search_pdf(q, subject):
     results=[]
+
     for c in pages_db:
+        if subject.lower() != "general" and c["subject"] != subject.lower():
+            continue
+
         score=sum(1 for w in q.lower().split() if w in c["text"])
+
         if score>0:
             results.append((score,c))
 
     results.sort(key=lambda x:x[0], reverse=True)
     return [r[1] for r in results[:2]]
-
-# ===============================
-# VALIDATION
-# ===============================
-def is_valid_answer(text, query):
-    if not text:
-        return False
-
-    text=text.lower()
-    q_words=set(query.lower().split())
-    matches=sum(1 for w in q_words if w in text)
-
-    if matches < 2:
-        return False
-
-    if any(b in text for b in ["chapter","exercise","contents"]):
-        return False
-
-    return True
-
-# ===============================
-# CLEAN OUTPUT
-# ===============================
-def clean_output(text):
-    sentences=text.split(". ")
-    sentences=[s for s in sentences if len(s)<200]
-    return ". ".join(sentences[:2])
-
-# ===============================
-# TEACHER EXPLAINER
-# ===============================
-def explain_like_teacher(text, question):
-    if not text:
-        return None
-
-    return f"""
-📘 Explanation:
-
-{text}
-
-💡 In simple words:
-This means that {text.split('.')[0].lower()}.
-
-🧠 Tip:
-Try to remember the idea rather than memorising words.
-"""
 
 # ===============================
 # MATH
@@ -140,7 +94,6 @@ def parse_math(q):
     q=q.replace("^","**")
     q=q.replace("plus","+").replace("minus","-")
     q=q.replace("times","*").replace("divide","/")
-    q=re.sub(r"square (\d+)", r"(\1**2)", q)
     return q
 
 def solve_math(q):
@@ -152,99 +105,131 @@ def solve_math(q):
 # ===============================
 # KNOWLEDGE
 # ===============================
-knowledge={
-    "gravity":"Gravity is a force that attracts objects towards Earth.",
-    "atom":"An atom is the smallest unit of matter.",
-    "cell":"A cell is the basic unit of life.",
-    "noun":"A noun is a naming word.",
-    "अर्थ":"अर्थ का मतलब किसी शब्द का अर्थ होता है।"
+knowledge = {
+    "physics":{
+        "gravity":"Gravity is a force that attracts objects toward Earth.",
+        "energy":"Energy is the ability to do work."
+    },
+    "chemistry":{
+        "atom":"An atom is the smallest unit of matter.",
+        "acid":"An acid has pH less than 7."
+    },
+    "biology":{
+        "cell":"A cell is the basic unit of life.",
+        "photosynthesis":"Plants make food using sunlight."
+    },
+    "english":{
+        "noun":"A noun is a naming word."
+    },
+    "hindi":{
+        "अर्थ":"अर्थ का मतलब किसी शब्द का अर्थ होता है।"
+    }
 }
 
-def get_knowledge(q):
-    for k,v in knowledge.items():
-        if k in q.lower():
-            return v
+def get_knowledge(q, subject):
+    if subject.lower() in knowledge:
+        for k,v in knowledge[subject.lower()].items():
+            if k in q.lower():
+                return v
     return None
 
 # ===============================
-# QUIZ
+# TEACHER STYLE
 # ===============================
-def generate_quiz(topic):
-    subject=detect_subject(topic)
+def explain(text):
+    return f"""
+📘 Explanation:
+{text}
+
+💡 Simple:
+{text.split('.')[0]}.
+
+🧠 Tip:
+Understand the idea clearly.
+"""
+
+# ===============================
+# QUIZ (SUBJECT BASED)
+# ===============================
+def generate_quiz(subject):
+    subject=subject.lower()
 
     if subject=="math":
         return [f"{random.randint(1,20)} + {random.randint(1,20)}" for _ in range(5)]
 
     if subject=="physics":
-        return random.sample([
-            "What is force?",
-            "Define energy.",
-            "What is gravity?"
-        ],3)
+        return ["What is force?","What is energy?","What is gravity?"]
 
     if subject=="chemistry":
-        return random.sample([
-            "What is an atom?",
-            "Define molecule."
-        ],2)
+        return ["What is an atom?","Define acid","What is a molecule?"]
 
     if subject=="biology":
-        return random.sample([
-            "What is a cell?",
-            "Define photosynthesis."
-        ],2)
+        return ["What is a cell?","Define photosynthesis"]
+
+    if subject=="english":
+        return ["What is a noun?","Define verb"]
+
+    if subject=="hindi":
+        return ["अर्थ क्या है?","वाक्य क्या है?"]
 
     return ["No quiz available"]
 
 # ===============================
 # ANSWER ENGINE
 # ===============================
-def get_answer(q):
+def get_answer(q, subject):
 
     if q in st.session_state.cache:
         return st.session_state.cache[q]
 
     # math
-    ans=solve_math(q)
-    if ans:
-        return (f"🧮 {ans}","Calculator")
+    if subject.lower()=="math":
+        ans=solve_math(q)
+        if ans:
+            return (f"🧮 {ans}","Calculator")
 
     # knowledge
-    k=get_knowledge(q)
+    k=get_knowledge(q, subject)
     if k:
-        return (explain_like_teacher(k,q),"📚 Knowledge")
+        return (explain(k),"📚 Knowledge")
 
     # pdf
-    chunks=search_pdf(q)
+    chunks=search_pdf(q, subject)
     if chunks:
-        text=chunks[0]["text"]
-        if is_valid_answer(text,q):
-            return (explain_like_teacher(clean_output(text),q),"📖 PDF")
+        return (explain(chunks[0]["text"]),f"📖 {chunks[0]['file']}")
 
     # wiki
     try:
-        w=wikipedia.summary(q,2)
-        if is_valid_answer(w,q):
-            return (explain_like_teacher(clean_output(w),q),"🌐 Wikipedia")
+        return (explain(wikipedia.summary(q,2)),"🌐 Wikipedia")
     except:
         pass
 
-    return ("I couldn’t find a clear answer. Try asking more specifically.","Fallback")
+    return ("I couldn't find a clear answer.","Fallback")
+
+# ===============================
+# UI INPUT (NEW SYSTEM)
+# ===============================
+st.subheader("💬 Ask Your Doubt")
+
+doubt = st.text_input("Enter your doubt (Subject → Doubt format recommended)")
 
 # ===============================
 # MODES
 # ===============================
-if mode=="Quiz Mode":
-    topic=st.text_input("Enter topic")
-    if topic:
-        for q in generate_quiz(topic):
+if mode=="Tutor Mode":
+    if doubt:
+        ans,src=get_answer(doubt, subject)
+        st.write(ans)
+        st.caption(src)
+
+elif mode=="Quiz Mode":
+    if st.button("Generate Quiz"):
+        for q in generate_quiz(subject):
             st.write("•",q)
 
 elif mode=="Test Mode":
-    topic=st.text_input("Enter topic")
-
     if st.button("Start Test"):
-        st.session_state.qs=generate_quiz(topic)
+        st.session_state.qs=generate_quiz(subject)
         st.session_state.ans=[""]*len(st.session_state.qs)
 
     if "qs" in st.session_state:
@@ -260,21 +245,13 @@ elif mode=="Test Mode":
             st.write(f"Score: {score}/{len(st.session_state.qs)}")
 
 elif mode=="Teacher Mode":
-    topic=st.text_input("Enter topic")
-    if topic:
-        ans,src=get_answer(topic)
+    if doubt:
+        ans,src=get_answer(doubt, subject)
         st.write(ans)
         st.caption(src)
 
         st.write("### Practice")
-        for q in generate_quiz(topic):
+        for q in generate_quiz(subject):
             st.write("-",q)
-
-elif mode=="Tutor Mode":
-    q=st.chat_input("Ask anything")
-    if q:
-        ans,src=get_answer(q)
-        st.write(ans)
-        st.caption(src)
 
 st.write(f"📚 Loaded chunks: {len(pages_db)}")
