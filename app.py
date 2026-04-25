@@ -1,18 +1,76 @@
 import streamlit as st
-import re, random
+import re, random, itertools
+
+# =========================
+# LOAD KEYS
+# =========================
+GOOGLE_KEYS = [
+    st.secrets["GOOGLE_API_KEY_1"],
+    st.secrets["GOOGLE_API_KEY_2"]
+]
+
+OPENAI_KEYS = [
+    st.secrets["OPENAI_API_KEY_1"],
+    st.secrets["OPENAI_API_KEY_2"]
+]
+
+google_cycle = itertools.cycle(GOOGLE_KEYS)
+openai_cycle = itertools.cycle(OPENAI_KEYS)
+
+# =========================
+# CLIENT SETUP
+# =========================
 from google import genai
+from openai import OpenAI
+
+def get_google_client():
+    return genai.Client(api_key=next(google_cycle))
+
+def get_openai_client():
+    return OpenAI(api_key=next(openai_cycle))
 
 # =========================
-# API SETUP
+# AI ANSWER (SMART FAILOVER)
 # =========================
-client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
+def ai_answer(q):
 
-st.title("🧠 SmartLoop AI (Fixed)")
+    prompt = f"""
+    Answer clearly like a teacher.
 
-mode = st.sidebar.selectbox(
-    "Mode",
-    ["Tutor Mode","Teacher Mode","Quiz Mode","Test Mode"]
-)
+    Question: {q}
+
+    Rules:
+    - Be simple
+    - No nonsense
+    - Stay on topic
+    """
+
+    # 🔥 TRY GOOGLE FIRST
+    for _ in range(2):
+        try:
+            client = get_google_client()
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            if resp.text:
+                return resp.text
+        except Exception:
+            pass
+
+    # 🔥 FALLBACK TO OPENAI
+    for _ in range(2):
+        try:
+            client = get_openai_client()
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role":"user","content":prompt}]
+            )
+            return resp.choices[0].message.content
+        except Exception:
+            pass
+
+    return "⚠️ All AI services are busy. Try again."
 
 # =========================
 # SUBJECT DETECTION (FIXED)
@@ -55,31 +113,6 @@ def solve_math(q):
 
 def is_math(q):
     return bool(re.search(r"[0-9\+\-\*/\^]", q))
-
-# =========================
-# AI ANSWER (GEMINI)
-# =========================
-def ai_answer(q):
-
-    prompt=f"""
-    Answer clearly like a teacher.
-
-    Question: {q}
-
-    Rules:
-    - Be simple
-    - No nonsense
-    - No unrelated topics
-    """
-
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        return resp.text
-    except:
-        return "AI error."
 
 # =========================
 # QUESTION GENERATORS
@@ -134,17 +167,15 @@ def generate_questions(q,mode):
         return gen_english(q)
 
 # =========================
-# ANSWER CHECKING
+# CHECKER
 # =========================
 def check(user,correct):
 
     if not user:
         return False,"No answer"
 
-    user=user.strip()
-
     if correct:
-        if user==correct:
+        if user.strip()==correct:
             return True,"Correct"
         return False,f"Wrong. Answer: {correct}"
 
@@ -156,11 +187,18 @@ def check(user,correct):
 # =========================
 # UI
 # =========================
-q=st.text_input("Ask or Enter Topic")
+st.title("🧠 SmartLoop AI (Multi-Key)")
+
+mode = st.sidebar.selectbox(
+    "Mode",
+    ["Tutor Mode","Teacher Mode","Quiz Mode","Test Mode"]
+)
+
+q = st.text_input("Ask or Enter Topic")
 
 if q:
 
-    # Tutor Mode
+    # Tutor
     if mode=="Tutor Mode":
 
         if is_math(q):
@@ -168,7 +206,7 @@ if q:
         else:
             st.write(ai_answer(q))
 
-    # Teacher Mode
+    # Teacher
     elif mode=="Teacher Mode":
 
         st.write(ai_answer(q))
@@ -177,14 +215,14 @@ if q:
         for x in generate_questions(q,mode):
             st.write("-",x)
 
-    # Quiz Mode
+    # Quiz
     elif mode=="Quiz Mode":
 
         st.subheader("Quiz")
         for x in generate_questions(q,mode):
             st.write("•",x)
 
-    # Test Mode
+    # Test
     elif mode=="Test Mode":
 
         if "start" not in st.session_state:
