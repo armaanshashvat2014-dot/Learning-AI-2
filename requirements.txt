@@ -2,3 +2,4 @@ streamlit
 PyPDF2
 wikipedia
 sympy
+google-genai
