@@ -6,7 +6,7 @@ import wikipedia
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Multi-Subject • Dynamic • Smart")
+st.caption("⚡ Accurate • Clean • Teacher Mode AI")
 
 # ===============================
 # STATE
@@ -26,17 +26,17 @@ mode = st.sidebar.selectbox(
 # SUBJECT DETECTION
 # ===============================
 def detect_subject(q):
-    q = q.lower()
+    q=q.lower()
 
     if any(w in q for w in ["add","subtract","fraction","decimal","algebra","equation"]):
         return "math"
-    if any(w in q for w in ["force","energy","motion","gravity"]):
+    if any(w in q for w in ["force","energy","gravity","motion"]):
         return "physics"
-    if any(w in q for w in ["atom","molecule","acid","reaction"]):
+    if any(w in q for w in ["atom","acid","reaction","molecule"]):
         return "chemistry"
-    if any(w in q for w in ["cell","plant","photosynthesis","human"]):
+    if any(w in q for w in ["cell","plant","photosynthesis"]):
         return "biology"
-    if any(w in q for w in ["noun","verb","grammar","synonym"]):
+    if any(w in q for w in ["noun","verb","grammar"]):
         return "english"
     if any(w in q for w in ["हिंदी","अर्थ","वाक्य"]):
         return "hindi"
@@ -44,19 +44,16 @@ def detect_subject(q):
     return "general"
 
 # ===============================
-# CLEAN PDF
+# CLEAN PDF TEXT
 # ===============================
 def clean_text(t):
-    t = t.lower()
-    if any(x in t for x in ["indb","chapter","exercise","http","©"]):
+    t=t.lower()
+    if any(x in t for x in ["indb","chapter","exercise","http","©","youtube"]):
         return None
     if not re.match(r'^[a-z0-9\s\.\,\-\+\*/\(\)]+$', t):
         return None
     return t
 
-# ===============================
-# LOAD PDF
-# ===============================
 @st.cache_resource
 def load_pdfs():
     data=[]
@@ -74,7 +71,7 @@ def load_pdfs():
                 pass
     return data
 
-pages_db = load_pdfs()
+pages_db=load_pdfs()
 
 # ===============================
 # SEARCH PDF
@@ -90,6 +87,52 @@ def search_pdf(q):
     return [r[1] for r in results[:2]]
 
 # ===============================
+# VALIDATION
+# ===============================
+def is_valid_answer(text, query):
+    if not text:
+        return False
+
+    text=text.lower()
+    q_words=set(query.lower().split())
+    matches=sum(1 for w in q_words if w in text)
+
+    if matches < 2:
+        return False
+
+    if any(b in text for b in ["chapter","exercise","contents"]):
+        return False
+
+    return True
+
+# ===============================
+# CLEAN OUTPUT
+# ===============================
+def clean_output(text):
+    sentences=text.split(". ")
+    sentences=[s for s in sentences if len(s)<200]
+    return ". ".join(sentences[:2])
+
+# ===============================
+# TEACHER EXPLAINER
+# ===============================
+def explain_like_teacher(text, question):
+    if not text:
+        return None
+
+    return f"""
+📘 Explanation:
+
+{text}
+
+💡 In simple words:
+This means that {text.split('.')[0].lower()}.
+
+🧠 Tip:
+Try to remember the idea rather than memorising words.
+"""
+
+# ===============================
 # MATH
 # ===============================
 def parse_math(q):
@@ -97,7 +140,6 @@ def parse_math(q):
     q=q.replace("^","**")
     q=q.replace("plus","+").replace("minus","-")
     q=q.replace("times","*").replace("divide","/")
-
     q=re.sub(r"square (\d+)", r"(\1**2)", q)
     return q
 
@@ -110,12 +152,12 @@ def solve_math(q):
 # ===============================
 # KNOWLEDGE
 # ===============================
-knowledge = {
-    "gravity":"Gravity is a force that attracts objects.",
-    "atom":"Atom is the smallest unit of matter.",
-    "cell":"Cell is the basic unit of life.",
+knowledge={
+    "gravity":"Gravity is a force that attracts objects towards Earth.",
+    "atom":"An atom is the smallest unit of matter.",
+    "cell":"A cell is the basic unit of life.",
     "noun":"A noun is a naming word.",
-    "अर्थ":"अर्थ का मतलब किसी शब्द का मतलब होता है।"
+    "अर्थ":"अर्थ का मतलब किसी शब्द का अर्थ होता है।"
 }
 
 def get_knowledge(q):
@@ -125,63 +167,34 @@ def get_knowledge(q):
     return None
 
 # ===============================
-# HINDI AI (SIMULATED)
-# ===============================
-def quantum_hindi_ai(q):
-    return f"🤖 Quantum Hindi AI: यह प्रश्न '{q}' से संबंधित है। कृपया और संदर्भ दें।"
-
-# ===============================
-# DYNAMIC QUIZ GENERATOR
+# QUIZ
 # ===============================
 def generate_quiz(topic):
-    subject = detect_subject(topic)
-    qs = []
+    subject=detect_subject(topic)
 
-    if subject == "math":
-        for _ in range(5):
-            a,b=random.randint(1,20),random.randint(1,20)
-            op=random.choice(["+","-","*","/"])
-            qs.append(f"{a} {op} {b}")
+    if subject=="math":
+        return [f"{random.randint(1,20)} + {random.randint(1,20)}" for _ in range(5)]
 
-    elif subject == "physics":
-        qs=random.sample([
+    if subject=="physics":
+        return random.sample([
             "What is force?",
             "Define energy.",
-            "What is gravity?",
-            "What is motion?"
+            "What is gravity?"
         ],3)
 
-    elif subject == "chemistry":
-        qs=random.sample([
+    if subject=="chemistry":
+        return random.sample([
             "What is an atom?",
-            "Define molecule.",
-            "What is an acid?"
-        ],3)
+            "Define molecule."
+        ],2)
 
-    elif subject == "biology":
-        qs=random.sample([
+    if subject=="biology":
+        return random.sample([
             "What is a cell?",
-            "Define photosynthesis.",
-            "What is respiration?"
-        ],3)
+            "Define photosynthesis."
+        ],2)
 
-    elif subject == "english":
-        qs=random.sample([
-            "What is a noun?",
-            "Define verb.",
-            "What is synonym?"
-        ],3)
-
-    elif subject == "hindi":
-        qs=[
-            "अर्थ क्या होता है?",
-            "वाक्य क्या होता है?"
-        ]
-
-    else:
-        qs=["No quiz available"]
-
-    return qs
+    return ["No quiz available"]
 
 # ===============================
 # ANSWER ENGINE
@@ -191,45 +204,42 @@ def get_answer(q):
     if q in st.session_state.cache:
         return st.session_state.cache[q]
 
-    subject = detect_subject(q)
-
     # math
-    ans = solve_math(q)
+    ans=solve_math(q)
     if ans:
         return (f"🧮 {ans}","Calculator")
 
     # knowledge
     k=get_knowledge(q)
     if k:
-        return (k,f"📚 {subject}")
+        return (explain_like_teacher(k,q),"📚 Knowledge")
 
     # pdf
     chunks=search_pdf(q)
     if chunks:
-        return (chunks[0]["text"],"📖 PDF")
+        text=chunks[0]["text"]
+        if is_valid_answer(text,q):
+            return (explain_like_teacher(clean_output(text),q),"📖 PDF")
 
-    # hindi AI fallback
-    if subject=="hindi":
-        return (quantum_hindi_ai(q),"🤖 Hindi AI")
-
-    # wiki fallback
+    # wiki
     try:
-        return (wikipedia.summary(q,2),"🌐 Wikipedia")
+        w=wikipedia.summary(q,2)
+        if is_valid_answer(w,q):
+            return (explain_like_teacher(clean_output(w),q),"🌐 Wikipedia")
     except:
-        return ("No answer found.","Fallback")
+        pass
+
+    return ("I couldn’t find a clear answer. Try asking more specifically.","Fallback")
 
 # ===============================
 # MODES
 # ===============================
-
-# QUIZ
 if mode=="Quiz Mode":
     topic=st.text_input("Enter topic")
     if topic:
         for q in generate_quiz(topic):
             st.write("•",q)
 
-# TEST
 elif mode=="Test Mode":
     topic=st.text_input("Enter topic")
 
@@ -249,7 +259,6 @@ elif mode=="Test Mode":
                     score+=1
             st.write(f"Score: {score}/{len(st.session_state.qs)}")
 
-# TEACHER
 elif mode=="Teacher Mode":
     topic=st.text_input("Enter topic")
     if topic:
@@ -261,7 +270,6 @@ elif mode=="Teacher Mode":
         for q in generate_quiz(topic):
             st.write("-",q)
 
-# TUTOR
 elif mode=="Tutor Mode":
     q=st.chat_input("Ask anything")
     if q:
