@@ -6,7 +6,7 @@ import wikipedia
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("⚡ Accurate • Topic-Aware • Fast")
+st.caption("⚡ PDF-first • Accurate • Topic-aware")
 
 # ===============================
 # STATE
@@ -28,69 +28,84 @@ mode = st.sidebar.selectbox(
 )
 
 # ===============================
-# CLEAN PDF
+# LOAD PDF (SMART CHUNKS)
 # ===============================
-def clean_text(t):
-    t = t.lower()
-    if any(x in t for x in ["indb","chapter","exercise","http","©"]):
-        return None
-    return t
-
 @st.cache_resource
 def load_pdfs():
-    data=[]
+    data = []
+
     for f in os.listdir("."):
         if f.endswith(".pdf"):
-            sub="general"
-            if "math" in f.lower(): sub="math"
+            sub = "general"
+            name = f.lower()
+
+            if "math" in name: sub="math"
+            elif "phy" in name: sub="physics"
+            elif "chem" in name: sub="chemistry"
+            elif "bio" in name: sub="biology"
 
             try:
-                reader=PdfReader(f)
+                reader = PdfReader(f)
+
                 for page in reader.pages:
-                    txt=page.extract_text()
+                    txt = page.extract_text()
+
                     if txt:
-                        txt=clean_text(txt)
-                        if txt:
-                            data.append({"text":txt,"file":f,"subject":sub})
+                        txt = txt.lower()
+
+                        # 🔥 split into clean chunks
+                        for chunk in txt.split(". "):
+                            chunk = chunk.strip()
+
+                            if 50 < len(chunk) < 300:
+                                data.append({
+                                    "text": chunk,
+                                    "file": f,
+                                    "subject": sub
+                                })
             except:
                 pass
+
     return data
 
 pages_db = load_pdfs()
 
 # ===============================
-# RELEVANCE CHECK
-# ===============================
-def is_relevant(text, query):
-    text=text.lower()
-    words=query.lower().split()
-    matches=sum(1 for w in words if w in text)
-    return matches >= 2
-
-# ===============================
-# SEARCH PDF
+# PDF SEARCH (SMART SCORING)
 # ===============================
 def search_pdf(q, subject):
-    results=[]
+    q_words = q.lower().split()
+    results = []
+
     for c in pages_db:
-        if subject.lower()!="general" and c["subject"]!=subject.lower():
+
+        if subject.lower() != "general" and c["subject"] != subject.lower():
             continue
 
-        score=sum(1 for w in q.lower().split() if w in c["text"])
-        if score>0:
-            results.append((score,c))
+        text = c["text"]
+        score = 0
 
-    results.sort(key=lambda x:x[0], reverse=True)
-    return [r[1] for r in results[:2]]
+        for w in q_words:
+            if w in text:
+                score += 2
+
+        if q.lower() in text:
+            score += 5
+
+        if score > 0:
+            results.append((score, c))
+
+    results.sort(key=lambda x: x[0], reverse=True)
+    return [r[1] for r in results[:3]]
 
 # ===============================
 # MATH SOLVER
 # ===============================
 def parse_math(q):
-    q=q.lower()
-    q=q.replace("^","**")
-    q=q.replace("plus","+").replace("minus","-")
-    q=q.replace("times","*").replace("divide","/")
+    q = q.lower()
+    q = q.replace("^","**")
+    q = q.replace("plus","+").replace("minus","-")
+    q = q.replace("times","*").replace("divide","/")
     return q
 
 def solve_math(q):
@@ -104,19 +119,10 @@ def solve_math(q):
 # ===============================
 knowledge = {
     "fractions": """Fractions represent parts of a whole.
-
-Example:
-1/2 means 1 part out of 2 equal parts.
-
-Types:
-- Proper fractions
-- Improper fractions
-- Mixed numbers
-
-Example:
+Example: 1/2 means one part out of two equal parts.
 1/2 + 1/4 = 3/4""",
 
-    "decimals": "Decimals are numbers with a decimal point. Example: 0.5 = 1/2.",
+    "decimals": "Decimals are numbers with a decimal point. Example: 0.5.",
 
     "gravity": "Gravity is a force that attracts objects towards Earth.",
     "atom": "An atom is the smallest unit of matter.",
@@ -130,9 +136,10 @@ def get_knowledge(q):
     return None
 
 # ===============================
-# EXPLAIN
+# EXPLAIN (TEACHER STYLE)
 # ===============================
 def explain(text):
+    text = text.strip()
     return f"""
 📘 Explanation:
 {text}
@@ -141,56 +148,45 @@ def explain(text):
 {text.split('.')[0]}.
 
 🧠 Tip:
-Understand the concept, not just memorize it.
+Focus on understanding the idea.
 """
 
 # ===============================
-# TOPIC DETECTION
+# QUIZ GENERATOR (TOPIC-AWARE)
 # ===============================
 def detect_math_topic(q):
-    q=q.lower()
-    if "fraction" in q:
-        return "fractions"
-    if "decimal" in q:
-        return "decimals"
-    if "indice" in q:
-        return "indices"
+    q = q.lower()
+    if "fraction" in q: return "fractions"
+    if "decimal" in q: return "decimals"
     return "general"
 
-# ===============================
-# QUIZ GENERATOR (FIXED)
-# ===============================
 def generate_quiz(subject, doubt):
 
     if subject.lower()=="math":
         topic = detect_math_topic(doubt)
 
-        # 🔥 FRACTIONS
         if topic=="fractions":
             return [
                 f"{random.randint(1,5)}/{random.randint(6,9)} + {random.randint(1,5)}/{random.randint(6,9)}"
                 for _ in range(5)
             ]
 
-        # 🔥 DECIMALS
         if topic=="decimals":
             return [
                 f"{round(random.uniform(0.1,5),2)} + {round(random.uniform(0.1,5),2)}"
                 for _ in range(5)
             ]
 
-        # 🔥 DEFAULT MATH
         return [
             f"{random.randint(1,20)} + {random.randint(1,20)}"
             for _ in range(5)
         ]
 
-    # SCIENCE
     if subject.lower()=="physics":
-        return ["What is force?","What is energy?"]
+        return ["What is force?","What is energy?","What is gravity?"]
 
     if subject.lower()=="chemistry":
-        return ["What is an atom?","Define acid"]
+        return ["What is an atom?","Define acid","What is a molecule?"]
 
     if subject.lower()=="biology":
         return ["What is a cell?","Define photosynthesis"]
@@ -198,31 +194,34 @@ def generate_quiz(subject, doubt):
     return ["No quiz available"]
 
 # ===============================
-# ANSWER ENGINE
+# ANSWER ENGINE (PDF FIRST)
 # ===============================
 def get_answer(q, subject):
 
-    # math calculation
+    # math direct solve
     if subject.lower()=="math":
-        ans=solve_math(q)
+        ans = solve_math(q)
         if ans:
-            return (f"🧮 {ans}","Calculator")
+            return (f"🧮 {ans}", "Calculator")
 
-    # knowledge FIRST
-    k=get_knowledge(q)
+    # knowledge
+    k = get_knowledge(q)
     if k:
-        return (explain(k),"📚 Knowledge")
+        return (explain(k), "📚 Knowledge")
 
-    # pdf (strict)
-    chunks=search_pdf(q, subject)
+    # 🔥 PDF FIRST
+    chunks = search_pdf(q, subject)
+
     if chunks:
-        text=chunks[0]["text"]
-        if is_relevant(text,q):
-            return (explain(text.split(". ")[0]),f"📖 {chunks[0]['file']}")
+        best = chunks[0]["text"]
 
-    # wiki
+        if len(best.split()) > 8:
+            return (explain(best), f"📖 {chunks[0]['file']}")
+
+    # 🌐 Wikipedia LAST
     try:
-        return (explain(wikipedia.summary(q,2)),"🌐 Wikipedia")
+        w = wikipedia.summary(q, 2)
+        return (explain(w), "🌐 Wikipedia")
     except:
         pass
 
@@ -232,7 +231,6 @@ def get_answer(q, subject):
 # UI
 # ===============================
 st.subheader("💬 Ask Your Doubt")
-
 doubt = st.text_input("Enter your doubt")
 
 # ===============================
@@ -240,7 +238,7 @@ doubt = st.text_input("Enter your doubt")
 # ===============================
 if mode=="Tutor Mode":
     if doubt:
-        ans,src=get_answer(doubt,subject)
+        ans,src = get_answer(doubt,subject)
         st.write(ans)
         st.caption(src)
 
@@ -251,24 +249,25 @@ elif mode=="Quiz Mode":
 
 elif mode=="Test Mode":
     if st.button("Start Test"):
-        st.session_state.qs=generate_quiz(subject,doubt)
-        st.session_state.ans=[""]*len(st.session_state.qs)
+        st.session_state.qs = generate_quiz(subject,doubt)
+        st.session_state.ans = [""] * len(st.session_state.qs)
 
     if "qs" in st.session_state:
         for i,q in enumerate(st.session_state.qs):
-            st.session_state.ans[i]=st.text_input(q,key=i)
+            st.session_state.ans[i] = st.text_input(q,key=i)
 
         if st.button("Submit"):
-            score=0
+            score = 0
             for i,q in enumerate(st.session_state.qs):
-                correct=solve_math(q)
+                correct = solve_math(q)
                 if correct and st.session_state.ans[i]==correct:
-                    score+=1
+                    score += 1
+
             st.write(f"Score: {score}/{len(st.session_state.qs)}")
 
 elif mode=="Teacher Mode":
     if doubt:
-        ans,src=get_answer(doubt,subject)
+        ans,src = get_answer(doubt,subject)
         st.write(ans)
         st.caption(src)
 
@@ -276,4 +275,7 @@ elif mode=="Teacher Mode":
         for q in generate_quiz(subject,doubt):
             st.write("-",q)
 
+# ===============================
+# STATUS
+# ===============================
 st.write(f"📚 Loaded chunks: {len(pages_db)}")
