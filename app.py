@@ -6,7 +6,7 @@ import wikipedia
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("📚 Learn • Practice • Test • Solve")
+st.caption("✅ Clean • Smart • Stable")
 
 # ===============================
 # MODE
@@ -17,35 +17,57 @@ mode = st.sidebar.selectbox(
 )
 
 # ===============================
-# CLEAN TEXT
+# CLEAN TEXT (FIXED)
 # ===============================
 def clean_text(text):
     text = text.lower()
-    text = re.sub(r'[^a-z0-9\s\.\-]', '', text)
+
+    # remove page numbers at start
+    text = re.sub(r'^\d+\s+', '', text)
+
+    # fix OCR issues
+    text = text.replace("po wer", "power")
+
+    # remove extra spaces
+    text = re.sub(r'\s+', ' ', text)
+
+    # remove junk headings
+    bad_words = ["exercise", "chapter", "review"]
+    if any(b in text[:40] for b in bad_words):
+        return None
+
     return text.strip()
 
 # ===============================
-# LOAD PDFs
+# LOAD PDF KNOWLEDGE
 # ===============================
 @st.cache_resource
 def load_kb():
     kb = []
+
     for f in os.listdir("."):
         if f.endswith(".pdf"):
             try:
                 reader = PdfReader(f)
+
                 for page in reader.pages:
                     text = page.extract_text()
+
                     if text:
                         text = clean_text(text)
+                        if not text:
+                            continue
+
                         for s in text.split(". "):
-                            if 40 < len(s) < 200:
+                            if 60 < len(s) < 180 and not s.startswith(tuple(str(i) for i in range(10))):
                                 kb.append({
                                     "text": s,
                                     "source": f
                                 })
+
             except:
                 pass
+
     return kb
 
 kb = load_kb()
@@ -58,11 +80,14 @@ def search_kb(query):
     words = query.split()
 
     results = []
+
     for item in kb:
         score = 0
+
         for w in words:
             if w in item["text"]:
                 score += 2
+
         if query in item["text"]:
             score += 5
 
@@ -70,12 +95,40 @@ def search_kb(query):
             results.append((score, item))
 
     results.sort(key=lambda x: x[0], reverse=True)
+
     return [r[1] for r in results[:3]]
+
+# ===============================
+# CORE KNOWLEDGE (CRITICAL FIX)
+# ===============================
+def core_knowledge(q):
+
+    q = q.lower()
+
+    if "indice" in q or "exponent" in q:
+        return """Indices (exponents) represent repeated multiplication.
+
+Example:
+2^3 = 2 × 2 × 2 = 8
+
+Key rules:
+a^m × a^n = a^(m+n)
+a^m ÷ a^n = a^(m−n)
+a^0 = 1 (a ≠ 0)
+"""
+
+    return None
 
 # ===============================
 # GET CONTENT
 # ===============================
 def get_content(q):
+
+    # core override
+    core = core_knowledge(q)
+    if core:
+        return core, "📚 Core Knowledge"
+
     text = ""
     source = ""
 
@@ -103,52 +156,29 @@ def explain(text):
 
     return f"""
 📘 Explanation:
-{text[:500]}
+{text[:400]}
 
 💡 Simple:
 {text.split('.')[0]}.
 """
 
 # ===============================
-# QUESTION GENERATOR
+# CLEAN QUESTION GENERATOR
 # ===============================
-def generate_questions(text, topic):
+def generate_questions(topic):
 
-    sentences = [s for s in text.split(". ") if len(s) > 40]
-    random.shuffle(sentences)
+    topic = topic.capitalize()
 
-    questions = []
-
-    for s in sentences[:5]:
-
-        style = random.choice(["what","explain","fill"])
-
-        if style == "what":
-            q = f"What is meant by: {s[:50]}?"
-
-        elif style == "explain":
-            q = f"Explain: {s[:60]}"
-
-        else:
-            words = s.split()
-            if len(words) > 6:
-                blank = words[random.randint(2, len(words)-3)]
-                q = s.replace(blank, "_____")
-            else:
-                q = f"Fill in: {s}"
-
-        questions.append(q)
-
-    if not questions:
-        questions = [
-            f"What is {topic}?",
-            f"Explain {topic}"
-        ]
-
-    return questions
+    return [
+        f"What are {topic}?",
+        f"Give an example of {topic}.",
+        f"State one rule of {topic}.",
+        f"Solve a simple {topic} problem.",
+        f"Why are {topic} important?"
+    ]
 
 # ===============================
-# MATH ENGINE
+# MATH ENGINE (FIXED)
 # ===============================
 def is_math(q):
     q = q.lower().strip()
@@ -164,6 +194,7 @@ def is_math(q):
 
 def parse_math(q):
     q = q.lower()
+
     q = q.replace("plus","+").replace("minus","-")
     q = q.replace("times","*").replace("multiply","*")
     q = q.replace("divide","/")
@@ -186,13 +217,12 @@ def solve_math(q):
 # ===============================
 def get_answer(q):
 
-    # 🧮 MATH FIRST
+    # 🧮 math first
     if is_math(q):
         ans = solve_math(q)
         if ans:
             return f"🧮 Answer: {ans}", "Calculator"
 
-    # 📚 KNOWLEDGE
     text, src = get_content(q)
 
     if text:
@@ -229,7 +259,7 @@ if q:
         st.caption(source)
 
         st.subheader("📝 Practice")
-        for ques in generate_questions(text, q):
+        for ques in generate_questions(q):
             st.write("-", ques)
 
     # -------------------------
@@ -237,7 +267,7 @@ if q:
     # -------------------------
     elif mode == "Quiz Mode":
         st.subheader("📝 Quiz")
-        for ques in generate_questions(text, q):
+        for ques in generate_questions(q):
             st.write("•", ques)
 
     # -------------------------
@@ -251,7 +281,7 @@ if q:
         if not st.session_state.test_started:
             if st.button("Start Test"):
                 st.session_state.test_started = True
-                st.session_state.qs = generate_questions(text, q)
+                st.session_state.qs = generate_questions(q)
                 st.session_state.ans = [""] * len(st.session_state.qs)
 
         if st.session_state.test_started:
@@ -279,4 +309,4 @@ if q:
 # ===============================
 # STATUS
 # ===============================
-st.write(f"📚 Learned chunks: {len(kb)}")
+st.write(f"📚 Clean knowledge chunks: {len(kb)}")
