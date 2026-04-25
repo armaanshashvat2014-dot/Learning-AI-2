@@ -1,5 +1,5 @@
 streamlit
+google-genai
+openai
 PyPDF2
 wikipedia
-sympy
-google-genai
