@@ -1,175 +1,231 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-import os, re, random
+import os, re
+import wikipedia
 
 st.set_page_config(page_title="SmartLoop AI", layout="wide")
 
 st.title("🧠 SmartLoop AI")
-st.caption("📚 Grade-based • Chapter-aware • Smart Questions")
+st.caption("📚 Learns from PDFs + Wikipedia • Generates questions • Stable")
 
 # ===============================
-# SELECT GRADE + MODE
+# MODE SELECT
 # ===============================
-grade = st.sidebar.selectbox("Select Grade", ["6","7","8"])
-mode = st.sidebar.selectbox("Mode", ["Tutor","Teacher","Quiz","Test"])
+mode = st.sidebar.selectbox(
+    "Select Mode",
+    ["Tutor Mode", "Teacher Mode", "Quiz Mode", "Test Mode"]
+)
 
 # ===============================
-# LOAD PDFs BY GRADE
+# CLEAN TEXT
+# ===============================
+def clean_text(text):
+    text = text.lower()
+
+    bad = ["indb", "chapter", "exercise", "©", "http", "youtube"]
+    if any(b in text for b in bad):
+        return None
+
+    text = re.sub(r'[^a-z0-9\s\.\-]', '', text)
+    return text.strip()
+
+# ===============================
+# LOAD PDFs
 # ===============================
 @st.cache_resource
-def load_books():
-    data = []
+def load_kb():
+    kb = []
 
     for f in os.listdir("."):
         if f.endswith(".pdf"):
+            try:
+                reader = PdfReader(f)
 
-            if f"_{grade}" in f or f"grade{grade}" in f.lower():
+                for page in reader.pages:
+                    text = page.extract_text()
 
-                try:
-                    reader = PdfReader(f)
+                    if text:
+                        text = clean_text(text)
+                        if not text:
+                            continue
 
-                    for page in reader.pages:
-                        text = page.extract_text()
+                        for s in text.split(". "):
+                            if 40 < len(s) < 200:
+                                kb.append({
+                                    "text": s,
+                                    "source": f
+                                })
 
-                        if text:
-                            text = text.lower()
+            except:
+                pass
 
-                            for chunk in text.split(". "):
-                                if 50 < len(chunk) < 200:
-                                    data.append({
-                                        "text": chunk,
-                                        "file": f
-                                    })
+    return kb
 
-                except:
-                    pass
-
-    return data
-
-kb = load_books()
+kb = load_kb()
 
 # ===============================
-# FIND CHAPTER CONTENT
+# SEARCH KNOWLEDGE
 # ===============================
-def get_chapter(topic):
+def search_kb(query):
+    query = query.lower()
+    words = query.split()
 
-    topic = topic.lower()
     results = []
 
     for item in kb:
+        text = item["text"]
+
         score = 0
 
-        if topic in item["text"]:
-            score += 5
-
-        for w in topic.split():
-            if w in item["text"]:
+        for w in words:
+            if w in text:
                 score += 2
+
+        if query in text:
+            score += 5
 
         if score > 0:
             results.append((score, item))
 
-    results.sort(reverse=True)
+    results.sort(key=lambda x: x[0], reverse=True)
 
-    return [r[1] for r in results[:5]]
+    return [r[1] for r in results[:3]]
 
 # ===============================
-# QUESTION GENERATOR
+# GET COMBINED CONTENT
 # ===============================
-def generate_questions(topic):
+def get_content(q):
 
-    topic = topic.lower()
+    text = ""
+    source = ""
 
-    # math topics
-    if "fraction" in topic:
-        return [
-            "1/2 + 1/4",
-            "3/5 + 2/5",
-            "4/7 - 1/7",
-            "Convert 3/4 to decimal",
-            "What is 2/3 of 12?"
-        ]
+    # 📚 PDF first
+    results = search_kb(q)
 
-    if "exponent" in topic or "indice" in topic:
-        return [
-            "2^3",
-            "5^2",
-            "3^4",
-            "Simplify 2^3 × 2^2",
-            "What is 10^0?"
-        ]
+    if results:
+        text = results[0]["text"]
+        source = f"📖 {results[0]['source']}"
 
-    # fallback
-    return [
-        f"{random.randint(1,20)} + {random.randint(1,20)}"
-        for _ in range(5)
-    ]
+    # 🌐 Wikipedia add
+    try:
+        wiki = wikipedia.summary(q, 2)
+        text += " " + wiki
+        source += " + 🌐 Wikipedia"
+    except:
+        pass
+
+    return text.strip(), source
 
 # ===============================
 # EXPLAIN
 # ===============================
-def explain(text):
+def explain_topic(text):
+    if not text:
+        return "No explanation found."
+
     return f"""
 📘 Explanation:
-{text}
+{text[:500]}
 
 💡 Simple:
 {text.split('.')[0]}.
+
+🧠 Tip:
+Focus on understanding the concept.
 """
 
 # ===============================
-# MAIN UI
+# GENERATE QUESTIONS
 # ===============================
-topic = st.text_input("Enter Chapter / Topic")
+def generate_questions(text, topic):
 
-if topic:
+    questions = []
+    sentences = text.split(". ")
 
-    chapter_data = get_chapter(topic)
+    for s in sentences:
+        if len(s) > 40 and len(questions) < 5:
 
-    if mode == "Tutor":
-        if chapter_data:
-            st.write(explain(chapter_data[0]["text"]))
-            st.caption(f"📖 {chapter_data[0]['file']}")
-        else:
-            st.write("No chapter found.")
+            if " is " in s:
+                q = s.replace(" is ", " is what? ")
+            elif " are " in s:
+                q = s.replace(" are ", " are what? ")
+            else:
+                q = f"What does this mean: {s[:50]}?"
 
-    elif mode == "Teacher":
-        if chapter_data:
-            st.write(explain(chapter_data[0]["text"]))
+            questions.append(q.strip())
 
-            st.subheader("📝 Practice")
-            for q in generate_questions(topic):
-                st.write("-", q)
+    if not questions:
+        questions = [
+            f"What is {topic}?",
+            f"Explain {topic}"
+        ]
 
-    elif mode == "Quiz":
+    return questions
+
+# ===============================
+# UI INPUT
+# ===============================
+st.subheader("💬 Ask Your Doubt")
+q = st.text_input("Enter topic or question")
+
+# ===============================
+# MODES
+# ===============================
+if q:
+
+    text, src = get_content(q)
+
+    # =========================
+    # 👨‍🏫 TUTOR MODE
+    # =========================
+    if mode == "Tutor Mode":
+        st.write(explain_topic(text))
+        st.caption(src)
+
+    # =========================
+    # 📘 TEACHER MODE
+    # =========================
+    elif mode == "Teacher Mode":
+        st.write(explain_topic(text))
+        st.caption(src)
+
+        st.subheader("📝 Practice Questions")
+
+        for ques in generate_questions(text, q):
+            st.write("-", ques)
+
+    # =========================
+    # 📝 QUIZ MODE
+    # =========================
+    elif mode == "Quiz Mode":
         st.subheader("📝 Quiz")
-        for q in generate_questions(topic):
-            st.write("•", q)
 
-    elif mode == "Test":
+        for ques in generate_questions(text, q):
+            st.write("•", ques)
 
-        if st.button("Start Test"):
-            st.session_state.qs = generate_questions(topic)
-            st.session_state.ans = [""] * len(st.session_state.qs)
+    # =========================
+    # 🧪 TEST MODE
+    # =========================
+    elif mode == "Test Mode":
 
-        if "qs" in st.session_state:
-            for i, q in enumerate(st.session_state.qs):
-                st.session_state.ans[i] = st.text_input(q, key=i)
+        if "test_started" not in st.session_state:
+            st.session_state.test_started = False
 
-            if st.button("Submit"):
-                score = 0
+        if not st.session_state.test_started:
+            if st.button("Start Test"):
+                st.session_state.test_started = True
+                st.session_state.qs = generate_questions(text, q)
+                st.session_state.ans = [""] * len(st.session_state.qs)
 
-                for i, q in enumerate(st.session_state.qs):
-                    try:
-                        correct = eval(q.replace("^","**"))
-                        if str(correct) == st.session_state.ans[i]:
-                            score += 1
-                    except:
-                        pass
+        if st.session_state.test_started:
 
-                st.write(f"Score: {score}/{len(st.session_state.qs)}")
+            for i, ques in enumerate(st.session_state.qs):
+                st.session_state.ans[i] = st.text_input(ques, key=f"t{i}")
+
+            if st.button("Submit Test"):
+                st.write("✅ Test submitted!")
 
 # ===============================
 # STATUS
 # ===============================
-st.write(f"📚 Loaded content: {len(kb)} chunks")
+st.write(f"📚 Learned chunks: {len(kb)}")
