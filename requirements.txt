@@ -1,6 +1,4 @@
-google-generativeai
-openai
-wikipedia
-PyPDF2
 streamlit
-reportlab
+PyPDF2
+wikipedia
+sympy
