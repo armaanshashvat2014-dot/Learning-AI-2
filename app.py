@@ -1,9 +1,12 @@
 import streamlit as st
-import re, random, itertools
+import random, re, itertools
 
 # =========================
-# LOAD KEYS
+# API SETUP
 # =========================
+from google import genai
+from openai import OpenAI
+
 GOOGLE_KEYS = [
     st.secrets["GOOGLE_API_KEY_1"],
     st.secrets["GOOGLE_API_KEY_2"]
@@ -17,210 +20,206 @@ OPENAI_KEYS = [
 google_cycle = itertools.cycle(GOOGLE_KEYS)
 openai_cycle = itertools.cycle(OPENAI_KEYS)
 
-# =========================
-# CLIENT SETUP
-# =========================
-from google import genai
-from openai import OpenAI
-
-def get_google_client():
+def get_google():
     return genai.Client(api_key=next(google_cycle))
 
-def get_openai_client():
+def get_openai():
     return OpenAI(api_key=next(openai_cycle))
 
 # =========================
-# AI ANSWER (SMART FAILOVER)
+# AI ANSWER
 # =========================
 def ai_answer(q):
-
     prompt = f"""
-    Answer clearly like a teacher.
+    Explain like a teacher:
+    Topic: {q}
 
-    Question: {q}
-
-    Rules:
-    - Be simple
-    - No nonsense
-    - Stay on topic
+    Include:
+    - Definition
+    - Explanation
+    - Example
     """
 
-    # 🔥 TRY GOOGLE FIRST
+    # Google first
     for _ in range(2):
         try:
-            client = get_google_client()
-            resp = client.models.generate_content(
+            c = get_google()
+            r = c.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt
             )
-            if resp.text:
-                return resp.text
-        except Exception:
+            if r.text:
+                return r.text
+        except:
             pass
 
-    # 🔥 FALLBACK TO OPENAI
+    # OpenAI fallback
     for _ in range(2):
         try:
-            client = get_openai_client()
-            resp = client.chat.completions.create(
+            c = get_openai()
+            r = c.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role":"user","content":prompt}]
             )
-            return resp.choices[0].message.content
-        except Exception:
+            return r.choices[0].message.content
+        except:
             pass
 
-    return "⚠️ All AI services are busy. Try again."
+    return "AI busy."
 
 # =========================
-# SUBJECT DETECTION (FIXED)
+# SUBJECT DETECTION
 # =========================
 def detect_subject(q):
     q=q.lower()
 
-    math_words=["add","subtract","multiply","divide","fraction","decimal","algebra","indices","equation","+","-","*","/","^"]
-    science_words=["force","energy","cell","atom","gravity","biology","physics","chemistry"]
-    english_words=["noun","verb","grammar","sentence","adjective"]
+    if any(x in q for x in ["force","energy","cell","atom","gravity","physics","chemistry","biology"]):
+        return "science"
 
-    scores={"math":0,"science":0,"english":0}
+    if any(x in q for x in ["noun","verb","grammar","sentence","adjective"]):
+        return "english"
 
-    for w in math_words:
-        if w in q: scores["math"]+=2
-    for w in science_words:
-        if w in q: scores["science"]+=2
-    for w in english_words:
-        if w in q: scores["english"]+=2
-
-    best=max(scores,key=scores.get)
-    return best if scores[best]>0 else "math"
+    return "math"
 
 # =========================
-# MATH ENGINE (LOCAL)
+# MATH ENGINE
 # =========================
-def parse_math(q):
-    q=q.lower()
-    q=q.replace("plus","+").replace("minus","-")
-    q=q.replace("times","*").replace("multiply","*")
-    q=q.replace("divide","/")
-    q=q.replace("^","**")
-    return q
-
 def solve_math(q):
     try:
-        return str(eval(parse_math(q),{"__builtins__":None},{}))
+        return str(eval(q.replace("^","**"),{"__builtins__":None},{}))
     except:
         return None
 
 def is_math(q):
-    return bool(re.search(r"[0-9\+\-\*/\^]", q))
+    return bool(re.search(r"[0-9\+\-\*/\^()]", q))
 
 # =========================
-# QUESTION GENERATORS
+# MATH GENERATOR (TOPIC BASED)
 # =========================
-def gen_math(mode):
-    qs=[]
-    n={"Teacher Mode":3,"Quiz Mode":5,"Test Mode":6}.get(mode,4)
+def gen_math(topic, mode):
+
+    topic = topic.lower()
+    qs = []
+    n = {"Quiz Mode":5,"Test Mode":6}.get(mode,4)
 
     for _ in range(n):
-        t=random.choice(["basic","power","mix"])
 
-        if t=="basic":
-            a,b=random.randint(1,20),random.randint(1,20)
-            qs.append(f"{a} + {b}")
-
-        elif t=="power":
-            a=random.randint(2,10)
-            b=random.randint(2,4)
+        # 🔥 INDICES
+        if "indice" in topic or "power" in topic:
+            a = random.randint(2,10)
+            b = random.randint(2,4)
             qs.append(f"{a}^{b}")
 
+        # 🔥 BODMAS
+        elif "bodmas" in topic or "order" in topic:
+            a,b,c = random.randint(1,10), random.randint(1,10), random.randint(1,10)
+            qs.append(f"({a} + {b}) * {c}")
+
+        # 🔥 FRACTIONS
+        elif "fraction" in topic:
+            a,b = random.randint(1,9), random.randint(1,9)
+            c,d = random.randint(1,9), random.randint(1,9)
+            qs.append(f"{a}/{b} + {c}/{d}")
+
+        # 🔥 ALGEBRA
+        elif "algebra" in topic:
+            x = random.randint(1,10)
+            qs.append(f"Solve: x + {x} = {x+5}")
+
+        # 🔥 DEFAULT → MIX
         else:
-            a=random.randint(5,20)
-            b=random.randint(2,5)
-            c=random.randint(2,3)
-            qs.append(f"{a} - {b}^{c}")
+            a = random.randint(1,10)
+            b = random.randint(2,5)
+            c = random.randint(2,3)
+            qs.append(f"{a} + {b}^{c}")
 
     return qs
 
+# =========================
+# SCIENCE GENERATOR
+# =========================
 def gen_science(topic):
     return [
         f"What is {topic}?",
         f"Why is {topic} important?",
         f"How does {topic} work?",
-        f"Who discovered {topic}?"
+        f"Who discovered {topic}?",
+        f"When is {topic} used?"
     ]
 
+# =========================
+# ENGLISH GENERATOR (FIXED)
+# =========================
 def gen_english(topic):
     return [
         f"What is {topic}?",
-        f"Define {topic}",
-        f"Use {topic} in a sentence"
+        f"How do you use {topic} in a sentence?",
+        f"Why is {topic} important in language?"
     ]
 
-def generate_questions(q,mode):
-    sub=detect_subject(q)
+# =========================
+# GENERATE QUESTIONS
+# =========================
+def generate_questions(q, mode):
 
-    if sub=="math":
-        return gen_math(mode)
-    if sub=="science":
+    sub = detect_subject(q)
+
+    if sub == "science":
         return gen_science(q)
-    if sub=="english":
+
+    if sub == "english":
         return gen_english(q)
 
+    return gen_math(q, mode)
+
 # =========================
-# CHECKER
+# CHECK ANSWERS
 # =========================
-def check(user,correct):
+def check(user, correct):
 
     if not user:
-        return False,"No answer"
+        return False, "No answer"
 
     if correct:
-        if user.strip()==correct:
-            return True,"Correct"
-        return False,f"Wrong. Answer: {correct}"
+        if user.strip() == correct:
+            return True, "Correct"
+        return False, f"Wrong. Answer: {correct}"
 
-    if len(user)>5:
-        return True,"Acceptable"
+    if len(user) > 5:
+        return True, "Good answer"
 
-    return False,"Too short"
+    return False, "Too short"
 
 # =========================
 # UI
 # =========================
-st.title("🧠 SmartLoop AI (Multi-Key)")
+st.title("🧠 SmartLoop AI")
 
 mode = st.sidebar.selectbox(
     "Mode",
     ["Tutor Mode","Teacher Mode","Quiz Mode","Test Mode"]
 )
 
-q = st.text_input("Ask or Enter Topic")
+q = st.text_input("Enter topic")
 
 if q:
 
     # Tutor
     if mode=="Tutor Mode":
-
         if is_math(q):
-            st.write("🧮 Answer:",solve_math(q))
+            st.write("🧮 Answer:", solve_math(q))
         else:
             st.write(ai_answer(q))
 
     # Teacher
     elif mode=="Teacher Mode":
-
         st.write(ai_answer(q))
-
-        st.subheader("Practice")
-        for x in generate_questions(q,mode):
-            st.write("-",x)
 
     # Quiz
     elif mode=="Quiz Mode":
-
-        st.subheader("Quiz")
-        for x in generate_questions(q,mode):
-            st.write("•",x)
+        st.subheader("📝 Quiz")
+        for ques in generate_questions(q,mode):
+            st.write("•", ques)
 
     # Test
     elif mode=="Test Mode":
@@ -242,21 +241,20 @@ if q:
             if st.button("Submit"):
 
                 score=0
-
-                st.subheader("Feedback")
+                st.subheader("📊 Feedback")
 
                 for i,ques in enumerate(st.session_state.qs):
 
                     correct = solve_math(ques) if is_math(ques) else None
-                    ok,msg=check(st.session_state.ans[i],correct)
+                    ok,msg = check(st.session_state.ans[i],correct)
 
-                    if ok: score+=1
+                    if ok:
+                        score+=1
 
                     st.write(f"Q{i+1}: {ques}")
-                    st.write("Your:",st.session_state.ans[i])
+                    st.write("Your:", st.session_state.ans[i])
                     st.write(msg)
                     st.write("---")
 
                 st.write(f"🎯 Score: {score}/{len(st.session_state.qs)}")
-
                 st.session_state.start=False
