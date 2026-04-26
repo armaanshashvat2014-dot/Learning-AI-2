@@ -27,7 +27,7 @@ def get_openai():
     return OpenAI(api_key=next(openai_cycle))
 
 # =========================
-# SESSION STATE
+# SESSION
 # =========================
 if "chats" not in st.session_state:
     st.session_state.chats = {"Chat 1": []}
@@ -74,7 +74,59 @@ def solve_math_steps(q):
         return None
 
 # =========================
-# 🔎 WIKIPEDIA (LIGHT USE)
+# 🧠 SAFETY CLASSIFIER (AI-ONLY)
+# =========================
+def classify_safety(q):
+
+    prompt = f"""
+Classify this query:
+
+- allowed → safe, educational, harmless
+- blocked → harmful, illegal, unsafe intent
+
+Be careful:
+- "how to cheat exam" → blocked
+- "how to study better without cheating" → allowed
+
+Query:
+{q}
+
+Answer ONLY one word: allowed or blocked
+"""
+
+    # Google first
+    try:
+        c = get_google()
+        r = c.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        if r.text:
+            label = r.text.strip().lower()
+            if "blocked" in label:
+                return "blocked"
+            return "allowed"
+    except:
+        pass
+
+    # OpenAI fallback
+    try:
+        c = get_openai()
+        r = c.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}]
+        )
+        label = r.choices[0].message.content.strip().lower()
+        if "blocked" in label:
+            return "blocked"
+        return "allowed"
+    except:
+        pass
+
+    return "allowed"
+
+# =========================
+# 🔎 WIKIPEDIA
 # =========================
 def search_wiki(q):
     try:
@@ -83,32 +135,34 @@ def search_wiki(q):
         return None
 
 # =========================
-# 🤖 AI (SMART REASONING)
+# 🤖 AI ANSWER
 # =========================
 def ai_answer(q):
 
-    # 1. Math (local, reliable)
+    # 1. SAFETY
+    if classify_safety(q) == "blocked":
+        return "⚠️ I can’t help with that. Let’s keep things safe and be focused on learning."
+
+    # 2. MATH
     math_steps = solve_math_steps(q)
     if math_steps:
         return math_steps
 
-    # 2. Reasoning prompt
+    # 3. REASONING PROMPT
     prompt = f"""
-You are SmartLoop AI, a highly intelligent tutor.
+You are SmartLoop AI, a smart tutor.
 
 Rules:
-- Understand intent before answering
-- Use real-world logic (science + common sense)
-- Never generate random questions
-- If the question is hypothetical, reason clearly
-- If unsure, say "I'm not fully sure"
-- Keep answers clear and correct
+- Understand intent
+- Use logic and real-world reasoning
+- Be clear and correct
+- Do NOT generate random questions
 
 Question:
 {q}
 """
 
-    # Google first
+    # Google
     for _ in range(2):
         try:
             c = get_google()
@@ -121,7 +175,7 @@ Question:
         except:
             pass
 
-    # OpenAI fallback
+    # OpenAI
     for _ in range(2):
         try:
             c = get_openai()
@@ -133,15 +187,15 @@ Question:
         except:
             pass
 
-    # Final fallback
+    # fallback wiki
     wiki = search_wiki(q)
     if wiki:
-        return wiki
+        return "🌐 " + wiki
 
-    return "⚠️ I'm not fully sure. Try rephrasing."
+    return "⚠️ I'm not fully sure yet. It might be answered if you try rephrasing."
 
 # =========================
-# 🎨 UI STYLE
+# UI
 # =========================
 st.markdown("""
 <style>
@@ -152,7 +206,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================
-# SIDEBAR (CHAT CONTROL)
+# SIDEBAR
 # =========================
 st.sidebar.title("💬 Chats")
 
@@ -175,13 +229,7 @@ if st.sidebar.button("🗑 Delete Chat"):
 # =========================
 st.title("🧠 SmartLoop AI")
 
-st.info("""
-👋 Hey there! I'm SmartLoop AI! 
-
-I'm your CIE tutor here to help you ace your exams! 📚
-
-Ask anything — math, science, English, or general knowledge.
-""")
+st.info("👋 Hey there! I'm SmartLoop AI! Ask anything — math, science, English, or general knowledge.")
 
 # =========================
 # CHAT DISPLAY
@@ -193,7 +241,7 @@ for msg in st.session_state.chats[st.session_state.current_chat]:
         st.markdown(f"<div class='chat-ai'>🤖 {msg['text']}</div>", unsafe_allow_html=True)
 
 # =========================
-# INPUT (ENTER FIX)
+# INPUT
 # =========================
 q = st.text_input("Ask SmartLoop...", key="input")
 
