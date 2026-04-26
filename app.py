@@ -78,7 +78,7 @@ def solve_math_steps(q):
         return None
 
 # =========================
-# NEWS (UPGRADED 🔥)
+# NEWS
 # =========================
 def is_news_query(q):
     return any(w in q.lower() for w in ["news","latest","headlines","update"])
@@ -140,7 +140,7 @@ def ai_answer(q):
     return "Not sure."
 
 # =========================
-# UI (UNCHANGED STYLE)
+# UI
 # =========================
 st.markdown("""
 <style>
@@ -202,25 +202,28 @@ for msg in st.session_state.chats[st.session_state.current_chat]:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# INPUT (FIXED + CLEAN)
+# INPUT (NO ERROR VERSION)
 st.markdown('<div class="input-container">', unsafe_allow_html=True)
 
-st.text_input("", placeholder="Ask SmartLoop...", key="main_input")
+q = st.text_input("", placeholder="Ask SmartLoop...", key="main_input")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# LOGIC
-if st.session_state.get("main_input") and st.session_state.main_input != st.session_state.last_q:
+# =========================
+# LOGIC (FIXED)
+# =========================
+if q and q != st.session_state.last_q:
 
-    q = st.session_state.main_input
     st.session_state.last_q = q
 
-    st.session_state.chats[st.session_state.current_chat].append({"role":"user","text":q})
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"user","text":q
+    })
 
     ans = ai_answer(q)
 
-    st.session_state.chats[st.session_state.current_chat].append({"role":"ai","text":ans})
-
-    st.session_state.main_input = ""
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"ai","text":ans
+    })
 
     st.rerun()
