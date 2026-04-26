@@ -39,9 +39,10 @@ if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
 # =========================
-# SAFETY
+# 🧠 SAFETY
 # =========================
 def is_safe(q):
+
     prompt = f"""
 Return ONLY one word:
 true = safe
@@ -50,6 +51,7 @@ false = unsafe
 Query:
 {q}
 """
+
     try:
         c = get_google()
         r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
@@ -70,7 +72,7 @@ Query:
     return True
 
 # =========================
-# MATH
+# 🧮 MATH
 # =========================
 def extract_math(q):
     matches = re.findall(r"[0-9\+\-\*/\^\(\)\[\]\{\}\.]+", q)
@@ -84,23 +86,30 @@ def extract_math(q):
 
     return expr.replace("^", "**")
 
+
 def solve_math_steps(q):
+
     expr = extract_math(q)
     if not expr:
         return None
 
     try:
         original = expr.replace("**", "^")
-        steps = [f"Expression: {original}"]
+
+        steps = []
+        steps.append(f"Expression: {original}")
+
         working = expr
 
+        # brackets
         if "(" in working:
             inner = re.findall(r"\([^()]+\)", working)
             for part in inner:
                 val = eval(part, {"__builtins__":None}, {})
-                steps.append(f"{part} → {val}")
+                steps.append(f"Solve {part} → {val}")
                 working = working.replace(part, str(val), 1)
 
+        # powers
         if "**" in working:
             powers = re.findall(r"\d+\*\*\d+", working)
             for p in powers:
@@ -108,12 +117,14 @@ def solve_math_steps(q):
                 steps.append(f"{p.replace('**','^')} = {val}")
                 working = working.replace(p, str(val), 1)
 
+        # multiply/divide
         md = re.findall(r"\d+[\*/]\d+", working)
         for m in md:
             val = eval(m, {"__builtins__":None}, {})
             steps.append(f"{m} = {val}")
             working = working.replace(m, str(val), 1)
 
+        # final
         result = eval(working, {"__builtins__":None}, {})
         steps.append(f"Final Answer: {result}")
 
@@ -123,10 +134,11 @@ def solve_math_steps(q):
         return None
 
 # =========================
-# NEWS
+# 📰 NEWS
 # =========================
 def is_news_query(q):
-    return any(word in q.lower() for word in ["news","latest","headlines"])
+    ql = q.lower()
+    return any(word in ql for word in ["news","latest","headlines","current events"])
 
 def get_global_news():
     feeds = [
@@ -144,12 +156,21 @@ def get_global_news():
             for entry in feed.entries[:2]:
                 headlines.append(f"• {entry.title}")
         except:
-            pass
+            continue
 
-    return "📰 Latest News:\n\n" + "\n".join(headlines[:10])
+    return "📰 Latest Global News:\n\n" + "\n".join(headlines[:10])
 
 # =========================
-# AI
+# 🔎 WIKI
+# =========================
+def search_wiki(q):
+    try:
+        return wikipedia.summary(q, 2)
+    except:
+        return None
+
+# =========================
+# 🤖 AI
 # =========================
 def ai_answer(q):
 
@@ -166,27 +187,33 @@ def ai_answer(q):
     prompt = f"""
 You are SmartLoop AI.
 Be logical, clear, correct.
+No random outputs.
 
 Question:
 {q}
 """
 
     try:
-        return get_google().models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        ).text
+        c = get_google()
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        if r.text:
+            return r.text
     except:
         pass
 
     try:
-        r = get_openai().chat.completions.create(
+        c = get_openai()
+        r = c.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role":"user","content":prompt}]
         )
         return r.choices[0].message.content
     except:
         pass
+
+    wiki = search_wiki(q)
+    if wiki:
+        return "🌐 " + wiki
 
     return "⚠️ Not sure."
 
@@ -195,147 +222,82 @@ Question:
 # =========================
 st.markdown("""
 <style>
-
-.stApp {
-    background: radial-gradient(circle at top, #0a1a2f, #020617);
-    color:white;
-}
-
-/* Header */
-.header {
-    text-align:center;
-    margin-top:40px;
-}
-
-/* Card */
-.center-card {
-    margin:40px auto;
-    width:60%;
-    background:rgba(20,30,50,0.6);
-    padding:25px;
-    border-radius:20px;
-    border:1px solid rgba(255,255,255,0.1);
-    text-align:center;
-}
-
-/* Chat */
-.chat-container {
-    max-height:60vh;
-    overflow-y:auto;
-    padding-bottom:100px;
-}
-
-.chat-user {
-    background:#1e293b;
-    padding:10px;
-    border-radius:10px;
-    margin:6px;
-}
-
-.chat-ai {
-    background:#111827;
-    padding:10px;
-    border-radius:10px;
-    border-left:4px solid #38bdf8;
-    margin:6px;
-}
-
-/* Fixed input */
-.fixed-input {
-    position:fixed;
-    bottom:20px;
-    left:20%;
-    width:60%;
-    background:rgba(30,40,60,0.95);
-    padding:10px;
-    border-radius:15px;
-}
-
-/* Thinking dots */
-.thinking {
-    text-align:center;
-    margin:20px;
-}
-
-.dot {
-    display:inline-block;
-    width:8px;
-    height:8px;
-    margin:3px;
-    border-radius:50%;
-    background:#38bdf8;
-    animation:bounce 1.4s infinite;
-}
-
-.dot:nth-child(2){animation-delay:0.2s;}
-.dot:nth-child(3){animation-delay:0.4s;}
-
-@keyframes bounce {
-    0%,80%,100%{transform:scale(0.5);}
-    40%{transform:scale(1.4);}
-}
-
+.stApp {background: linear-gradient(135deg,#0a0f1f,#020617); color:white;}
+.chat-user {background:#1e293b;padding:10px;border-radius:10px;margin:6px;}
+.chat-ai {background:#111827;padding:10px;border-radius:10px;border-left:4px solid #38bdf8;margin:6px;}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# HEADER
+# SIDEBAR
 # =========================
-st.markdown("""
-<div class="header">
-<h1>🧠 SmartLoop AI 
-<span style="background:linear-gradient(135deg,#ff4d6d,#7b2ff7);
-padding:5px 12px;border-radius:999px;font-size:14px;">BETA</span>
-</h1>
-<p style="opacity:0.7;">CIE Tutor for Grade 6–8</p>
-</div>
-""", unsafe_allow_html=True)
+st.sidebar.title("💬 Chats")
+
+if st.sidebar.button("➕ New Chat"):
+    name = f"Chat {len(st.session_state.chats)+1}"
+    st.session_state.chats[name] = []
+    st.session_state.current_chat = name
+
+for chat in st.session_state.chats:
+    if st.sidebar.button(chat):
+        st.session_state.current_chat = chat
+
+if st.sidebar.button("🗑 Delete Chat"):
+    if len(st.session_state.chats) > 1:
+        del st.session_state.chats[st.session_state.current_chat]
+        st.session_state.current_chat = list(st.session_state.chats.keys())[0]
 
 # =========================
-# WELCOME CARD
+# TITLE WITH BETA BADGE
 # =========================
-if len(st.session_state.chats[st.session_state.current_chat]) == 0:
-    st.markdown("""
-    <div class="center-card">
-    👋 <b>Hey there! I'm SmartLoop AI!</b><br><br>
-    Ask anything—math, science, or real-world questions 🌍
-    </div>
-    """, unsafe_allow_html=True)
+st.markdown("""
+<h1 style="display:flex; align-items:center; gap:10px;">
+    🧠 SmartLoop AI
+    <span style="
+        background: linear-gradient(135deg, #ff4d6d, #7b2ff7);
+        color: white;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 0 0 10px rgba(255,77,109,0.6);
+    ">
+        BETA
+    </span>
+</h1>
+""", unsafe_allow_html=True)
+
+st.info("Now with real math solving + real news 🌍")
 
 # =========================
 # CHAT DISPLAY
 # =========================
-st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-
 for msg in st.session_state.chats[st.session_state.current_chat]:
     if msg["role"] == "user":
         st.markdown(f"<div class='chat-user'>🧑 {msg['text']}</div>", unsafe_allow_html=True)
     else:
         st.markdown(f"<div class='chat-ai'>🤖 {msg['text']}</div>", unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)
-
 # =========================
 # INPUT
 # =========================
-st.markdown('<div class="fixed-input">', unsafe_allow_html=True)
-q = st.text_input("", placeholder="Ask SmartLoop...", key="input")
-st.markdown('</div>', unsafe_allow_html=True)
+q = st.text_input("Ask SmartLoop...", key="input")
 
 if q and q != st.session_state.last_q:
+
     st.session_state.last_q = q
-    st.session_state.chats[st.session_state.current_chat].append({"role":"user","text":q})
 
-    st.markdown("""
-    <div class="thinking">
-    Thinking 
-    <span class="dot"></span>
-    <span class="dot"></span>
-    <span class="dot"></span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"user",
+        "text":q
+    })
 
-    ans = ai_answer(q)
+    with st.spinner("Thinking..."):
+        ans = ai_answer(q)
 
-    st.session_state.chats[st.session_state.current_chat].append({"role":"ai","text":ans})
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"ai",
+        "text":ans
+    })
+
     st.rerun()
