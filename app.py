@@ -27,7 +27,7 @@ def get_openai():
     return OpenAI(api_key=next(openai_cycle))
 
 # =========================
-# SESSION
+# SESSION STATE
 # =========================
 if "chats" not in st.session_state:
     st.session_state.chats = {"Chat 1": []}
@@ -39,62 +39,24 @@ if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
 # =========================
-# 🧮 MATH ENGINE
-# =========================
-def extract_math(q):
-    matches = re.findall(r"[0-9\+\-\*/\^\(\)\.]+", q)
-    expr = "".join(matches)
-    return expr.replace("^","**") if expr else None
-
-def solve_math_steps(q):
-    expr = extract_math(q)
-    if not expr:
-        return None
-
-    try:
-        original = expr.replace("**", "^")
-        steps = []
-        steps.append(f"Expression: {original}")
-
-        if "(" in expr:
-            steps.append("Step 1: Solve brackets")
-        if "**" in expr:
-            steps.append("Step 2: Solve powers")
-        if "*" in expr or "/" in expr:
-            steps.append("Step 3: Multiply/Divide")
-
-        steps.append("Step 4: Add/Subtract")
-
-        result = eval(expr, {"__builtins__":None}, {})
-        steps.append(f"Final Answer: {result}")
-
-        return "🧮 Step-by-step:\n\n" + "\n".join(steps)
-
-    except:
-        return None
-
-# =========================
-# 🧠 SAFETY CLASSIFIER (AI-ONLY)
+# 🧠 SAFETY (HARD GATE)
 # =========================
 def classify_safety(q):
-
     prompt = f"""
-Classify this query:
+Classify the user query into ONE word:
 
-- allowed → safe, educational, harmless
-- blocked → harmful, illegal, unsafe intent
+- allowed → safe, educational
+- blocked → harmful, illegal, dangerous (weapons, bombs, harm, etc.)
 
-Be careful:
-- "how to cheat exam" → blocked
-- "how to study better without cheating" → allowed
+Be strict about harmful intent.
 
 Query:
 {q}
 
-Answer ONLY one word: allowed or blocked
+Answer ONLY: allowed or blocked
 """
 
-    # Google first
+    # Google
     try:
         c = get_google()
         r = c.models.generate_content(
@@ -123,7 +85,42 @@ Answer ONLY one word: allowed or blocked
     except:
         pass
 
-    return "allowed"
+    # Fail-safe = block
+    return "blocked"
+
+# =========================
+# 🧮 MATH ENGINE
+# =========================
+def extract_math(q):
+    matches = re.findall(r"[0-9\+\-\*/\^\(\)\.]+", q)
+    expr = "".join(matches)
+    return expr.replace("^","**") if expr else None
+
+def solve_math_steps(q):
+    expr = extract_math(q)
+    if not expr:
+        return None
+
+    try:
+        original = expr.replace("**", "^")
+        steps = [f"Expression: {original}"]
+
+        if "(" in expr:
+            steps.append("Step 1: Solve brackets")
+        if "**" in expr:
+            steps.append("Step 2: Solve powers")
+        if "*" in expr or "/" in expr:
+            steps.append("Step 3: Multiply/Divide")
+
+        steps.append("Step 4: Add/Subtract")
+
+        result = eval(expr, {"__builtins__":None}, {})
+        steps.append(f"Final Answer: {result}")
+
+        return "🧮 Step-by-step:\n\n" + "\n".join(steps)
+
+    except:
+        return None
 
 # =========================
 # 🔎 WIKIPEDIA
@@ -139,30 +136,30 @@ def search_wiki(q):
 # =========================
 def ai_answer(q):
 
-    # 1. SAFETY
+    # 🚫 HARD SAFETY BLOCK (FIRST)
     if classify_safety(q) == "blocked":
-        return "⚠️ I can’t help with that. Let’s keep things safe and be focused on learning."
+        return "⚠️ I can’t help with that. It’s unsafe. But I can explain the science behind it if you want."
 
-    # 2. MATH
+    # 🧮 Math
     math_steps = solve_math_steps(q)
     if math_steps:
         return math_steps
 
-    # 3. REASONING PROMPT
+    # 🧠 Reasoning AI
     prompt = f"""
-You are SmartLoop AI, a smart tutor.
+You are SmartLoop AI, a smart and logical tutor.
 
 Rules:
 - Understand intent
-- Use logic and real-world reasoning
-- Be clear and correct
+- Use real-world reasoning
+- Be accurate and clear
 - Do NOT generate random questions
 
 Question:
 {q}
 """
 
-    # Google
+    # Google first
     for _ in range(2):
         try:
             c = get_google()
@@ -175,7 +172,7 @@ Question:
         except:
             pass
 
-    # OpenAI
+    # OpenAI fallback
     for _ in range(2):
         try:
             c = get_openai()
@@ -187,15 +184,15 @@ Question:
         except:
             pass
 
-    # fallback wiki
+    # Wikipedia fallback
     wiki = search_wiki(q)
     if wiki:
         return "🌐 " + wiki
 
-    return "⚠️ I'm not fully sure yet. It might be answered if you try rephrasing."
+    return "⚠️ I'm not fully sure. Try rephrasing, or you may repeat the command/request."
 
 # =========================
-# UI
+# 🎨 UI
 # =========================
 st.markdown("""
 <style>
@@ -228,8 +225,7 @@ if st.sidebar.button("🗑 Delete Chat"):
 # HEADER
 # =========================
 st.title("🧠 SmartLoop AI")
-
-st.info("👋 Hey there! I'm SmartLoop AI! Ask anything — math, science, English, or general knowledge.")
+st.info("👋 Ask anything — math, science, English, or general knowledge.")
 
 # =========================
 # CHAT DISPLAY
