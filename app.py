@@ -39,21 +39,31 @@ if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
 # =========================
-# 🧠 SAFETY (HARD GATE)
+# 🧠 SAFETY (TRUE / FALSE)
 # =========================
-def classify_safety(q):
+def is_safe(q):
+
+    ql = q.lower()
+
+    # ✅ obvious safe override
+    safe_patterns = [
+        "api key", "what is", "explain", "why", "how does",
+        "solve", "calculate", "define", "who is", "when"
+    ]
+
+    if any(p in ql for p in safe_patterns):
+        return True
+
+    # 🤖 AI classification (STRICT TRUE/FALSE)
     prompt = f"""
-Classify the user query into ONE word:
+Decide if this query is safe.
 
-- allowed → safe, educational
-- blocked → harmful, illegal, dangerous (weapons, bombs, harm, etc.)
-
-Be strict about harmful intent.
+Return ONLY one word:
+true = safe
+false = unsafe (harmful, illegal, dangerous)
 
 Query:
 {q}
-
-Answer ONLY: allowed or blocked
 """
 
     # Google
@@ -65,9 +75,7 @@ Answer ONLY: allowed or blocked
         )
         if r.text:
             label = r.text.strip().lower()
-            if "blocked" in label:
-                return "blocked"
-            return "allowed"
+            return "true" in label
     except:
         pass
 
@@ -79,14 +87,12 @@ Answer ONLY: allowed or blocked
             messages=[{"role":"user","content":prompt}]
         )
         label = r.choices[0].message.content.strip().lower()
-        if "blocked" in label:
-            return "blocked"
-        return "allowed"
+        return "true" in label
     except:
         pass
 
-    # Fail-safe = block
-    return "blocked"
+    # fallback safe
+    return True
 
 # =========================
 # 🧮 MATH ENGINE
@@ -136,30 +142,30 @@ def search_wiki(q):
 # =========================
 def ai_answer(q):
 
-    # 🚫 HARD SAFETY BLOCK (FIRST)
-    if classify_safety(q) == "blocked":
-        return "⚠️ I can’t help with that. It’s unsafe. But I can explain the science behind it if you want."
+    # 🔒 SAFETY FIRST
+    if not is_safe(q):
+        return "⚠️ I can’t help with that. Let’s keep things safe and educational."
 
     # 🧮 Math
     math_steps = solve_math_steps(q)
     if math_steps:
         return math_steps
 
-    # 🧠 Reasoning AI
+    # 🧠 Reasoning
     prompt = f"""
-You are SmartLoop AI, a smart and logical tutor.
+You are SmartLoop AI, a smart tutor.
 
 Rules:
 - Understand intent
-- Use real-world reasoning
-- Be accurate and clear
+- Use logic and real-world reasoning
+- Be clear and correct
 - Do NOT generate random questions
 
 Question:
 {q}
 """
 
-    # Google first
+    # Google
     for _ in range(2):
         try:
             c = get_google()
@@ -172,7 +178,7 @@ Question:
         except:
             pass
 
-    # OpenAI fallback
+    # OpenAI
     for _ in range(2):
         try:
             c = get_openai()
@@ -189,10 +195,10 @@ Question:
     if wiki:
         return "🌐 " + wiki
 
-    return "⚠️ I'm not fully sure. Try rephrasing, or you may repeat the command/request."
+    return "⚠️ I'm not fully sure. Try rephrasing/repeating."
 
 # =========================
-# 🎨 UI
+# UI
 # =========================
 st.markdown("""
 <style>
@@ -225,7 +231,7 @@ if st.sidebar.button("🗑 Delete Chat"):
 # HEADER
 # =========================
 st.title("🧠 SmartLoop AI")
-st.info("👋 Ask anything — math, science, English, or general knowledge.")
+st.info("Ask anything — math, science, English, or general knowledge.")
 
 # =========================
 # CHAT DISPLAY
