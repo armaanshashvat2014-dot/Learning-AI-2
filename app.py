@@ -1,5 +1,5 @@
 import streamlit as st
-import itertools, re, wikipedia
+import itertools, re, wikipedia, feedparser
 
 # =========================
 # API SETUP
@@ -27,7 +27,7 @@ def get_openai():
     return OpenAI(api_key=next(openai_cycle))
 
 # =========================
-# SESSION STATE
+# SESSION
 # =========================
 if "chats" not in st.session_state:
     st.session_state.chats = {"Chat 1": []}
@@ -39,88 +39,93 @@ if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
 # =========================
-# 🧠 SAFETY (TRUE / FALSE)
+# 🧠 SAFETY
 # =========================
 def is_safe(q):
 
-    ql = q.lower()
-
-    # ✅ obvious safe override
-    safe_patterns = [
-        "api key", "what is", "explain", "why", "how does",
-        "solve", "calculate", "define", "who is", "when"
-    ]
-
-    if any(p in ql for p in safe_patterns):
-        return True
-
-    # 🤖 AI classification (STRICT TRUE/FALSE)
     prompt = f"""
-Decide if this query is safe.
-
 Return ONLY one word:
 true = safe
-false = unsafe (harmful, illegal, dangerous)
+false = unsafe
 
 Query:
 {q}
 """
 
-    # Google
     try:
         c = get_google()
-        r = c.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        if r.text:
-            label = r.text.strip().lower()
-            return "true" in label
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        return "true" in r.text.lower()
     except:
         pass
 
-    # OpenAI fallback
     try:
         c = get_openai()
         r = c.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role":"user","content":prompt}]
         )
-        label = r.choices[0].message.content.strip().lower()
-        return "true" in label
+        return "true" in r.choices[0].message.content.lower()
     except:
         pass
 
-    # fallback safe
     return True
 
 # =========================
-# 🧮 MATH ENGINE
+# 🧮 MATH
 # =========================
 def extract_math(q):
-    matches = re.findall(r"[0-9\+\-\*/\^\(\)\.]+", q)
+    matches = re.findall(r"[0-9\+\-\*/\^\(\)\[\]\{\}\.]+", q)
     expr = "".join(matches)
-    return expr.replace("^","**") if expr else None
+
+    if not expr:
+        return None
+
+    expr = expr.replace("[", "(").replace("]", ")")
+    expr = expr.replace("{", "(").replace("}", ")")
+
+    return expr.replace("^", "**")
+
 
 def solve_math_steps(q):
+
     expr = extract_math(q)
     if not expr:
         return None
 
     try:
         original = expr.replace("**", "^")
-        steps = [f"Expression: {original}"]
 
-        if "(" in expr:
-            steps.append("Step 1: Solve brackets")
-        if "**" in expr:
-            steps.append("Step 2: Solve powers")
-        if "*" in expr or "/" in expr:
-            steps.append("Step 3: Multiply/Divide")
+        steps = []
+        steps.append(f"Expression: {original}")
 
-        steps.append("Step 4: Add/Subtract")
+        working = expr
 
-        result = eval(expr, {"__builtins__":None}, {})
+        # brackets
+        if "(" in working:
+            inner = re.findall(r"\([^()]+\)", working)
+            for part in inner:
+                val = eval(part, {"__builtins__":None}, {})
+                steps.append(f"Solve {part} → {val}")
+                working = working.replace(part, str(val), 1)
+
+        # powers
+        if "**" in working:
+            powers = re.findall(r"\d+\*\*\d+", working)
+            for p in powers:
+                val = eval(p, {"__builtins__":None}, {})
+                steps.append(f"{p.replace('**','^')} = {val}")
+                working = working.replace(p, str(val), 1)
+
+        # multiply/divide
+        md = re.findall(r"\d+[\*/]\d+", working)
+        for m in md:
+            val = eval(m, {"__builtins__":None}, {})
+            steps.append(f"{m} = {val}")
+            working = working.replace(m, str(val), 1)
+
+        # final
+        result = eval(working, {"__builtins__":None}, {})
         steps.append(f"Final Answer: {result}")
 
         return "🧮 Step-by-step:\n\n" + "\n".join(steps)
@@ -129,7 +134,34 @@ def solve_math_steps(q):
         return None
 
 # =========================
-# 🔎 WIKIPEDIA
+# 📰 NEWS
+# =========================
+def is_news_query(q):
+    ql = q.lower()
+    return any(word in ql for word in ["news","latest","headlines","current events"])
+
+def get_global_news():
+    feeds = [
+        "http://feeds.bbci.co.uk/news/rss.xml",
+        "http://feeds.reuters.com/reuters/topNews",
+        "http://rss.cnn.com/rss/edition.rss",
+        "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+    ]
+
+    headlines = []
+
+    for url in feeds:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:2]:
+                headlines.append(f"• {entry.title}")
+        except:
+            continue
+
+    return "📰 Latest Global News:\n\n" + "\n".join(headlines[:10])
+
+# =========================
+# 🔎 WIKI
 # =========================
 def search_wiki(q):
     try:
@@ -138,67 +170,55 @@ def search_wiki(q):
         return None
 
 # =========================
-# 🤖 AI ANSWER
+# 🤖 AI
 # =========================
 def ai_answer(q):
 
-    # 🔒 SAFETY FIRST
     if not is_safe(q):
-        return "⚠️ I can’t help with that. Let’s keep things safe and educational."
+        return "⚠️ I can’t help with that."
 
-    # 🧮 Math
-    math_steps = solve_math_steps(q)
-    if math_steps:
-        return math_steps
+    if is_news_query(q):
+        return get_global_news()
 
-    # 🧠 Reasoning
+    math = solve_math_steps(q)
+    if math:
+        return math
+
     prompt = f"""
-You are SmartLoop AI, a smart tutor.
-
-Rules:
-- Understand intent
-- Use logic and real-world reasoning
-- Be clear and correct
-- Do NOT generate random questions
+You are SmartLoop AI.
+Be logical, clear, correct.
+No random outputs.
 
 Question:
 {q}
 """
 
-    # Google
-    for _ in range(2):
-        try:
-            c = get_google()
-            r = c.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
-            if r.text:
-                return r.text
-        except:
-            pass
+    try:
+        c = get_google()
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        if r.text:
+            return r.text
+    except:
+        pass
 
-    # OpenAI
-    for _ in range(2):
-        try:
-            c = get_openai()
-            r = c.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role":"user","content":prompt}]
-            )
-            return r.choices[0].message.content
-        except:
-            pass
+    try:
+        c = get_openai()
+        r = c.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}]
+        )
+        return r.choices[0].message.content
+    except:
+        pass
 
-    # Wikipedia fallback
     wiki = search_wiki(q)
     if wiki:
         return "🌐 " + wiki
 
-    return "⚠️ I'm not fully sure. Try rephrasing/repeating."
+    return "⚠️ Not sure."
 
 # =========================
-# UI
+# UI STYLE
 # =========================
 st.markdown("""
 <style>
@@ -228,10 +248,26 @@ if st.sidebar.button("🗑 Delete Chat"):
         st.session_state.current_chat = list(st.session_state.chats.keys())[0]
 
 # =========================
-# HEADER
+# TITLE WITH BETA BADGE
 # =========================
-st.title("🧠 SmartLoop AI")
-st.info("Ask anything — math, science, English, or general knowledge.")
+st.markdown("""
+<h1 style="display:flex; align-items:center; gap:10px;">
+    🧠 SmartLoop AI
+    <span style="
+        background: linear-gradient(135deg, #ff4d6d, #7b2ff7);
+        color: white;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 0 0 10px rgba(255,77,109,0.6);
+    ">
+        BETA
+    </span>
+</h1>
+""", unsafe_allow_html=True)
+
+st.info("Now with real math solving + real news 🌍")
 
 # =========================
 # CHAT DISPLAY
