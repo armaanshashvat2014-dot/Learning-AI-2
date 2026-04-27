@@ -1,66 +1,78 @@
 import streamlit as st
-import re, math, os, itertools
+import re, math, os
 import PyPDF2
-from google import genai
-from openai import OpenAI
 
 # =========================
-# 🔑 SAFE API SETUP
+# 🎯 GRADE POPUP
 # =========================
-GOOGLE_KEYS = [
-    st.secrets.get("GOOGLE_API_KEY_1"),
-    st.secrets.get("GOOGLE_API_KEY_2"),
-    st.secrets.get("GOOGLE_API_KEY_3"),
-    st.secrets.get("GOOGLE_API_KEY_4")
-]
+if "grade" not in st.session_state:
+    st.session_state.grade = None
 
-OPENAI_KEYS = [
-    st.secrets.get("OPENAI_API_KEY_1"),
-    st.secrets.get("OPENAI_API_KEY_2"),
-    st.secrets.get("OPENAI_API_KEY_3")
-]
+if st.session_state.grade is None:
+    st.markdown("## 🎯 ACTIVE GRADE")
 
-GOOGLE_KEYS = [k for k in GOOGLE_KEYS if k]
-OPENAI_KEYS = [k for k in OPENAI_KEYS if k]
+    col1, col2 = st.columns([3,1])
+    with col1:
+        grade = st.selectbox("", ["Grade 6", "Grade 7", "Grade 8"])
+    with col2:
+        if st.button("▼"):
+            st.session_state.grade = int(grade.split()[1])
+            st.rerun()
 
-google_cycle = itertools.cycle(GOOGLE_KEYS) if GOOGLE_KEYS else None
-openai_cycle = itertools.cycle(OPENAI_KEYS) if OPENAI_KEYS else None
-
-def get_google():
-    if not google_cycle:
-        return None
-    try:
-        return genai.Client(api_key=next(google_cycle))
-    except:
-        return None
-
-def get_openai():
-    if not openai_cycle:
-        return None
-    try:
-        return OpenAI(api_key=next(openai_cycle))
-    except:
-        return None
+    st.stop()
 
 # =========================
-# 📄 LOAD ALL PDFs
+# 🎯 SHOW ACTIVE GRADE
 # =========================
-@st.cache_data
-def load_books():
-    text = ""
+st.markdown(f"### 🎯 ACTIVE GRADE: Grade {st.session_state.grade}")
+
+# =========================
+# 📄 LOAD BOOKS (FAST + FILTERED)
+# =========================
+@st.cache_data(show_spinner=False)
+def load_books(grade):
+    chunks = []
+
+    allowed = [grade]
+    if grade == 6:
+        allowed += [7]
+    elif grade == 7:
+        allowed += [8]
+    elif grade == 8:
+        allowed += [9]
 
     for file in os.listdir():
-        if file.endswith(".pdf"):
-            try:
-                reader = PyPDF2.PdfReader(file)
-                for page in reader.pages:
-                    text += (page.extract_text() or "") + "\n"
-            except:
+        if not file.endswith(".pdf"):
+            continue
+
+        file_lower = file.lower()
+
+        # Hindi exception
+        if "hindi" in file_lower:
+            if str(grade) not in file_lower:
+                continue
+        else:
+            if not any(str(g) in file_lower for g in allowed):
                 continue
 
-    return text.lower()
+        try:
+            reader = PyPDF2.PdfReader(file)
 
-PDF_TEXT = load_books()
+            for page in reader.pages:
+                text = page.extract_text() or ""
+
+                for line in text.split("\n"):
+                    line = line.strip().lower()
+
+                    if len(line) > 40:
+                        chunks.append(line)
+
+        except:
+            continue
+
+    return chunks
+
+PDF_CHUNKS = load_books(st.session_state.grade)
 
 # =========================
 # 🧠 CLEAN
@@ -82,23 +94,15 @@ def solve_math(q):
     return None
 
 # =========================
-# 📖 SMART DEFINITION SEARCH
+# 📖 SMART SEARCH (FINAL FIX)
 # =========================
 def defining(q):
-    if not PDF_TEXT:
-        return None
-
     keywords = [w for w in q.split() if len(w) > 3]
-    chunks = PDF_TEXT.split("\n")
 
     best = None
     best_score = 0
 
-    for chunk in chunks:
-        chunk = chunk.strip()
-
-        if len(chunk) < 40:
-            continue
+    for chunk in PDF_CHUNKS:
 
         # skip exercises
         if any(x in chunk for x in [
@@ -107,22 +111,32 @@ def defining(q):
         ]):
             continue
 
+        # reject broken OCR
+        if len(chunk.split()) < 6:
+            continue
+        if chunk.count(" ") < 5:
+            continue
+
+        # must contain keyword
         if not any(k in chunk for k in keywords):
             continue
 
         score = 0
 
-        # keyword match
         for k in keywords:
             if k in chunk:
                 score += 3
 
-        # strong definition patterns
+        # strong definition
         if chunk.startswith(("a decimal", "decimals are", "decimal numbers are")):
             score += 10
 
-        if any(x in chunk for x in [" is ", " are ", " means ", " refers to "]):
+        if any(x in chunk for x in [" is ", " are ", " means "]):
             score += 5
+
+        # reject nonsense
+        if "what is the" in chunk and "?" not in chunk:
+            continue
 
         if score > best_score:
             best_score = score
@@ -142,76 +156,28 @@ def fallback(q):
                 "Decimals are numbers that contain a decimal point. "
                 "They represent parts of a whole.\n\n"
                 "Example:\n0.5 = half\n1.25 = one and twenty-five hundredths.")
-
-    return None
-
-# =========================
-# 🤖 API BACKUP
-# =========================
-def api_answer(q):
-    prompt = f"Explain clearly for a student:\n{q}"
-
-    # Google
-    for _ in range(2):
-        c = get_google()
-        if c:
-            try:
-                r = c.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=prompt
-                )
-                if r.text:
-                    return r.text
-            except:
-                continue
-
-    # OpenAI
-    for _ in range(2):
-        c = get_openai()
-        if c:
-            try:
-                r = c.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role":"user","content":prompt}]
-                )
-                return r.choices[0].message.content
-            except:
-                continue
-
-    return None
+    return "⚠️ I couldn’t find a clear definition."
 
 # =========================
-# 🤖 MAIN AI
+# 🤖 MAIN
 # =========================
 def ai(q):
     q = clean(q)
 
-    # math
     math_res = solve_math(q)
     if math_res:
         return math_res
 
-    # PDF
-    pdf_res = defining(q)
-    if pdf_res:
-        return pdf_res
+    def_res = defining(q)
+    if def_res:
+        return def_res
 
-    # fallback knowledge
-    fb = fallback(q)
-    if fb:
-        return fb
-
-    # API
-    api_res = api_answer(q)
-    if api_res:
-        return api_res
-
-    return "⚠️ I couldn't find a good answer anywhere."
+    return fallback(q)
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot FINAL")
+st.title("🧠 SmartBot (Grade-Aware Learning)")
 
 q = st.text_input("Ask anything...")
 
