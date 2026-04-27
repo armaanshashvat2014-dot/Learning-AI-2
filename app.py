@@ -21,9 +21,6 @@ if st.session_state.grade is None:
 
     st.stop()
 
-# =========================
-# 🎯 SHOW ACTIVE GRADE
-# =========================
 st.markdown(f"### 🎯 ACTIVE GRADE: Grade {st.session_state.grade}")
 
 # =========================
@@ -63,7 +60,6 @@ def load_books(grade):
 
                 for line in text.split("\n"):
                     line = line.strip().lower()
-
                     if len(line) > 40:
                         chunks.append(line)
 
@@ -81,103 +77,116 @@ def clean(q):
     return q.lower().strip()
 
 # =========================
+# 🧠 UNDERSTAND INTENT
+# =========================
+def detect_intent(q):
+    if any(x in q for x in ["what is", "what are", "define", "meaning"]):
+        return "definition"
+
+    if re.fullmatch(r"[0-9+\-*/().\s^]+", q):
+        return "math"
+
+    return "general"
+
+# =========================
+# 🎯 EXTRACT TOPIC
+# =========================
+def extract_topic(q):
+    q = re.sub(r"what is|what are|define|meaning of|explain", "", q)
+    return q.strip()
+
+# =========================
+# 📖 TRUSTED KNOWLEDGE
+# =========================
+KNOWLEDGE = {
+    "decimals": "Decimals are numbers that contain a decimal point. They represent parts of a whole.\nExample: 0.5 = half, 1.25 = one and twenty-five hundredths.",
+    "fractions": "Fractions represent parts of a whole. Example: 1/2 means one out of two equal parts.",
+    "photosynthesis": "Photosynthesis is the process by which plants make food using sunlight, water, and carbon dioxide.",
+    "cell": "A cell is the smallest unit of life. All living things are made of cells.",
+    "sound": "Sound is a form of energy produced by vibrations and travels in waves."
+}
+
+# =========================
 # 🧮 MATH
 # =========================
 def solve_math(q):
     try:
-        if re.fullmatch(r"[0-9+\-*/().\s^]+", q):
-            q = q.replace("^", "**")
-            result = eval(q, {"__builtins__": None}, {})
-            return f"🧮 {q} = {result}"
+        q = q.replace("^", "**")
+        result = eval(q, {"__builtins__": None}, {})
+        return f"🧮 {q} = {result}"
     except:
-        pass
-    return None
+        return None
 
 # =========================
-# 📖 SMART SEARCH (FINAL FIX)
+# 📄 SAFE PDF SEARCH (ONLY SUPPORT)
 # =========================
-def defining(q):
-    keywords = [w for w in q.split() if len(w) > 3]
-
+def search_pdf(topic):
     best = None
     best_score = 0
 
     for chunk in PDF_CHUNKS:
 
-        # skip exercises
+        # skip junk
         if any(x in chunk for x in [
             "match","fill","answer","exercise",
             "write","solve","complete"
         ]):
             continue
 
-        # reject broken OCR
         if len(chunk.split()) < 6:
             continue
-        if chunk.count(" ") < 5:
-            continue
 
-        # must contain keyword
-        if not any(k in chunk for k in keywords):
+        if topic not in chunk:
             continue
 
         score = 0
 
-        for k in keywords:
-            if k in chunk:
-                score += 3
-
-        # strong definition
-        if chunk.startswith(("a decimal", "decimals are", "decimal numbers are")):
-            score += 10
-
-        if any(x in chunk for x in [" is ", " are ", " means "]):
+        if " is " in chunk or " are " in chunk:
             score += 5
 
-        # reject nonsense
-        if "what is the" in chunk and "?" not in chunk:
-            continue
+        score += chunk.count(topic) * 3
 
         if score > best_score:
             best_score = score
             best = chunk
 
     if best:
-        return "📖 Definition:\n" + best[:400]
+        return "📄 From Books:\n" + best[:300]
 
     return None
 
 # =========================
-# 🔁 FALLBACK
-# =========================
-def fallback(q):
-    if "decimal" in q:
-        return ("📖 Definition:\n"
-                "Decimals are numbers that contain a decimal point. "
-                "They represent parts of a whole.\n\n"
-                "Example:\n0.5 = half\n1.25 = one and twenty-five hundredths.")
-    return "⚠️ I couldn’t find a clear definition."
-
-# =========================
-# 🤖 MAIN
+# 🤖 MAIN AI
 # =========================
 def ai(q):
     q = clean(q)
 
-    math_res = solve_math(q)
-    if math_res:
-        return math_res
+    intent = detect_intent(q)
 
-    def_res = defining(q)
-    if def_res:
-        return def_res
+    # 🧮 math
+    if intent == "math":
+        res = solve_math(q)
+        if res:
+            return res
 
-    return fallback(q)
+    topic = extract_topic(q)
+
+    # 📖 trusted definitions FIRST
+    for key in KNOWLEDGE:
+        if key in topic:
+            return f"📖 Definition:\n{KNOWLEDGE[key]}"
+
+    # 📄 PDF (secondary)
+    pdf_res = search_pdf(topic)
+    if pdf_res:
+        return pdf_res
+
+    return "⚠️ I understand your question, but I couldn't find a clear answer."
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (Grade-Aware Learning)")
+st.title("🧠 SmartBot (Actually Understands)")
 
 q = st.text_input("Ask anything...")
 
