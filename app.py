@@ -1,10 +1,10 @@
 import streamlit as st
-import random, re, itertools
+import re, random, itertools
 from google import genai
 from openai import OpenAI
 
 # =========================
-# 🔑 MULTI API SYSTEM
+# 🔑 MULTI API SETUP
 # =========================
 GOOGLE_KEYS = [
     st.secrets["GOOGLE_API_KEY_1"],
@@ -79,15 +79,25 @@ def get_mode(q):
 # 🔥 QUALITY FILTER
 # =========================
 def is_bad(text):
-    bad = ["belongs to which subject", "which is important"]
+    if not text:
+        return True
+
+    bad_phrases = [
+        "belongs to which subject",
+        "which is important",
+        "what is important"
+    ]
+
     if len(text.split()) < 50:
         return True
-    if any(b in text.lower() for b in bad):
+
+    if any(p in text.lower() for p in bad_phrases):
         return True
+
     return False
 
 # =========================
-# 🔥 FALLBACK QUIZ (GOOD)
+# 🔥 STRONG FALLBACK
 # =========================
 def fallback(topic):
     return f"""Q1. Where in the plant cell does {topic} mainly occur?
@@ -129,23 +139,23 @@ def generate_quiz(q):
     grade = st.session_state.grade or 6
     mode = get_mode(q)
 
-    seed = random.randint(1,10000)
+    seed = random.randint(1, 10000)
 
     if mode == "questions":
         instruction = "DO NOT include answers."
     elif mode == "answers":
         instruction = "ONLY give answers like Q1: B"
     else:
-        instruction = "Include answers."
+        instruction = "Include both questions and answers."
 
     prompt = f"""
-Create a HIGH QUALITY 5 question quiz on {topic} for grade {grade}.
+Create a HIGH-QUALITY 5-question MCQ quiz on {topic} for grade {grade} students.
 
-Rules:
-- No basic questions
-- No repetition
-- Use Q1 format
-- MCQ with A B C D
+STRICT RULES:
+- No generic questions
+- Cover different concepts
+- Use Q1, A), B), C), D)
+- Make it interesting and educational
 
 Seed: {seed}
 
@@ -154,7 +164,7 @@ Seed: {seed}
 
     text = None
 
-    # TRY GOOGLE
+    # TRY GOOGLE (2 attempts)
     for _ in range(2):
         try:
             c = get_google()
@@ -184,46 +194,93 @@ Seed: {seed}
     if not text or is_bad(text):
         text = fallback(topic)
 
+    # SAVE MEMORY
     st.session_state.last_quiz = text
     st.session_state.last_topic = topic
 
-    return f"🧠 Quiz on {topic}:\n{text}"
+    text = text.replace("Q", "\nQ")
+
+    return f"🧠 Quiz on {topic}:\n{text.strip()}"
 
 # =========================
-# 🧠 ANSWERS
+# 🧠 ANSWERS HANDLER
 # =========================
 def get_answers():
     text = st.session_state.last_quiz
     if not text:
         return "⚠️ No quiz yet."
 
-    lines = [l for l in text.split("\n") if "Answer" in l]
+    answers = [l for l in text.split("\n") if "Answer" in l]
 
-    if not lines:
-        return "⚠️ This quiz had no stored answers."
+    if not answers:
+        return "⚠️ This quiz has no stored answers."
 
-    return "\n".join(lines)
+    return "🧠 Answers:\n" + "\n".join(answers)
 
 # =========================
-# 🤖 MAIN AI
+# 🧠 GENERAL Q&A
+# =========================
+def general_answer(q):
+    prompt = f"""
+Explain this clearly for a school student:
+
+{q}
+
+Rules:
+- Simple language
+- Short explanation
+- Give example if helpful
+"""
+
+    # GOOGLE FIRST
+    try:
+        c = get_google()
+        r = c.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        if r.text:
+            return r.text.strip()
+    except:
+        pass
+
+    # OPENAI FALLBACK
+    try:
+        c = get_openai()
+        r = c.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}]
+        )
+        return r.choices[0].message.content
+    except:
+        pass
+
+    return "⚠️ Couldn't answer that."
+
+# =========================
+# 🤖 MAIN AI ROUTER
 # =========================
 def ai(q):
-    q = clean(q)
+    q_clean = clean(q)
 
-    g = get_grade(q)
+    # 🎓 grade detection
+    g = get_grade(q_clean)
     if g:
         st.session_state.grade = g
         return f"✅ Grade {g} saved."
 
-    if "answer" in q:
+    # 📌 answers
+    if "answer" in q_clean:
         return get_answers()
 
-    if "quiz" in q:
+    # 🧠 quiz
+    if "quiz" in q_clean:
         if not st.session_state.grade:
             return "📚 Tell me your grade first."
-        return generate_quiz(q)
+        return generate_quiz(q_clean)
 
-    return "🤖 Ask me to make a quiz!"
+    # 💡 normal questions
+    return general_answer(q_clean)
 
 # =========================
 # 🎨 UI
