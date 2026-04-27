@@ -1,5 +1,5 @@
 import streamlit as st
-import itertools, re, wikipedia, feedparser, random
+import itertools, re, random, wikipedia, feedparser
 from google import genai
 from openai import OpenAI
 
@@ -10,7 +10,6 @@ GOOGLE_KEYS = [
     st.secrets["GOOGLE_API_KEY_1"],
     st.secrets["GOOGLE_API_KEY_2"]
 ]
-
 OPENAI_KEYS = [
     st.secrets["OPENAI_API_KEY_1"],
     st.secrets["OPENAI_API_KEY_2"]
@@ -37,6 +36,44 @@ if "current_chat" not in st.session_state:
 if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
+if "grade" not in st.session_state:
+    st.session_state.grade = None
+
+# =========================
+# 🧠 GRADE DETECTION
+# =========================
+def extract_grade(q):
+    ql = q.lower()
+    match = re.search(r"(\d+)\s*(st|nd|rd|th)?\s*(grade|graders)?", ql)
+    if match:
+        g = int(match.group(1))
+        if 1 <= g <= 12:
+            return g
+    return None
+
+# =========================
+# 🧠 TOPIC EXTRACTION
+# =========================
+def extract_topic(q):
+    ql = q.lower()
+
+    matches = re.findall(r"quiz on ([a-zA-Z\s]+)", ql)
+    topic = matches[-1] if matches else ql
+
+    stop_words = {
+        "make","easier","harder","later","regenerate",
+        "quiz","answers","only","for","grade","graders",
+        "and","it","the"
+    }
+
+    words = [w for w in topic.split() if w not in stop_words]
+    topic = " ".join(words)
+
+    if len(topic.strip()) < 3:
+        return "General Science"
+
+    return topic.strip().capitalize()
+
 # =========================
 # 🧠 QUIZ MODE
 # =========================
@@ -55,51 +92,7 @@ def detect_quiz_mode(q):
     return "questions_only"
 
 # =========================
-# 🧠 TOPIC EXTRACTION
-# =========================
-def extract_topic(q):
-    ql = q.lower()
-
-    matches = re.findall(r"quiz on ([a-zA-Z\s]+)", ql)
-
-    if matches:
-        topic = matches[-1]
-    else:
-        topic = ql
-
-    stop_words = [
-        "make","easier","later","regenerate",
-        "quiz","answers","only","for","grade","grader"
-    ]
-
-    words = [w for w in topic.split() if w not in stop_words]
-
-    topic = " ".join(words)
-
-    if not topic.strip():
-        return "General Knowledge"
-
-    return topic.strip().capitalize()
-
-# =========================
-# 🧠 DIFFICULTY
-# =========================
-def detect_difficulty(q):
-    ql = q.lower()
-
-    if "6th" in ql or "grade 6" in ql:
-        return "easy"
-
-    if "easy" in ql:
-        return "easy"
-
-    if "hard" in ql:
-        return "hard"
-
-    return "normal"
-
-# =========================
-# 🧮 MATH (WITH [] {})
+# 🧮 MATH SUPPORT
 # =========================
 def normalize_expression(expr):
     expr = expr.replace("[", "(").replace("]", ")")
@@ -135,35 +128,63 @@ def solve_math(q):
         return None
 
 # =========================
+# 🔥 FALLBACK QUIZ
+# =========================
+def fallback_quiz(topic):
+    return f"""🧠 Quiz on {topic}:
+
+Q1. {topic} is related to which subject?
+A) Physics
+B) Biology
+C) Math
+D) History
+
+Q2. Which factor is important in {topic}?
+A) Light
+B) Water
+C) Air
+D) All of these
+"""
+
+# =========================
 # 🧠 QUIZ GENERATOR
 # =========================
 def generate_quiz(q):
     topic = extract_topic(q)
     mode = detect_quiz_mode(q)
-    difficulty = detect_difficulty(q)
+    grade = st.session_state.grade or 6
+
+    # difficulty mapping
+    if grade <= 5:
+        level = "very simple"
+    elif grade <= 8:
+        level = "easy"
+    elif grade <= 10:
+        level = "medium"
+    else:
+        level = "advanced"
 
     seed = random.randint(1, 10000)
 
     if mode == "questions_only":
-        instruction = "DO NOT include answers. Only questions."
+        instruction = "DO NOT include answers."
 
     elif mode == "answers_only":
         instruction = "ONLY give answers like Q1: B"
 
     else:
-        instruction = "Include both questions and answers"
+        instruction = "Include both questions and answers."
 
     prompt = f"""
-Create a {difficulty} 5-question MCQ quiz on {topic}.
+Create a {level} 5-question MCQ quiz on {topic} for Grade {grade} students.
 
 Variation seed: {seed}
 
 Rules:
-- No repeated textbook questions
-- Make it interesting
+- No repetition
 - Use Q1, A), B), C), D)
-- It should be appropriate for student's grade (first ask grade), then generate quiz
-- It must test the core abilities of the subject
+- Keep language appropriate to grade
+
 {instruction}
 """
 
@@ -190,8 +211,8 @@ Rules:
         except:
             pass
 
-    if not text:
-        text = "⚠️ Couldn't generate quiz."
+    if not text or len(text.strip()) < 20:
+        return fallback_quiz(topic)
 
     return f"🧠 Quiz on {topic}:\n{text.strip()}"
 
@@ -204,22 +225,21 @@ def get_news():
     return "📰 Latest News:\n" + "\n".join(headlines)
 
 # =========================
-# 🌐 WIKI
-# =========================
-def search_wiki(q):
-    try:
-        return wikipedia.summary(q, 2)
-    except:
-        return None
-
-# =========================
 # 🤖 AI CORE
 # =========================
 def ai_answer(q):
 
+    # detect grade first
+    grade = extract_grade(q)
+    if grade:
+        st.session_state.grade = grade
+        return f"✅ Got it! Grade {grade} saved."
+
     ql = q.lower()
 
     if "quiz" in ql:
+        if st.session_state.grade is None:
+            return "📚 What grade are you in?"
         return generate_quiz(q)
 
     if "news" in ql or "latest" in ql:
@@ -228,21 +248,6 @@ def ai_answer(q):
     math = solve_math(q)
     if math:
         return math
-
-    try:
-        c = get_google()
-        r = c.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=q
-        )
-        if r.text:
-            return r.text.strip()
-    except:
-        pass
-
-    wiki = search_wiki(q)
-    if wiki:
-        return wiki
 
     return "⚠️ Not sure."
 
@@ -269,7 +274,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧠 SmartLoop AI")
-st.caption("Clean AI + Smart Quiz Modes 🚀")
+st.caption("Grade-aware Quiz + No Fail System 🚀")
 
 # =========================
 # CHAT DISPLAY
