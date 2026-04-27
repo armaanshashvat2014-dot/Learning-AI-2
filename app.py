@@ -1,6 +1,7 @@
 import streamlit as st
 import re, math, os
 import PyPDF2
+import wikipedia
 
 # =========================
 # 🎯 GRADE POPUP
@@ -9,13 +10,13 @@ if "grade" not in st.session_state:
     st.session_state.grade = None
 
 if st.session_state.grade is None:
-    st.markdown("## 🎯 ACTIVE GRADE")
+    st.markdown("## 🎯 Select Your Grade")
 
     col1, col2 = st.columns([3,1])
     with col1:
         grade = st.selectbox("", ["Grade 6", "Grade 7", "Grade 8"])
     with col2:
-        if st.button("▼"):
+        if st.button("OK"):
             st.session_state.grade = int(grade.split()[1])
             st.rerun()
 
@@ -24,7 +25,7 @@ if st.session_state.grade is None:
 st.markdown(f"### 🎯 ACTIVE GRADE: Grade {st.session_state.grade}")
 
 # =========================
-# 📄 LOAD BOOKS (FAST + FILTERED)
+# 📄 LOAD BOOKS (FAST)
 # =========================
 @st.cache_data(show_spinner=False)
 def load_books(grade):
@@ -77,7 +78,7 @@ def clean(q):
     return q.lower().strip()
 
 # =========================
-# 🧠 UNDERSTAND INTENT
+# 🧠 INTENT DETECTION
 # =========================
 def detect_intent(q):
     if any(x in q for x in ["what is", "what are", "define", "meaning"]):
@@ -96,14 +97,37 @@ def extract_topic(q):
     return q.strip()
 
 # =========================
-# 📖 TRUSTED KNOWLEDGE
+# 📚 CORE KNOWLEDGE (EXPANDABLE)
 # =========================
 KNOWLEDGE = {
-    "decimals": "Decimals are numbers that contain a decimal point. They represent parts of a whole.\nExample: 0.5 = half, 1.25 = one and twenty-five hundredths.",
+    # MATH
+    "indices": "Indices (powers) show how many times a number is multiplied by itself. Example: 2³ = 8.",
+    "decimals": "Decimals are numbers with a decimal point representing parts of a whole. Example: 0.5 = half.",
     "fractions": "Fractions represent parts of a whole. Example: 1/2 means one out of two equal parts.",
-    "photosynthesis": "Photosynthesis is the process by which plants make food using sunlight, water, and carbon dioxide.",
-    "cell": "A cell is the smallest unit of life. All living things are made of cells.",
-    "sound": "Sound is a form of energy produced by vibrations and travels in waves."
+    "percentage": "A percentage means 'out of 100'. Example: 50% = 50/100 = 0.5.",
+    "ratio": "A ratio compares two quantities. Example: 2:3.",
+    "algebra": "Algebra uses symbols (like x) to represent numbers.",
+    "equation": "An equation shows that two expressions are equal.",
+    "perimeter": "Perimeter is the total distance around a shape.",
+    "area": "Area is the space inside a shape.",
+    "volume": "Volume is the space inside a 3D object.",
+
+    # SCIENCE
+    "photosynthesis": "Plants make food using sunlight, water, and carbon dioxide.",
+    "cell": "A cell is the smallest unit of life.",
+    "sound": "Sound is energy from vibrations that travels as waves.",
+    "force": "Force is a push or pull.",
+    "energy": "Energy is the ability to do work.",
+    "gravity": "Gravity is the force that pulls objects toward Earth.",
+    "friction": "Friction is a force that opposes motion.",
+    "atom": "An atom is the smallest unit of matter.",
+    "molecule": "A molecule is made of atoms bonded together.",
+    "ecosystem": "An ecosystem is a community of living and non-living things.",
+
+    # GENERAL
+    "computer": "A computer is a machine that processes information.",
+    "internet": "The internet is a global network connecting computers.",
+    "data": "Data is information used for analysis or processing.",
 }
 
 # =========================
@@ -118,7 +142,7 @@ def solve_math(q):
         return None
 
 # =========================
-# 📄 SAFE PDF SEARCH (ONLY SUPPORT)
+# 📄 PDF SEARCH (SECONDARY)
 # =========================
 def search_pdf(topic):
     best = None
@@ -126,25 +150,19 @@ def search_pdf(topic):
 
     for chunk in PDF_CHUNKS:
 
-        # skip junk
         if any(x in chunk for x in [
             "match","fill","answer","exercise",
             "write","solve","complete"
         ]):
             continue
 
-        if len(chunk.split()) < 6:
-            continue
-
         if topic not in chunk:
             continue
 
-        score = 0
+        score = chunk.count(topic)
 
         if " is " in chunk or " are " in chunk:
-            score += 5
-
-        score += chunk.count(topic) * 3
+            score += 3
 
         if score > best_score:
             best_score = score
@@ -156,14 +174,22 @@ def search_pdf(topic):
     return None
 
 # =========================
+# 🌍 WIKIPEDIA FALLBACK (1000+ topics)
+# =========================
+def wiki_answer(topic):
+    try:
+        return "🌍 " + wikipedia.summary(topic, sentences=2)
+    except:
+        return None
+
+# =========================
 # 🤖 MAIN AI
 # =========================
 def ai(q):
     q = clean(q)
-
     intent = detect_intent(q)
 
-    # 🧮 math
+    # math
     if intent == "math":
         res = solve_math(q)
         if res:
@@ -171,22 +197,27 @@ def ai(q):
 
     topic = extract_topic(q)
 
-    # 📖 trusted definitions FIRST
+    # core knowledge FIRST
     for key in KNOWLEDGE:
-        if key in topic:
+        if key in topic or topic in key:
             return f"📖 Definition:\n{KNOWLEDGE[key]}"
 
-    # 📄 PDF (secondary)
+    # PDF
     pdf_res = search_pdf(topic)
     if pdf_res:
         return pdf_res
 
-    return "⚠️ I understand your question, but I couldn't find a clear answer."
+    # Wikipedia (infinite knowledge)
+    wiki_res = wiki_answer(topic)
+    if wiki_res:
+        return wiki_res
+
+    return "⚠️ I understand the question but couldn't find a clear answer."
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (Actually Understands)")
+st.title("🧠 SmartBot (Real Understanding Mode)")
 
 q = st.text_input("Ask anything...")
 
