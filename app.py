@@ -1,6 +1,7 @@
 import streamlit as st
 import re, math, os
 import PyPDF2
+import wikipedia
 
 # =========================
 # 📄 LOAD ALL PDFs
@@ -23,7 +24,7 @@ def load_all_pdfs():
 PDF_TEXT = load_all_pdfs()
 
 # =========================
-# 🧠 CLEAN
+# 🧠 CLEAN INPUT
 # =========================
 def clean(q):
     return q.lower().strip()
@@ -48,18 +49,37 @@ def search_pdf(q):
     if not PDF_TEXT:
         return None
 
-    words = q.split()
+    # remove useless words
+    stopwords = {
+        "what","is","are","the","a","an","of","in","on",
+        "for","to","and","explain","define"
+    }
+
+    words = [w for w in q.lower().split() if w not in stopwords]
+
+    if not words:
+        return None
+
+    chunks = PDF_TEXT.split("\n")
 
     best_match = None
     best_score = 0
 
-    # scan chunks
-    chunks = PDF_TEXT.split("\n")
-
     for chunk in chunks:
-        score = sum(word in chunk for word in words)
+        if len(chunk) < 40:
+            continue
 
-        if score > best_score and len(chunk) > 50:
+        score = 0
+
+        for word in words:
+            if word in chunk:
+                score += 3
+
+        # prefer definition-style sentences
+        if any(x in chunk for x in [" is ", " are ", " means ", " refers to "]):
+            score += 2
+
+        if score > best_score:
             best_score = score
             best_match = chunk
 
@@ -69,7 +89,16 @@ def search_pdf(q):
     return None
 
 # =========================
-# 🤖 MAIN
+# 🌍 WIKIPEDIA (OPTIONAL)
+# =========================
+def wiki_answer(q):
+    try:
+        return "🌍 " + wikipedia.summary(q, sentences=2)
+    except:
+        return None
+
+# =========================
+# 🤖 MAIN AI
 # =========================
 def ai(q):
     q = clean(q)
@@ -79,17 +108,22 @@ def ai(q):
     if math_res:
         return math_res
 
-    # 🔥 PDF SEARCH (MAIN BRAIN)
+    # PDF search
     pdf_res = search_pdf(q)
     if pdf_res:
         return pdf_res
 
-    return "⚠️ Not found in books."
+    # Wikipedia fallback
+    wiki_res = wiki_answer(q)
+    if wiki_res:
+        return wiki_res
+
+    return "⚠️ I couldn't find a clear answer."
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (All Books Mode)")
+st.title("🧠 SmartBot (All Books + Smart Search)")
 
 q = st.text_input("Ask anything...")
 
@@ -97,6 +131,6 @@ if q:
     st.write("🧑", q)
 
     with st.spinner("🤖 Thinking..."):
-        ans = ai(q)
+        answer = ai(q)
 
-    st.write("🤖", ans)
+    st.write("🤖", answer)
