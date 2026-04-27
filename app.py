@@ -3,13 +3,6 @@ import re, random, itertools, math
 from google import genai
 from openai import OpenAI
 
-# OPTIONAL (for algebra)
-try:
-    from sympy import symbols, Eq, solve
-    SYMPY_AVAILABLE = True
-except:
-    SYMPY_AVAILABLE = False
-
 # =========================
 # 🔑 API SETUP
 # =========================
@@ -42,7 +35,7 @@ if "last_quiz" not in st.session_state:
     st.session_state.last_quiz = ""
 
 # =========================
-# 🧠 CLEAN INPUT
+# 🧠 CLEAN
 # =========================
 def clean(q):
     return q.lower().strip()
@@ -61,6 +54,12 @@ def get_grade(q):
 # =========================
 # 🧮 MATH ENGINE
 # =========================
+try:
+    from sympy import symbols, Eq, solve, sympify
+    SYMPY = True
+except:
+    SYMPY = False
+
 def normalize_expr(q):
     q = q.replace("^", "**")
     q = q.replace("[", "(").replace("]", ")")
@@ -71,14 +70,33 @@ def factorial_handler(expr):
     return re.sub(r"(\d+)!", r"math.factorial(\1)", expr)
 
 def solve_algebra(q):
-    if "=" not in q or not SYMPY_AVAILABLE:
+    if "=" not in q or not SYMPY:
         return None
+
     try:
-        x = symbols('x')
+        q = q.replace(" ", "")
+
+        # detect variable
+        var_match = re.search(r"[a-zA-Z]", q)
+        if not var_match:
+            return None
+
+        var_name = var_match.group()
+        var = symbols(var_name)
+
+        # implicit multiplication fixes
+        q = re.sub(r"(\d)([a-zA-Z])", r"\1*\2", q)
+        q = re.sub(r"([a-zA-Z])(\d)", r"\1*\2", q)
+
         left, right = q.split("=")
-        eq = Eq(eval(left), eval(right))
-        sol = solve(eq, x)
-        return f"🧮 x = {sol[0]}"
+
+        eq = Eq(sympify(left), sympify(right))
+        sol = solve(eq, var)
+
+        if sol:
+            return f"🧮 {var_name} = {sol[0]}"
+        return "⚠️ No solution."
+
     except:
         return None
 
@@ -91,7 +109,7 @@ def solve_math(q):
     if algebra:
         return algebra
 
-    # replace x with * ONLY if not algebra
+    # multiplication symbol
     if "=" not in q:
         q = q.replace("x", "*")
 
@@ -109,44 +127,53 @@ def solve_math(q):
         return None
 
 # =========================
-# 🧠 TOPIC
+# 🧠 QUIZ SYSTEM
 # =========================
 def get_topic(q):
     m = re.findall(r"quiz on ([a-z\s]+)", q)
     return m[-1].strip().capitalize() if m else "General Science"
 
-# =========================
-# 🧠 MODE
-# =========================
-def get_mode(q):
-    if "answers" in q and "quiz" in q:
-        return "qa"
-    if "answers" in q:
-        return "answers"
-    return "questions"
+def generate_quiz(q):
+    topic = get_topic(q)
+    grade = st.session_state.grade or 6
 
-# =========================
-# 🔥 FALLBACK QUIZ
-# =========================
-def fallback_quiz(topic):
-    return f"""Q1. Where does {topic} occur in plant cells?
-A) Nucleus
-B) Chloroplast
-C) Ribosome
-D) Cytoplasm
-
-Q2. Which gas is used?
-A) Oxygen
-B) Carbon dioxide
-C) Nitrogen
-D) Hydrogen
+    prompt = f"""
+Create a 5-question MCQ quiz on {topic} for grade {grade}.
+Use Q1 format with A B C D.
 """
+
+    text = None
+
+    try:
+        c = get_google()
+        r = c.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        text = r.text
+    except:
+        pass
+
+    if not text:
+        text = f"""Q1. What is {topic}?
+A) Option1
+B) Option2
+C) Option3
+D) Option4"""
+
+    st.session_state.last_quiz = text
+    return f"🧠 Quiz on {topic}:\n{text}"
+
+def get_answers():
+    text = st.session_state.last_quiz
+    answers = [l for l in text.split("\n") if "Answer" in l]
+    return "\n".join(answers) if answers else "⚠️ No answers stored."
 
 # =========================
 # 🧠 GENERAL ANSWER
 # =========================
 def general_answer(q):
-    prompt = f"Explain simply for a student:\n{q}"
+    prompt = f"Explain simply:\n{q}"
 
     for _ in range(2):
         try:
@@ -174,55 +201,16 @@ def general_answer(q):
     return "⚠️ Try again."
 
 # =========================
-# 🧠 QUIZ
-# =========================
-def generate_quiz(q):
-    topic = get_topic(q)
-    grade = st.session_state.grade or 6
-
-    prompt = f"""
-Create a 5-question MCQ quiz on {topic} for grade {grade}.
-Use Q1 format with A B C D.
-"""
-
-    text = None
-
-    try:
-        c = get_google()
-        r = c.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        text = r.text
-    except:
-        pass
-
-    if not text:
-        text = fallback_quiz(topic)
-
-    st.session_state.last_quiz = text
-    return f"🧠 Quiz on {topic}:\n{text}"
-
-# =========================
-# 🧠 ANSWERS
-# =========================
-def get_answers():
-    text = st.session_state.last_quiz
-    answers = [l for l in text.split("\n") if "Answer" in l]
-    return "\n".join(answers) if answers else "⚠️ No answers."
-
-# =========================
 # 🤖 MAIN AI
 # =========================
 def ai(q):
     q = clean(q)
 
-    # grade
     g = get_grade(q)
     if g:
         st.session_state.grade = g
 
-    # 🔥 math first
+    # math first
     math_res = solve_math(q)
     if math_res:
         return math_res
@@ -240,7 +228,7 @@ def ai(q):
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (Math + AI)")
+st.title("🧠 SmartBot BETA")
 
 q = st.text_input("Ask anything...")
 
