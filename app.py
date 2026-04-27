@@ -1,10 +1,17 @@
 import streamlit as st
-import re, random, itertools
+import re, random, itertools, math
 from google import genai
 from openai import OpenAI
 
+# OPTIONAL (for algebra)
+try:
+    from sympy import symbols, Eq, solve
+    SYMPY_AVAILABLE = True
+except:
+    SYMPY_AVAILABLE = False
+
 # =========================
-# 🔑 MULTI API SETUP
+# 🔑 API SETUP
 # =========================
 GOOGLE_KEYS = [
     st.secrets["GOOGLE_API_KEY_1"],
@@ -35,13 +42,13 @@ if "last_quiz" not in st.session_state:
     st.session_state.last_quiz = ""
 
 # =========================
-# 🧠 INPUT (DON’T OVER-CLEAN)
+# 🧠 CLEAN INPUT
 # =========================
 def clean(q):
     return q.lower().strip()
 
 # =========================
-# 🧠 GRADE DETECTION
+# 🧠 GRADE
 # =========================
 def get_grade(q):
     m = re.search(r"(\d+)", q)
@@ -52,7 +59,57 @@ def get_grade(q):
     return None
 
 # =========================
-# 🧠 TOPIC EXTRACTION
+# 🧮 MATH ENGINE
+# =========================
+def normalize_expr(q):
+    q = q.replace("^", "**")
+    q = q.replace("[", "(").replace("]", ")")
+    q = q.replace("{", "(").replace("}", ")")
+    return q
+
+def factorial_handler(expr):
+    return re.sub(r"(\d+)!", r"math.factorial(\1)", expr)
+
+def solve_algebra(q):
+    if "=" not in q or not SYMPY_AVAILABLE:
+        return None
+    try:
+        x = symbols('x')
+        left, right = q.split("=")
+        eq = Eq(eval(left), eval(right))
+        sol = solve(eq, x)
+        return f"🧮 x = {sol[0]}"
+    except:
+        return None
+
+def solve_math(q):
+    original = q
+    q = normalize_expr(q)
+
+    # algebra first
+    algebra = solve_algebra(q)
+    if algebra:
+        return algebra
+
+    # replace x with * ONLY if not algebra
+    if "=" not in q:
+        q = q.replace("x", "*")
+
+    # factorial
+    q = factorial_handler(q)
+
+    # safe filter
+    if not re.fullmatch(r"[0-9+\-*/().\s%*mathfactorial]+", q):
+        return None
+
+    try:
+        result = eval(q, {"__builtins__": None, "math": math}, {})
+        return f"🧮 {original} = {result}"
+    except:
+        return None
+
+# =========================
+# 🧠 TOPIC
 # =========================
 def get_topic(q):
     m = re.findall(r"quiz on ([a-z\s]+)", q)
@@ -69,23 +126,10 @@ def get_mode(q):
     return "questions"
 
 # =========================
-# 🔥 QUALITY CHECK
-# =========================
-def is_bad(text):
-    if not text:
-        return True
-    bad = ["belongs to which subject", "which is important"]
-    if len(text.split()) < 50:
-        return True
-    if any(b in text.lower() for b in bad):
-        return True
-    return False
-
-# =========================
 # 🔥 FALLBACK QUIZ
 # =========================
 def fallback_quiz(topic):
-    return f"""Q1. Where does {topic} mainly occur in plant cells?
+    return f"""Q1. Where does {topic} occur in plant cells?
 A) Nucleus
 B) Chloroplast
 C) Ribosome
@@ -96,156 +140,67 @@ A) Oxygen
 B) Carbon dioxide
 C) Nitrogen
 D) Hydrogen
-
-Q3. What is produced?
-A) Protein
-B) Glucose
-C) Fat
-D) Minerals
-
-Q4. What absorbs sunlight?
-A) Chlorophyll
-B) Hemoglobin
-C) DNA
-D) Enzyme
-
-Q5. Why is sunlight needed?
-A) Energy
-B) Cooling
-C) Movement
-D) Growth
 """
-
-# =========================
-# 🧠 OFFLINE EXPLAIN (STRONG)
-# =========================
-def offline_explain(q):
-    q = q.lower()
-
-    if "sound" in q:
-        return ("Sound is a type of energy produced by vibrations. "
-                "When something vibrates, it creates waves in the air that reach our ears.")
-
-    if "cell" in q:
-        return ("A cell is the smallest unit of life. All living things are made of cells.")
-
-    if "indices" in q or "powers" in q:
-        return ("Indices (powers) show how many times a number is multiplied by itself.\n\n"
-                "Example:\n2³ = 2 × 2 × 2 = 8")
-
-    if "photosynthesis" in q:
-        return ("Photosynthesis is how plants make food using sunlight, water, and carbon dioxide.")
-
-    return "⚠️ I couldn’t reach AI right now. Try again in a moment."
 
 # =========================
 # 🧠 GENERAL ANSWER
 # =========================
 def general_answer(q):
-    prompt = f"""
-Explain clearly for a student:
+    prompt = f"Explain simply for a student:\n{q}"
 
-{q}
-
-- simple
-- accurate
-- include example if useful
-"""
-
-    # Try Google (3x)
-    for _ in range(3):
+    for _ in range(2):
         try:
             c = get_google()
             r = c.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt
             )
-            if r.text and len(r.text.strip()) > 20:
+            if r.text:
                 return r.text.strip()
         except:
-            continue
+            pass
 
-    # Try OpenAI (3x)
-    for _ in range(3):
+    for _ in range(2):
         try:
             c = get_openai()
             r = c.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role":"user","content":prompt}]
             )
-            text = r.choices[0].message.content
-            if text and len(text.strip()) > 20:
-                return text.strip()
+            return r.choices[0].message.content
         except:
-            continue
+            pass
 
-    return offline_explain(q)
+    return "⚠️ Try again."
 
 # =========================
-# 🧠 QUIZ GENERATOR
+# 🧠 QUIZ
 # =========================
 def generate_quiz(q):
     topic = get_topic(q)
     grade = st.session_state.grade or 6
-    mode = get_mode(q)
-
-    seed = random.randint(1, 9999)
-
-    if mode == "questions":
-        instruction = "DO NOT include answers."
-    elif mode == "answers":
-        instruction = "ONLY give answers like Q1: B"
-    else:
-        instruction = "Include answers."
 
     prompt = f"""
-Create a HIGH QUALITY 5-question MCQ quiz on {topic} for grade {grade}.
-
-Rules:
-- No generic questions
-- Use Q1 format
-- A B C D options
-- Cover different ideas
-
-Seed: {seed}
-
-{instruction}
+Create a 5-question MCQ quiz on {topic} for grade {grade}.
+Use Q1 format with A B C D.
 """
 
     text = None
 
-    # Google first
-    for _ in range(2):
-        try:
-            c = get_google()
-            r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-            if r.text and not is_bad(r.text):
-                text = r.text
-                break
-        except:
-            continue
-
-    # OpenAI fallback
-    if not text:
-        for _ in range(2):
-            try:
-                c = get_openai()
-                r = c.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role":"user","content":prompt}]
-                )
-                if r.choices[0].message.content:
-                    text = r.choices[0].message.content
-                    break
-            except:
-                continue
+    try:
+        c = get_google()
+        r = c.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        text = r.text
+    except:
+        pass
 
     if not text:
         text = fallback_quiz(topic)
 
     st.session_state.last_quiz = text
-    text = text.replace("Q", "\nQ")
-
     return f"🧠 Quiz on {topic}:\n{text}"
 
 # =========================
@@ -253,37 +208,39 @@ Seed: {seed}
 # =========================
 def get_answers():
     text = st.session_state.last_quiz
-    if not text:
-        return "⚠️ No quiz yet."
-
     answers = [l for l in text.split("\n") if "Answer" in l]
-    return "\n".join(answers) if answers else "⚠️ No answers stored."
+    return "\n".join(answers) if answers else "⚠️ No answers."
 
 # =========================
-# 🤖 MAIN ROUTER
+# 🤖 MAIN AI
 # =========================
 def ai(q):
-    q_clean = clean(q)
+    q = clean(q)
 
-    # Save grade but DON’T stop
-    g = get_grade(q_clean)
+    # grade
+    g = get_grade(q)
     if g:
         st.session_state.grade = g
 
-    if "answer" in q_clean:
+    # 🔥 math first
+    math_res = solve_math(q)
+    if math_res:
+        return math_res
+
+    if "answer" in q:
         return get_answers()
 
-    if "quiz" in q_clean:
+    if "quiz" in q:
         if not st.session_state.grade:
-            return "📚 Tell me your grade first."
-        return generate_quiz(q_clean)
+            return "📚 Tell me your grade."
+        return generate_quiz(q)
 
-    return general_answer(q_clean)
+    return general_answer(q)
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (Stable Mode)")
+st.title("🧠 SmartBot (Math + AI)")
 
 q = st.text_input("Ask anything...")
 
