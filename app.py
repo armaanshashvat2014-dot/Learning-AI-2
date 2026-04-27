@@ -1,5 +1,5 @@
 import streamlit as st
-import itertools, re, feedparser
+import itertools, re, feedparser, wikipedia, uuid
 
 from google import genai
 from openai import OpenAI
@@ -10,7 +10,7 @@ from openai import OpenAI
 st.set_page_config(page_title="SmartLoop AI", page_icon="🧠", layout="wide")
 
 # =========================
-# API SETUP
+# API
 # =========================
 GOOGLE_KEYS = [st.secrets["GOOGLE_API_KEY_1"], st.secrets["GOOGLE_API_KEY_2"]]
 OPENAI_KEYS = [st.secrets["OPENAI_API_KEY_1"], st.secrets["OPENAI_API_KEY_2"]]
@@ -46,13 +46,13 @@ with st.sidebar:
     st.markdown("## 👋 Welcome Back")
 
     st.session_state.grade = st.selectbox(
-        "🎯 Choose Grade",
-        [f"Grade {i}" for i in range(1,11)],
+        "🎯 Grade",
+        [f"Grade {i}" for i in range(1, 11)],
         index=5
     )
 
     if st.button("➕ New Chat"):
-        name = f"Chat {len(st.session_state.chats)+1}"
+        name = f"Chat {str(uuid.uuid4())[:6]}"
         st.session_state.chats[name] = []
         st.session_state.current_chat = name
         st.rerun()
@@ -60,7 +60,7 @@ with st.sidebar:
     st.markdown("### 💬 Chats")
 
     for chat in list(st.session_state.chats.keys()):
-        col1, col2 = st.columns([0.8,0.2])
+        col1, col2 = st.columns([0.8, 0.2])
 
         if col1.button(chat):
             st.session_state.current_chat = chat
@@ -73,31 +73,47 @@ with st.sidebar:
                 st.rerun()
 
 # =========================
-# 🧠 DETECTION
+# 🧠 BASIC DEFINITIONS (SMART FIX)
+# =========================
+def basic_definitions(q):
+
+    ql = q.lower()
+
+    if "integer" in ql:
+        return """📘 **Integers**
+
+Integers are whole numbers:
+• Positive → 1, 2, 3  
+• Negative → -1, -2, -3  
+• Zero → 0  
+
+❌ No fractions or decimals.
+"""
+
+    if "fraction" in ql:
+        return "A fraction represents a part of a whole (like 1/2)."
+
+    if "multiplication" in ql:
+        return "Multiplication means repeated addition."
+
+    return None
+
+# =========================
+# QUIZ
 # =========================
 def is_quiz(q):
     return "quiz" in q.lower()
 
-def is_math(q):
-    return any(w in q.lower() for w in ["+", "-", "*", "/", "^"])
-
-def is_news(q):
-    return "news" in q.lower()
-
-# =========================
-# QUIZ GENERATOR 🔥
-# =========================
 def generate_quiz(topic):
-
     return f"""📝 **Quiz on {topic}**
 
-1. What is 6 × 4?
-2. What is 9 × 3?
-3. What is 7 × 8?
-4. What is 12 × 5?
-5. What is 11 × 6?
+1. 6 × 4 = ?
+2. 9 × 3 = ?
+3. 7 × 8 = ?
+4. 12 × 5 = ?
+5. 11 × 6 = ?
 
-👉 Try solving them!"""
+Try solving them!"""
 
 # =========================
 # MATH
@@ -113,6 +129,9 @@ def solve_math(q):
 # =========================
 # NEWS
 # =========================
+def is_news(q):
+    return "news" in q.lower()
+
 def get_news():
     feed = feedparser.parse("https://news.google.com/rss")
     return "📰 Latest News:\n\n" + "\n".join([f"• {e.title}" for e in feed.entries[:8]])
@@ -122,9 +141,14 @@ def get_news():
 # =========================
 def ai_answer(q, history):
 
-    # 🔥 QUIZ FIX
+    # 📘 definitions first
+    definition = basic_definitions(q)
+    if definition:
+        return definition
+
+    # 📝 quiz
     if is_quiz(q):
-        return generate_quiz(q.replace("quiz on","").strip())
+        return generate_quiz(q.replace("quiz on",""))
 
     # 📰 news
     if is_news(q):
@@ -135,14 +159,12 @@ def ai_answer(q, history):
     if math:
         return math
 
-    # 🧠 AI MAIN
+    # 🧠 AI (main)
     prompt = f"""
 You are SmartLoop AI.
-
 Student grade: {st.session_state.grade}
 
 Answer clearly and correctly.
-Do NOT hallucinate.
 """
 
     try:
@@ -161,7 +183,11 @@ Do NOT hallucinate.
     except:
         pass
 
-    return "⚠️ Could not answer."
+    # 🌐 fallback
+    try:
+        return "🌐 " + wikipedia.summary(q, 2)
+    except:
+        return "⚠️ Could not answer."
 
 # =========================
 # MAIN UI
