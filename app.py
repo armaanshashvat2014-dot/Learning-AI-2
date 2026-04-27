@@ -126,14 +126,19 @@ def generate_quiz(q):
         instruction = "Include both questions and answers."
 
     prompt = f"""
-Create a 5-question quiz on {topic} for grade {grade} students.
+Create a HIGH-QUALITY 5-question MCQ quiz on {topic} for grade {grade} students.
 
 Seed: {seed}
 
 Rules:
 - Clear MCQs
 - A, B, C, D options
-- Simple language
+- Questions must NOT be generic
+- Cover different concepts
+- Avoid obvious textbook questions
+- Each question must test understanding
+- Use Q1, A), B), C), D)
+- Keep it engaging and varied
 {instruction}
 """
 
