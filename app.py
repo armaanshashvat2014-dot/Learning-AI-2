@@ -1,13 +1,12 @@
 import streamlit as st
 import re, math, os
 import PyPDF2
-import wikipedia
 
 # =========================
-# 📄 LOAD ALL PDFs
+# 📄 LEARNING: LOAD BOOKS
 # =========================
 @st.cache_data
-def load_all_pdfs():
+def learning_books():
     text = ""
 
     for file in os.listdir():
@@ -21,16 +20,16 @@ def load_all_pdfs():
 
     return text.lower()
 
-PDF_TEXT = load_all_pdfs()
+PDF_TEXT = learning_books()
 
 # =========================
-# 🧠 CLEAN INPUT
+# 🧠 UNDERSTANDING INPUT
 # =========================
 def clean(q):
     return q.lower().strip()
 
 # =========================
-# 🧮 MATH
+# 🧮 SIMPLIFYING (MATH)
 # =========================
 def solve_math(q):
     try:
@@ -43,94 +42,97 @@ def solve_math(q):
     return None
 
 # =========================
-# 📄 SMART PDF SEARCH
+# 📖 DEFINING (SMART SEARCH)
 # =========================
-def search_pdf(q):
+def defining(q):
     if not PDF_TEXT:
         return None
 
-    # remove useless words
     stopwords = {
         "what","is","are","the","a","an","of","in","on",
         "for","to","and","explain","define"
     }
 
-    words = [w for w in q.lower().split() if w not in stopwords]
-
-    if not words:
-        return None
+    keywords = [w for w in q.split() if w not in stopwords]
 
     chunks = PDF_TEXT.split("\n")
 
-    best_match = None
+    best = None
     best_score = 0
 
     for chunk in chunks:
-        if len(chunk) < 40:
+        if len(chunk) < 50:
+            continue
+
+        # ❌ ignore exercise/instruction lines
+        if any(x in chunk for x in [
+            "match", "fill", "answer", "exercise",
+            "write", "solve", "complete"
+        ]):
             continue
 
         score = 0
 
-        for word in words:
+        # keyword match
+        for word in keywords:
             if word in chunk:
                 score += 3
 
-        # prefer definition-style sentences
-        if any(x in chunk for x in [" is ", " are ", " means ", " refers to "]):
-            score += 2
+        # 🔥 strong preference for definitions
+        if any(x in chunk for x in [
+            " is ", " are ", " means ", " refers to "
+        ]):
+            score += 5
 
         if score > best_score:
             best_score = score
-            best_match = chunk
+            best = chunk
 
-    if best_match:
-        return "📄 From Books:\n" + best_match[:400]
+    if best:
+        return "📖 Definition:\n" + best[:400]
 
     return None
 
 # =========================
-# 🌍 WIKIPEDIA (OPTIONAL)
+# 🔁 RETESTING (FALLBACK)
 # =========================
-def wiki_answer(q):
-    try:
-        return "🌍 " + wikipedia.summary(q, sentences=2)
-    except:
-        return None
+def fallback(q):
+    if "decimal" in q:
+        return ("Decimals are numbers that include a decimal point.\n\n"
+                "Example:\n0.5 means half\n1.25 means one and twenty-five hundredths.")
+
+    return "⚠️ I couldn’t find a clear definition."
 
 # =========================
-# 🤖 MAIN AI
+# 🤖 MAIN
 # =========================
 def ai(q):
     q = clean(q)
 
-    # math first
+    # simplifying
     math_res = solve_math(q)
     if math_res:
         return math_res
 
-    # PDF search
-    pdf_res = search_pdf(q)
-    if pdf_res:
-        return pdf_res
+    # defining
+    def_res = defining(q)
+    if def_res:
+        return def_res
 
-    # Wikipedia fallback
-    wiki_res = wiki_answer(q)
-    if wiki_res:
-        return wiki_res
-
-    return "⚠️ I couldn't find a clear answer."
+    # retesting fallback
+    return fallback(q)
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (All Books + Smart Search)")
+st.title("🧠 SmartBot (Learning Mode)")
 
-q = st.text_input("Ask anything...")
+q = st.text_input("Ask anything... Know everything")
 
 if q:
     st.write("🧑", q)
 
-    with st.spinner("🤖 Thinking..."):
+    with st.spinner("🧠 thinking..."):
         answer = ai(q)
 
     st.write("🤖", answer)
