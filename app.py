@@ -1,10 +1,11 @@
 import streamlit as st
-import re, math, os
+import re, os
 import PyPDF2
-import wikipedia
-from google import genai
-from openai import OpenAI
 import itertools
+from concurrent.futures import ThreadPoolExecutor
+
+from openai import OpenAI
+from google import genai
 
 # =========================
 # 🎯 GRADE POPUP
@@ -13,24 +14,18 @@ if "grade" not in st.session_state:
     st.session_state.grade = None
 
 if st.session_state.grade is None:
-    st.markdown("## 🎯 Select Your Grade")
-
-    col1, col2 = st.columns([3,1])
-    with col1:
-        grade = st.selectbox("", ["Grade 6", "Grade 7", "Grade 8"])
-    with col2:
-        if st.button("OK"):
-            st.session_state.grade = int(grade.split()[1])
-            st.rerun()
-
+    grade = st.selectbox("Select Grade", ["Grade 6","Grade 7","Grade 8"])
+    if st.button("OK"):
+        st.session_state.grade = int(grade.split()[1])
+        st.rerun()
     st.stop()
 
-st.markdown(f"### 🎯 ACTIVE GRADE: Grade {st.session_state.grade}")
+st.write(f"🎯 Grade {st.session_state.grade}")
 
 # =========================
-# 📄 LOAD BOOKS (FAST + FILTERED)
+# 📄 LOAD BOOKS
 # =========================
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_books(grade):
     chunks = []
 
@@ -46,27 +41,23 @@ def load_books(grade):
         if not file.endswith(".pdf"):
             continue
 
-        file_lower = file.lower()
+        name = file.lower()
 
-        # Hindi exception
-        if "hindi" in file_lower:
-            if str(grade) not in file_lower:
+        if "hindi" in name:
+            if str(grade) not in name:
                 continue
         else:
-            if not any(str(g) in file_lower for g in allowed):
+            if not any(str(g) in name for g in allowed):
                 continue
 
         try:
             reader = PyPDF2.PdfReader(file)
-
             for page in reader.pages:
                 text = page.extract_text() or ""
-
                 for line in text.split("\n"):
                     line = line.strip().lower()
                     if len(line) > 40:
                         chunks.append(line)
-
         except:
             continue
 
@@ -75,156 +66,150 @@ def load_books(grade):
 PDF_CHUNKS = load_books(st.session_state.grade)
 
 # =========================
-# 🧠 UNDERSTANDING
+# 🔑 API SETUP
 # =========================
-def clean(q):
-    return q.lower().strip()
+UNDERSTAND_KEY = st.secrets["OPENAI_API_KEY_1"]
 
-def detect_intent(q):
-    if any(x in q for x in ["what is", "what are", "define", "laws"]):
-        return "definition"
-    if re.fullmatch(r"[0-9+\-*/().\s^]+", q):
-        return "math"
-    return "general"
+PDF_JUDGE_KEYS = [
+    st.secrets["GOOGLE_API_KEY_1"],
+    st.secrets["GOOGLE_API_KEY_2"],
+    st.secrets["GOOGLE_API_KEY_3"],
+    st.secrets["GOOGLE_API_KEY_4"]
+]
 
-def extract_topic(q):
-    q = re.sub(r"what is|what are|define|meaning of|explain", "", q)
-    return q.strip()
+ANSWER_KEYS = [
+    st.secrets["OPENAI_API_KEY_2"],
+    st.secrets["OPENAI_API_KEY_3"]
+]
 
-# =========================
-# 📄 STRICT PDF SEARCH
-# =========================
-def search_pdf(topic):
-    best = None
-    best_score = 0
-
-    for chunk in PDF_CHUNKS:
-
-        # ❌ HARD BLOCK: questions & exercises
-        if any(x in chunk for x in [
-            "?", "student", "work out", "calculate",
-            "find", "solve", "question", "exercise",
-            "example:", "try", "complete"
-        ]):
-            continue
-
-        # ❌ weak/broken text
-        if len(chunk.split()) < 7:
-            continue
-
-        if topic not in chunk:
-            continue
-
-        score = 0
-
-        # ✅ explanation style only
-        if any(x in chunk for x in [" is ", " are ", " rule", " law", " means"]):
-            score += 10
-
-        score += chunk.count(topic) * 3
-
-        if score > best_score:
-            best_score = score
-            best = chunk
-
-    if best and best_score >= 10:
-        return "📄 From Books:\n" + best[:300]
-
-    return None
+judge_cycle = itertools.cycle(PDF_JUDGE_KEYS)
+answer_cycle = itertools.cycle(ANSWER_KEYS)
 
 # =========================
-# 📚 KNOWLEDGE (FALLBACK)
+# 🧠 UNDERSTAND
 # =========================
-KNOWLEDGE = {
-    "laws of indices": (
-        "The laws of indices are rules for working with powers:\n"
-        "1. a^m × a^n = a^(m+n)\n"
-        "2. a^m ÷ a^n = a^(m−n)\n"
-        "3. (a^m)^n = a^(mn)\n"
-        "4. a^0 = 1\n"
-        "5. a^-n = 1/a^n"
-    ),
-    "indices": "Indices show how many times a number is multiplied by itself.",
-    "decimals": "Decimals are numbers with a decimal point representing parts of a whole.",
-}
+def understand(q):
+    client = OpenAI(api_key=UNDERSTAND_KEY)
+
+    prompt = f"""
+Extract clearly:
+Topic:
+Intent:
+
+Question: {q}
+"""
+
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role":"user","content":prompt}]
+    )
+
+    text = r.choices[0].message.content.lower()
+
+    topic = text.split("topic:")[-1].split("\n")[0].strip()
+    intent = text.split("intent:")[-1].strip()
+
+    return topic, intent
 
 # =========================
-# 🌍 WIKIPEDIA
+# 🔍 GET CANDIDATES
 # =========================
-def wiki_answer(topic):
+def get_candidates(topic):
+    return [c for c in PDF_CHUNKS if topic in c][:8]
+
+# =========================
+# 🔍 JUDGE CHUNK
+# =========================
+def judge_chunk(chunk, topic):
+    key = next(judge_cycle)
+    client = genai.Client(api_key=key)
+
+    prompt = f"""
+Topic: {topic}
+
+Text:
+{chunk}
+
+Is this a GOOD explanation of the topic?
+
+Reject if:
+- question
+- exercise
+- incomplete
+- vague
+
+Answer ONLY: YES or NO
+"""
+
     try:
-        return "🌍 " + wikipedia.summary(topic, sentences=2)
+        r = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        return "YES" in r.text.upper()
     except:
-        return None
+        return False
 
 # =========================
-# 🤖 AI BACKUP
+# ⚡ PARALLEL FILTER
 # =========================
-GOOGLE_KEYS = [st.secrets.get("GOOGLE_API_KEY_1")]
-OPENAI_KEYS = [st.secrets.get("OPENAI_API_KEY_1")]
+def filter_chunks_parallel(chunks, topic):
+    good = []
 
-google_cycle = itertools.cycle([k for k in GOOGLE_KEYS if k]) if GOOGLE_KEYS else None
-openai_cycle = itertools.cycle([k for k in OPENAI_KEYS if k]) if OPENAI_KEYS else None
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda c: (c, judge_chunk(c, topic)), chunks))
 
-def api_answer(q):
-    prompt = f"Explain simply:\n{q}"
+    for chunk, is_good in results:
+        if is_good:
+            good.append(chunk)
 
-    if google_cycle:
-        try:
-            c = genai.Client(api_key=next(google_cycle))
-            r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-            if r.text:
-                return r.text
-        except:
-            pass
+    return good
 
-    if openai_cycle:
-        try:
-            c = OpenAI(api_key=next(openai_cycle))
-            r = c.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role":"user","content":prompt}]
-            )
-            return r.choices[0].message.content
-        except:
-            pass
+# =========================
+# ✍️ GENERATE ANSWER
+# =========================
+def generate_answer(info, question):
+    key = next(answer_cycle)
+    client = OpenAI(api_key=key)
 
-    return None
+    prompt = f"""
+Explain clearly for a student:
+
+Question: {question}
+
+Use:
+{info}
+
+Give proper explanation with examples.
+"""
+
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role":"user","content":prompt}]
+    )
+
+    return r.choices[0].message.content
 
 # =========================
 # 🤖 MAIN PIPELINE
 # =========================
 def ai(q):
-    q = clean(q)
-    intent = detect_intent(q)
-    topic = extract_topic(q)
 
-    # 1️⃣ PDF FIRST (STRICT)
-    pdf_res = search_pdf(topic)
-    if pdf_res:
-        return pdf_res
+    topic, intent = understand(q)
 
-    # 2️⃣ KNOWLEDGE
-    for key in sorted(KNOWLEDGE, key=len, reverse=True):
-        if key in topic:
-            return f"📖 Definition:\n{KNOWLEDGE[key]}"
+    candidates = get_candidates(topic)
 
-    # 3️⃣ WIKIPEDIA
-    wiki_res = wiki_answer(topic)
-    if wiki_res:
-        return wiki_res
+    good_chunks = filter_chunks_parallel(candidates, topic)
 
-    # 4️⃣ AI
-    api_res = api_answer(q)
-    if api_res:
-        return api_res
+    if not good_chunks:
+        return "⚠️ No good explanation found."
 
-    return "⚠️ Couldn't find a clear answer."
+    return generate_answer("\n".join(good_chunks), q)
 
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (Clean + Accurate)")
+st.title("🧠 SmartBot (Parallel AI System)")
 
 q = st.text_input("Ask anything...")
 
