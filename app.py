@@ -38,18 +38,12 @@ if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
 # =========================
-# 🛡️ SAFETY
-# =========================
-def is_safe(q):
-    return True  # keep simple, your AI already filters
-
-# =========================
-# 🧠 MODE DETECTION (NEW)
+# 🧠 QUIZ MODE
 # =========================
 def detect_quiz_mode(q):
     ql = q.lower()
 
-    if "only answers" in ql or ql.strip() == "answers":
+    if "only answers" in ql:
         return "answers_only"
 
     if "answers" in ql:
@@ -58,10 +52,10 @@ def detect_quiz_mode(q):
     if "only quiz" in ql or "only questions" in ql:
         return "questions_only"
 
-    return "questions_only"  # default
+    return "questions_only"
 
 # =========================
-# 🧠 TOPIC EXTRACTION (SMART)
+# 🧠 TOPIC EXTRACTION
 # =========================
 def extract_topic(q):
     ql = q.lower()
@@ -70,7 +64,6 @@ def extract_topic(q):
     if match:
         return match.group(1).strip().capitalize()
 
-    # fallback: last meaningful word
     words = [w for w in ql.split() if len(w) > 3]
     if words:
         return words[-1].capitalize()
@@ -114,16 +107,18 @@ def solve_math(q):
         return None
 
 # =========================
-# 🧠 QUIZ GENERATOR (SMART MODES)
+# 🧠 QUIZ GENERATOR
 # =========================
 def generate_quiz(q):
     topic = extract_topic(q)
     mode = detect_quiz_mode(q)
 
     prompt = f"""
-Create a 5-question quiz on {topic}.
-Include options A-D and answers.
+Create a 5-question MCQ quiz on {topic}.
+Format clearly with Q1, A), B), C), D), Answer:
 """
+
+    text = None
 
     try:
         c = get_google()
@@ -133,7 +128,7 @@ Include options A-D and answers.
         )
         text = r.text
     except:
-        text = None
+        pass
 
     if not text:
         try:
@@ -144,9 +139,8 @@ Include options A-D and answers.
             )
             text = r.choices[0].message.content
         except:
-            text = None
+            pass
 
-    # fallback hardcoded
     if not text:
         text = """Q1. What do plants use to make food?
 A) Oxygen
@@ -155,22 +149,19 @@ C) Soil
 D) Water
 Answer: B"""
 
-    # =====================
-    # 🎯 MODE FILTERING
-    # =====================
+    # CLEAN FORMAT
+    text = text.replace("Q", "\nQ").strip()
+
+    # MODE FILTERING
     if mode == "questions_only":
-        lines = []
-        for line in text.split("\n"):
-            if "Answer" not in line:
-                lines.append(line)
-        return f"🧠 Quiz on {topic}:\n\n" + "\n".join(lines)
+        lines = [l for l in text.split("\n") if "Answer" not in l]
+        return f"🧠 Quiz on {topic}:\n" + "\n".join(lines)
 
     if mode == "answers_only":
-        answers = [line for line in text.split("\n") if "Answer" in line]
-        return f"🧠 Answers on {topic}:\n\n" + "\n".join(answers)
+        lines = [l for l in text.split("\n") if "Answer" in l]
+        return f"🧠 Answers ({topic}):\n" + "\n".join(lines)
 
-    # default Q + A
-    return f"🧠 Quiz on {topic}:\n\n{text}"
+    return f"🧠 Quiz on {topic}:\n{text}"
 
 # =========================
 # 📰 NEWS
@@ -178,7 +169,7 @@ Answer: B"""
 def get_news():
     feed = feedparser.parse("https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en")
     headlines = [f"• {e.title}" for e in feed.entries[:5]]
-    return "📰 Latest News:\n\n" + "\n".join(headlines)
+    return "📰 Latest News:\n" + "\n".join(headlines)
 
 # =========================
 # 🌐 WIKI
@@ -194,12 +185,8 @@ def search_wiki(q):
 # =========================
 def ai_answer(q):
 
-    if not is_safe(q):
-        return "⚠️ Not allowed."
-
     ql = q.lower()
 
-    # 🔥 PRIORITY FIX
     if "quiz" in ql:
         return generate_quiz(q)
 
@@ -217,7 +204,7 @@ def ai_answer(q):
             contents=q
         )
         if r.text:
-            return r.text
+            return r.text.strip()
     except:
         pass
 
@@ -230,26 +217,54 @@ def ai_answer(q):
 # =========================
 # 🎨 UI
 # =========================
+st.markdown("""
+<style>
+.chat-user {
+    background:#1e293b;
+    padding:10px;
+    border-radius:10px;
+    margin:6px;
+}
+.chat-ai {
+    background:#111827;
+    padding:10px;
+    border-radius:10px;
+    border-left:4px solid #38bdf8;
+    margin:6px;
+    white-space: pre-line;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🧠 SmartLoop AI")
-st.info("Now supports smart quiz modes (Q / A / Q&A) 🚀")
+st.caption("Clean UI + Smart Quiz + Math 🚀")
 
+# =========================
+# CHAT DISPLAY
+# =========================
 for msg in st.session_state.chats[st.session_state.current_chat]:
-    role = "🧑" if msg["role"]=="user" else "🤖"
-    st.write(f"{role} {msg['text']}")
+    if msg["role"] == "user":
+        st.markdown(f"<div class='chat-user'>🧑 {msg['text']}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='chat-ai'>🤖 {msg['text']}</div>", unsafe_allow_html=True)
 
-q = st.text_input("Ask...")
+# =========================
+# INPUT
+# =========================
+q = st.text_input("Ask something...")
 
 if q and q != st.session_state.last_q:
     st.session_state.last_q = q
 
-    st.session_state.chats[st.session_state.current_chat].append(
-        {"role":"user","text":q}
-    )
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"user","text":q
+    })
 
-    ans = ai_answer(q)
+    with st.spinner("Thinking..."):
+        ans = ai_answer(q)
 
-    st.session_state.chats[st.session_state.current_chat].append(
-        {"role":"ai","text":ans}
-    )
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"ai","text":ans
+    })
 
     st.rerun()
