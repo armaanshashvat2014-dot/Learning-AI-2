@@ -1,19 +1,21 @@
 import streamlit as st
-import itertools, re, feedparser, wikipedia, uuid
+import itertools, re, wikipedia, feedparser
 
+# =========================
+# API SETUP
+# =========================
 from google import genai
 from openai import OpenAI
 
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(page_title="SmartLoop AI", page_icon="🧠", layout="wide")
+GOOGLE_KEYS = [
+    st.secrets["GOOGLE_API_KEY_1"],
+    st.secrets["GOOGLE_API_KEY_2"]
+]
 
-# =========================
-# API
-# =========================
-GOOGLE_KEYS = [st.secrets["GOOGLE_API_KEY_1"], st.secrets["GOOGLE_API_KEY_2"]]
-OPENAI_KEYS = [st.secrets["OPENAI_API_KEY_1"], st.secrets["OPENAI_API_KEY_2"]]
+OPENAI_KEYS = [
+    st.secrets["OPENAI_API_KEY_1"],
+    st.secrets["OPENAI_API_KEY_2"]
+]
 
 google_cycle = itertools.cycle(GOOGLE_KEYS)
 openai_cycle = itertools.cycle(OPENAI_KEYS)
@@ -36,183 +38,311 @@ if "current_chat" not in st.session_state:
 if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
-if "grade" not in st.session_state:
-    st.session_state.grade = "Grade 6"
-
 # =========================
-# SIDEBAR
+# 🧠 SAFETY
 # =========================
-with st.sidebar:
-    st.markdown("## 👋 Welcome Back")
+def is_safe(q):
 
-    st.session_state.grade = st.selectbox(
-        "🎯 Grade",
-        [f"Grade {i}" for i in range(1, 11)],
-        index=5
-    )
+    prompt = f"""
+Return ONLY one word:
+true = safe
+false = unsafe
 
-    if st.button("➕ New Chat"):
-        name = f"Chat {str(uuid.uuid4())[:6]}"
-        st.session_state.chats[name] = []
-        st.session_state.current_chat = name
-        st.rerun()
-
-    st.markdown("### 💬 Chats")
-
-    for chat in list(st.session_state.chats.keys()):
-        col1, col2 = st.columns([0.8, 0.2])
-
-        if col1.button(chat):
-            st.session_state.current_chat = chat
-            st.rerun()
-
-        if col2.button("🗑", key=chat):
-            if len(st.session_state.chats) > 1:
-                del st.session_state.chats[chat]
-                st.session_state.current_chat = list(st.session_state.chats.keys())[0]
-                st.rerun()
-
-# =========================
-# 🧠 BASIC DEFINITIONS (SMART FIX)
-# =========================
-def basic_definitions(q):
-
-    ql = q.lower()
-
-    if "integer" in ql:
-        return """📘 **Integers**
-
-Integers are whole numbers:
-• Positive → 1, 2, 3  
-• Negative → -1, -2, -3  
-• Zero → 0  
-
-❌ No fractions or decimals.
+Query:
+{q}
 """
 
-    if "fraction" in ql:
-        return "A fraction represents a part of a whole (like 1/2)."
-
-    if "multiplication" in ql:
-        return "Multiplication means repeated addition."
-
-    return None
-
-# =========================
-# QUIZ
-# =========================
-def is_quiz(q):
-    return "quiz" in q.lower()
-
-def generate_quiz(topic):
-    return f"""📝 **Quiz on {topic}**
-
-1. 6 × 4 = ?
-2. 9 × 3 = ?
-3. 7 × 8 = ?
-4. 12 × 5 = ?
-5. 11 × 6 = ?
-
-Try solving them!"""
-
-# =========================
-# MATH
-# =========================
-def solve_math(q):
     try:
-        expr = re.findall(r"[0-9\+\-\*/\^\(\)]+", q)
-        if expr:
-            return f"🧮 Answer: {eval(expr[0].replace('^','**'))}"
+        c = get_google()
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        return "true" in r.text.lower()
+    except:
+        pass
+
+    try:
+        c = get_openai()
+        r = c.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}]
+        )
+        return "true" in r.choices[0].message.content.lower()
+    except:
+        pass
+
+    return True
+
+# =========================
+# 🧮 MATH
+# =========================
+def extract_math(q):
+    matches = re.findall(r"[0-9\+\-\*/\^\(\)\[\]\{\}\.]+", q)
+    expr = "".join(matches)
+
+    if not expr:
+        return None
+
+    expr = expr.replace("[", "(").replace("]", ")")
+    expr = expr.replace("{", "(").replace("}", ")")
+
+    return expr.replace("^", "**")
+
+
+def solve_math_steps(q):
+
+    expr = extract_math(q)
+    if not expr:
+        return None
+
+    try:
+        original = expr.replace("**", "^")
+
+        steps = []
+        steps.append(f"Expression: {original}")
+
+        working = expr
+
+        # brackets
+        if "(" in working:
+            inner = re.findall(r"\([^()]+\)", working)
+            for part in inner:
+                val = eval(part, {"__builtins__":None}, {})
+                steps.append(f"Solve {part} → {val}")
+                working = working.replace(part, str(val), 1)
+
+        # powers
+        if "**" in working:
+            powers = re.findall(r"\d+\*\*\d+", working)
+            for p in powers:
+                val = eval(p, {"__builtins__":None}, {})
+                steps.append(f"{p.replace('**','^')} = {val}")
+                working = working.replace(p, str(val), 1)
+
+        # multiply/divide
+        md = re.findall(r"\d+[\*/]\d+", working)
+        for m in md:
+            val = eval(m, {"__builtins__":None}, {})
+            steps.append(f"{m} = {val}")
+            working = working.replace(m, str(val), 1)
+
+        # final
+        result = eval(working, {"__builtins__":None}, {})
+        steps.append(f"Final Answer: {result}")
+
+        return "🧮 Step-by-step:\n\n" + "\n".join(steps)
+
     except:
         return None
 
 # =========================
-# NEWS
+# 📰 NEWS
 # =========================
-def is_news(q):
-    return "news" in q.lower()
+def is_news_query(q):
+    ql = q.lower()
+    return any(word in ql for word in ["news","latest","headlines","current events"])
 
-def get_news():
-    feed = feedparser.parse("https://news.google.com/rss")
-    return "📰 Latest News:\n\n" + "\n".join([f"• {e.title}" for e in feed.entries[:8]])
+def get_global_news():
+    feeds = [
+        "http://feeds.bbci.co.uk/news/rss.xml",
+        "http://feeds.reuters.com/reuters/topNews",
+        "http://rss.cnn.com/rss/edition.rss",
+        "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+    ]
+
+    headlines = []
+
+    for url in feeds:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:2]:
+                headlines.append(f"• {entry.title}")
+        except:
+            continue
+
+    return "📰 Latest Global News:\n\n" + "\n".join(headlines[:10])
 
 # =========================
-# AI ANSWER
+# 🔎 WIKI
 # =========================
-def ai_answer(q, history):
+def search_wiki(q):
+    try:
+        return wikipedia.summary(q, 2)
+    except:
+        return None
 
-    # 📘 definitions first
-    definition = basic_definitions(q)
-    if definition:
-        return definition
+# =========================
+# 🤖 AI
+# =========================
+def ai_answer(q):
 
-    # 📝 quiz
-    if is_quiz(q):
-        return generate_quiz(q.replace("quiz on",""))
+    if not is_safe(q):
+        return "⚠️ I can’t help with that."
 
-    # 📰 news
-    if is_news(q):
-        return get_news()
+    if is_news_query(q):
+        return get_global_news()
 
-    # 🧮 math
-    math = solve_math(q)
+    math = solve_math_steps(q)
     if math:
         return math
 
-    # 🧠 AI (main)
     prompt = f"""
 You are SmartLoop AI.
-Student grade: {st.session_state.grade}
+Be logical, clear, correct.
+No random outputs.
 
-Answer clearly and correctly.
+Question:
+{q}
 """
 
     try:
-        return get_google().models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt + "\n\n" + q
-        ).text
+        c = get_google()
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        if r.text:
+            return r.text
     except:
         pass
 
     try:
-        return get_openai().chat.completions.create(
+        c = get_openai()
+        r = c.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":q}]
-        ).choices[0].message.content
+            messages=[{"role":"user","content":prompt}]
+        )
+        return r.choices[0].message.content
     except:
         pass
 
-    # 🌐 fallback
-    try:
-        return "🌐 " + wikipedia.summary(q, 2)
-    except:
-        return "⚠️ Could not answer."
+    wiki = search_wiki(q)
+    if wiki:
+        return "🌐 " + wiki
+
+    return "⚠️ Not sure. Please repeat/rephrase."
+    # =========================
+# UI STYLE (UPGRADED)
+# =========================
+st.markdown("""
+<style>
+
+/* Background */
+.stApp {
+    background: radial-gradient(circle at top, #0b1f3a, #020617);
+    color: white;
+}
+
+/* Header */
+.header {
+    text-align: center;
+    margin-top: 30px;
+}
+
+.beta {
+    background: linear-gradient(135deg,#ff4d6d,#7b2ff7);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    margin-left: 8px;
+}
+
+/* Chat container */
+.chat-container {
+    width: 60%;
+    margin: auto;
+    margin-top: 20px;
+    padding-bottom: 120px;
+}
+
+/* Chat bubbles */
+.chat-user {
+    background:#1e293b;
+    padding:12px;
+    border-radius:12px;
+    margin:8px 0;
+}
+
+.chat-ai {
+    background:#111827;
+    padding:12px;
+    border-radius:12px;
+    border-left:4px solid #38bdf8;
+    margin:8px 0;
+}
+
+/* Fixed input */
+.input-box {
+    position: fixed;
+    bottom: 20px;
+    left: 20%;
+    width: 60%;
+    background: rgba(30,40,60,0.95);
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Thinking text */
+.thinking {
+    text-align:center;
+    margin-top:10px;
+    opacity:0.7;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
-# MAIN UI
+# HEADER
 # =========================
-st.title("🧠 SmartLoop AI")
+st.markdown("""
+<div class="header">
+    <h1>🧠 SmartLoop AI <span class="beta">BETA</span></h1>
+    <p style="opacity:0.7;">Learn smarter. Solve faster.</p>
+</div>
+""", unsafe_allow_html=True)
 
-messages = st.session_state.chats[st.session_state.current_chat]
+# =========================
+# CHAT DISPLAY
+# =========================
+st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
-for m in messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
+for msg in st.session_state.chats[st.session_state.current_chat]:
+    if msg["role"] == "user":
+        st.markdown(f"<div class='chat-user'>🧑 {msg['text']}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='chat-ai'>🤖 {msg['text']}</div>", unsafe_allow_html=True)
 
-q = st.chat_input("Ask SmartLoop...")
+st.markdown('</div>', unsafe_allow_html=True)
 
+# =========================
+# INPUT (FIXED)
+# =========================
+st.markdown('<div class="input-box">', unsafe_allow_html=True)
+
+q = st.text_input("", placeholder="Ask SmartLoop...", key="input")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
+# LOGIC (UNCHANGED)
+# =========================
 if q and q != st.session_state.last_q:
 
     st.session_state.last_q = q
-    messages.append({"role":"user","content":q})
 
-    with st.chat_message("user"):
-        st.markdown(q)
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"user",
+        "text":q
+    })
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            ans = ai_answer(q, messages[:-1])
-            st.markdown(ans)
+    thinking = st.empty()
+    thinking.markdown("<div class='thinking'>🤖 Thinking...</div>", unsafe_allow_html=True)
 
-    messages.append({"role":"assistant","content":ans})
+    ans = ai_answer(q)
+
+    thinking.empty()
+
+    st.session_state.chats[st.session_state.current_chat].append({
+        "role":"ai",
+        "text":ans
+    })
+
+    st.rerun()
+
