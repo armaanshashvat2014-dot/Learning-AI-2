@@ -1,14 +1,11 @@
-# =========================
-# SMARTLOOP AI - FINAL SMART VERSION
-# =========================
 import streamlit as st
-import itertools, re, wikipedia, feedparser
+import itertools, re, feedparser
 
 from google import genai
 from openai import OpenAI
 
 # =========================
-# PAGE CONFIG
+# CONFIG
 # =========================
 st.set_page_config(page_title="SmartLoop AI", page_icon="🧠", layout="wide")
 
@@ -39,106 +36,119 @@ if "current_chat" not in st.session_state:
 if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
-# =========================
-# 🧠 SMART DETECTION
-# =========================
-def is_math_topic(q):
-    ql = q.lower()
-    return any(w in ql for w in [
-        "indices","index laws","powers","exponents"
-    ])
+if "grade" not in st.session_state:
+    st.session_state.grade = "Grade 6"
 
 # =========================
-# 📘 MATH EXPLANATIONS
+# SIDEBAR
 # =========================
-def explain_indices():
-    return """📘 **Indices (Exponents)**
+with st.sidebar:
+    st.markdown("## 👋 Welcome Back")
 
-Indices tell us how many times a number is multiplied by itself.
+    st.session_state.grade = st.selectbox(
+        "🎯 Choose Grade",
+        [f"Grade {i}" for i in range(1,11)],
+        index=5
+    )
 
-### Example
-2³ = 2 × 2 × 2 = 8
+    if st.button("➕ New Chat"):
+        name = f"Chat {len(st.session_state.chats)+1}"
+        st.session_state.chats[name] = []
+        st.session_state.current_chat = name
+        st.rerun()
 
-### Rules
-• a⁰ = 1  
-• a¹ = a  
-• a² × a³ = a⁵  
-• a⁵ ÷ a² = a³  
-• (a²)³ = a⁶  
+    st.markdown("### 💬 Chats")
 
-💡 Simple: Indices = repeated multiplication.
-"""
+    for chat in list(st.session_state.chats.keys()):
+        col1, col2 = st.columns([0.8,0.2])
+
+        if col1.button(chat):
+            st.session_state.current_chat = chat
+            st.rerun()
+
+        if col2.button("🗑", key=chat):
+            if len(st.session_state.chats) > 1:
+                del st.session_state.chats[chat]
+                st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+                st.rerun()
 
 # =========================
-# 🧮 MATH SOLVER
+# 🧠 DETECTION
 # =========================
-def extract_math(q):
-    matches = re.findall(r"[0-9\+\-\*/\^\(\)\[\]\{\}\.]+", q)
-    expr = "".join(matches)
+def is_quiz(q):
+    return "quiz" in q.lower()
 
-    if not expr:
-        return None
+def is_math(q):
+    return any(w in q.lower() for w in ["+", "-", "*", "/", "^"])
 
-    expr = expr.replace("[","(").replace("]",")")
-    expr = expr.replace("{","(").replace("}",")")
-    return expr.replace("^","**")
+def is_news(q):
+    return "news" in q.lower()
 
+# =========================
+# QUIZ GENERATOR 🔥
+# =========================
+def generate_quiz(topic):
+
+    return f"""📝 **Quiz on {topic}**
+
+1. What is 6 × 4?
+2. What is 9 × 3?
+3. What is 7 × 8?
+4. What is 12 × 5?
+5. What is 11 × 6?
+
+👉 Try solving them!"""
+
+# =========================
+# MATH
+# =========================
 def solve_math(q):
-    expr = extract_math(q)
-    if not expr:
-        return None
     try:
-        return f"🧮 Answer: {eval(expr)}"
+        expr = re.findall(r"[0-9\+\-\*/\^\(\)]+", q)
+        if expr:
+            return f"🧮 Answer: {eval(expr[0].replace('^','**'))}"
     except:
         return None
 
 # =========================
-# 📰 NEWS
+# NEWS
 # =========================
-def is_news(q):
-    return "news" in q.lower()
-
 def get_news():
     feed = feedparser.parse("https://news.google.com/rss")
-    return "📰 News:\n\n" + "\n".join([f"• {e.title}" for e in feed.entries[:8]])
+    return "📰 Latest News:\n\n" + "\n".join([f"• {e.title}" for e in feed.entries[:8]])
 
 # =========================
-# 🤖 AI ANSWER (SMART CORE)
+# AI ANSWER
 # =========================
 def ai_answer(q, history):
 
-    # 🔒 safety
-    if "bomb" in q.lower():
-        return "⚠️ I can't help with that."
+    # 🔥 QUIZ FIX
+    if is_quiz(q):
+        return generate_quiz(q.replace("quiz on","").strip())
 
     # 📰 news
     if is_news(q):
         return get_news()
 
-    # 🧮 math solve
+    # 🧮 math
     math = solve_math(q)
     if math:
         return math
 
-    # 📘 math topic
-    if is_math_topic(q):
-        return explain_indices()
-
-    # 🧠 MAIN AI (FIRST PRIORITY)
+    # 🧠 AI MAIN
     prompt = f"""
-You are SmartLoop AI — a smart tutor.
+You are SmartLoop AI.
+
+Student grade: {st.session_state.grade}
 
 Answer clearly and correctly.
-Understand the subject deeply.
-
-Question:
-{q}
+Do NOT hallucinate.
 """
 
     try:
         return get_google().models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt
+            contents=prompt + "\n\n" + q
         ).text
     except:
         pass
@@ -151,14 +161,10 @@ Question:
     except:
         pass
 
-    # 🌐 LAST fallback only
-    try:
-        return "🌐 " + wikipedia.summary(q, 2)
-    except:
-        return "⚠️ Could not find an answer."
+    return "⚠️ Could not answer."
 
 # =========================
-# UI
+# MAIN UI
 # =========================
 st.title("🧠 SmartLoop AI")
 
