@@ -34,11 +34,8 @@ if "grade" not in st.session_state:
 if "last_quiz" not in st.session_state:
     st.session_state.last_quiz = ""
 
-if "last_topic" not in st.session_state:
-    st.session_state.last_topic = None
-
 # =========================
-# 🧠 INPUT CLEANING
+# 🧠 CLEAN INPUT
 # =========================
 def clean(q):
     q = q.lower()
@@ -60,13 +57,11 @@ def get_grade(q):
 # 🧠 TOPIC EXTRACTION
 # =========================
 def get_topic(q):
-    matches = re.findall(r"quiz on ([a-z\s]+)", q)
-    if matches:
-        return matches[-1].strip().capitalize()
-    return "General Science"
+    m = re.findall(r"quiz on ([a-z\s]+)", q)
+    return m[-1].strip().capitalize() if m else "General Science"
 
 # =========================
-# 🧠 MODE DETECTION
+# 🧠 MODE
 # =========================
 def get_mode(q):
     if "answers" in q and "quiz" in q:
@@ -81,54 +76,46 @@ def get_mode(q):
 def is_bad(text):
     if not text:
         return True
-
-    bad_phrases = [
-        "belongs to which subject",
-        "which is important",
-        "what is important"
-    ]
-
+    bad = ["belongs to which subject", "which is important"]
     if len(text.split()) < 50:
         return True
-
-    if any(p in text.lower() for p in bad_phrases):
+    if any(b in text.lower() for b in bad):
         return True
-
     return False
 
 # =========================
-# 🔥 STRONG FALLBACK
+# 🔥 FALLBACK QUIZ
 # =========================
 def fallback(topic):
-    return f"""Q1. Where in the plant cell does {topic} mainly occur?
+    return f"""Q1. Where does {topic} occur in plant cells?
 A) Nucleus
 B) Chloroplast
-C) Mitochondria
-D) Ribosome
+C) Ribosome
+D) Cytoplasm
 
-Q2. Which gas is absorbed during {topic}?
+Q2. Which gas is used?
 A) Oxygen
 B) Carbon dioxide
 C) Nitrogen
 D) Hydrogen
 
-Q3. What is produced as food?
+Q3. What is produced?
 A) Protein
 B) Glucose
 C) Fat
-D) Salt
+D) Minerals
 
-Q4. What pigment captures sunlight?
-A) Hemoglobin
-B) Chlorophyll
-C) Melanin
-D) Keratin
+Q4. What absorbs sunlight?
+A) Chlorophyll
+B) Hemoglobin
+C) DNA
+D) Enzyme
 
 Q5. Why is sunlight needed?
 A) Energy
 B) Cooling
-C) Growth
-D) Waste removal
+C) Movement
+D) Growth
 """
 
 # =========================
@@ -139,23 +126,24 @@ def generate_quiz(q):
     grade = st.session_state.grade or 6
     mode = get_mode(q)
 
-    seed = random.randint(1, 10000)
+    seed = random.randint(1, 9999)
 
     if mode == "questions":
         instruction = "DO NOT include answers."
     elif mode == "answers":
         instruction = "ONLY give answers like Q1: B"
     else:
-        instruction = "Include both questions and answers."
+        instruction = "Include answers."
 
     prompt = f"""
-Create a HIGH-QUALITY 5-question MCQ quiz on {topic} for grade {grade} students.
+Create a HIGH QUALITY 5-question MCQ quiz on {topic} for grade {grade}.
 
-STRICT RULES:
+Rules:
 - No generic questions
-- Cover different concepts
-- Use Q1, A), B), C), D)
-- Make it interesting and educational
+- Cover different ideas
+- Use Q1 format
+- A B C D options
+- Make it hard for grade {grade}
 
 Seed: {seed}
 
@@ -164,46 +152,43 @@ Seed: {seed}
 
     text = None
 
-    # TRY GOOGLE (2 attempts)
+    # Try Google
     for _ in range(2):
         try:
             c = get_google()
-            r = c.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
-            text = r.text
-            if text and not is_bad(text):
+            r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            if r.text and not is_bad(r.text):
+                text = r.text
                 break
         except:
-            pass
+            continue
 
-    # FALLBACK OPENAI
-    if not text or is_bad(text):
-        try:
-            c = get_openai()
-            r = c.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role":"user","content":prompt}]
-            )
-            text = r.choices[0].message.content
-        except:
-            pass
+    # Try OpenAI
+    if not text:
+        for _ in range(2):
+            try:
+                c = get_openai()
+                r = c.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role":"user","content":prompt}]
+                )
+                if r.choices[0].message.content:
+                    text = r.choices[0].message.content
+                    break
+            except:
+                continue
 
-    # FINAL FALLBACK
-    if not text or is_bad(text):
+    # Final fallback
+    if not text:
         text = fallback(topic)
 
-    # SAVE MEMORY
     st.session_state.last_quiz = text
-    st.session_state.last_topic = topic
-
     text = text.replace("Q", "\nQ")
 
     return f"🧠 Quiz on {topic}:\n{text.strip()}"
 
 # =========================
-# 🧠 ANSWERS HANDLER
+# 🧠 ANSWERS
 # =========================
 def get_answers():
     text = st.session_state.last_quiz
@@ -213,74 +198,75 @@ def get_answers():
     answers = [l for l in text.split("\n") if "Answer" in l]
 
     if not answers:
-        return "⚠️ This quiz has no stored answers."
+        return "⚠️ No answers stored."
 
     return "🧠 Answers:\n" + "\n".join(answers)
 
 # =========================
-# 🧠 GENERAL Q&A
+# 🧠 OFFLINE EXPLAIN
+# =========================
+def offline_explain(q):
+    if "sound" in q:
+        return "Sound is energy from vibrations that travel as waves through air."
+
+    if "cell" in q:
+        return "A cell is the smallest unit of life. All living things are made of cells."
+
+    if "photosynthesis" in q:
+        return "Photosynthesis is how plants make food using sunlight, water, and carbon dioxide."
+
+    return f"{q.capitalize()} is an important concept. Try asking again for more detail."
+
+# =========================
+# 🧠 GENERAL ANSWER
 # =========================
 def general_answer(q):
-    prompt = f"""
-Explain this clearly for a school student:
+    prompt = f"Explain simply: {q}"
 
-{q}
+    # Try Google
+    for _ in range(2):
+        try:
+            c = get_google()
+            r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            if r.text:
+                return r.text.strip()
+        except:
+            continue
 
-Rules:
-- Simple language
-- Short explanation
-- Give example if helpful
-"""
+    # Try OpenAI
+    for _ in range(2):
+        try:
+            c = get_openai()
+            r = c.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role":"user","content":prompt}]
+            )
+            return r.choices[0].message.content
+        except:
+            continue
 
-    # GOOGLE FIRST
-    try:
-        c = get_google()
-        r = c.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        if r.text:
-            return r.text.strip()
-    except:
-        pass
-
-    # OPENAI FALLBACK
-    try:
-        c = get_openai()
-        r = c.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role":"user","content":prompt}]
-        )
-        return r.choices[0].message.content
-    except:
-        pass
-
-    return "⚠️ Couldn't answer that."
+    return offline_explain(q)
 
 # =========================
-# 🤖 MAIN AI ROUTER
+# 🤖 MAIN AI
 # =========================
 def ai(q):
-    q_clean = clean(q)
+    q = clean(q)
 
-    # 🎓 grade detection
-    g = get_grade(q_clean)
+    g = get_grade(q)
     if g:
         st.session_state.grade = g
         return f"✅ Grade {g} saved."
 
-    # 📌 answers
-    if "answer" in q_clean:
+    if "answer" in q:
         return get_answers()
 
-    # 🧠 quiz
-    if "quiz" in q_clean:
+    if "quiz" in q:
         if not st.session_state.grade:
             return "📚 Tell me your grade first."
-        return generate_quiz(q_clean)
+        return generate_quiz(q)
 
-    # 💡 normal questions
-    return general_answer(q_clean)
+    return general_answer(q)
 
 # =========================
 # 🎨 UI
