@@ -42,19 +42,37 @@ if "last_q" not in st.session_state:
 # 🧠 SAFETY
 # =========================
 def is_safe(q):
-    prompt = f"Return ONLY true or false:\n{q}"
+
+    prompt = f"""
+Return ONLY one word:
+true = safe
+false = unsafe
+
+Query:
+{q}
+"""
 
     try:
-        r = get_google().models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        c = get_google()
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         return "true" in r.text.lower()
     except:
-        return True
+        pass
+
+    try:
+        c = get_openai()
+        r = c.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}]
+        )
+        return "true" in r.choices[0].message.content.lower()
+    except:
+        pass
+
+    return True
 
 # =========================
-# 🧮 SAFE MATH
+# 🧮 MATH
 # =========================
 def extract_math(q):
     matches = re.findall(r"[0-9\+\-\*/\^\(\)\[\]\{\}\.]+", q)
@@ -69,26 +87,48 @@ def extract_math(q):
     return expr.replace("^", "**")
 
 
-def safe_eval(expr):
-    try:
-        return eval(expr, {"__builtins__": None}, {})
-    except:
-        return None
-
-
 def solve_math_steps(q):
+
     expr = extract_math(q)
     if not expr:
         return None
 
     try:
         original = expr.replace("**", "^")
-        result = safe_eval(expr)
 
-        if result is None:
-            return None
+        steps = []
+        steps.append(f"Expression: {original}")
 
-        return f"🧮 Expression: {original}\n\nFinal Answer: {result}"
+        working = expr
+
+        # brackets
+        if "(" in working:
+            inner = re.findall(r"\([^()]+\)", working)
+            for part in inner:
+                val = eval(part, {"__builtins__":None}, {})
+                steps.append(f"Solve {part} → {val}")
+                working = working.replace(part, str(val), 1)
+
+        # powers
+        if "**" in working:
+            powers = re.findall(r"\d+\*\*\d+", working)
+            for p in powers:
+                val = eval(p, {"__builtins__":None}, {})
+                steps.append(f"{p.replace('**','^')} = {val}")
+                working = working.replace(p, str(val), 1)
+
+        # multiply/divide
+        md = re.findall(r"\d+[\*/]\d+", working)
+        for m in md:
+            val = eval(m, {"__builtins__":None}, {})
+            steps.append(f"{m} = {val}")
+            working = working.replace(m, str(val), 1)
+
+        # final
+        result = eval(working, {"__builtins__":None}, {})
+        steps.append(f"Final Answer: {result}")
+
+        return "🧮 Step-by-step:\n\n" + "\n".join(steps)
 
     except:
         return None
@@ -97,12 +137,15 @@ def solve_math_steps(q):
 # 📰 NEWS
 # =========================
 def is_news_query(q):
-    return "news" in q.lower()
+    ql = q.lower()
+    return any(word in ql for word in ["news","latest","headlines","current events"])
 
 def get_global_news():
     feeds = [
         "http://feeds.bbci.co.uk/news/rss.xml",
-        "https://news.google.com/rss"
+        "http://feeds.reuters.com/reuters/topNews",
+        "http://rss.cnn.com/rss/edition.rss",
+        "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
     ]
 
     headlines = []
@@ -110,23 +153,21 @@ def get_global_news():
     for url in feeds:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:
+            for entry in feed.entries[:2]:
                 headlines.append(f"• {entry.title}")
         except:
             continue
 
-    return "📰 Latest News:\n\n" + "\n".join(headlines[:10])
+    return "📰 Latest Global News:\n\n" + "\n".join(headlines[:10])
 
 # =========================
-# 🔎 WIKI (CONTROLLED)
+# 🔎 WIKI
 # =========================
 def search_wiki(q):
     try:
-        if len(q.split()) > 2:
-            return wikipedia.summary(q, 2)
+        return wikipedia.summary(q, 2)
     except:
         return None
-    return None
 
 # =========================
 # 🤖 AI
@@ -146,25 +187,25 @@ def ai_answer(q):
     prompt = f"""
 You are SmartLoop AI.
 Be logical, clear, correct.
+No random outputs.
 
 Question:
 {q}
 """
 
     try:
-        r = get_google().models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        c = get_google()
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         if r.text:
             return r.text
     except:
         pass
 
     try:
-        r = get_openai().chat.completions.create(
+        c = get_openai()
+        r = c.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":q}]
+            messages=[{"role":"user","content":prompt}]
         )
         return r.choices[0].message.content
     except:
@@ -177,99 +218,71 @@ Question:
     return "⚠️ Not sure."
 
 # =========================
-# 🎨 UI STYLE
+# UI STYLE
 # =========================
 st.markdown("""
 <style>
-.stApp {
-    background: radial-gradient(circle at top, #0b1f3a, #020617);
-    color: white;
-}
-
-.header {
-    text-align: center;
-    margin-top: 30px;
-}
-
-.beta {
-    background: linear-gradient(135deg,#ff4d6d,#7b2ff7);
-    padding: 4px 12px;
-    border-radius: 999px;
-    font-size: 13px;
-    margin-left: 8px;
-}
-
-.chat-container {
-    width: 60%;
-    margin: auto;
-    margin-top: 20px;
-    padding-bottom: 120px;
-}
-
-.chat-user {
-    background:#1e293b;
-    padding:12px;
-    border-radius:12px;
-    margin:8px 0;
-}
-
-.chat-ai {
-    background:#111827;
-    padding:12px;
-    border-radius:12px;
-    border-left:4px solid #38bdf8;
-    margin:8px 0;
-}
-
-.input-box {
-    position: fixed;
-    bottom: 20px;
-    left: 20%;
-    width: 60%;
-    background: rgba(30,40,60,0.95);
-    padding: 12px;
-    border-radius: 14px;
-}
+.stApp {background: linear-gradient(135deg,#0a0f1f,#020617); color:white;}
+.chat-user {background:#1e293b;padding:10px;border-radius:10px;margin:6px;}
+.chat-ai {background:#111827;padding:10px;border-radius:10px;border-left:4px solid #38bdf8;margin:6px;}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# HEADER
+# SIDEBAR
+# =========================
+st.sidebar.title("💬 Chats")
+
+if st.sidebar.button("➕ New Chat"):
+    name = f"Chat {len(st.session_state.chats)+1}"
+    st.session_state.chats[name] = []
+    st.session_state.current_chat = name
+
+for chat in st.session_state.chats:
+    if st.sidebar.button(chat):
+        st.session_state.current_chat = chat
+
+if st.sidebar.button("🗑 Delete Chat"):
+    if len(st.session_state.chats) > 1:
+        del st.session_state.chats[st.session_state.current_chat]
+        st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+
+# =========================
+# TITLE WITH BETA BADGE
 # =========================
 st.markdown("""
-<div class="header">
-    <h1>🧠 SmartLoop AI <span class="beta">BETA</span></h1>
-    <p style="opacity:0.7;">Learn smarter. Solve faster.</p>
-</div>
+<h1 style="display:flex; align-items:center; gap:10px;">
+    🧠 SmartLoop AI
+    <span style="
+        background: linear-gradient(135deg, #ff4d6d, #7b2ff7);
+        color: white;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 0 0 10px rgba(255,77,109,0.6);
+    ">
+        BETA
+    </span>
+</h1>
 """, unsafe_allow_html=True)
 
-# =========================
-# CHAT DISPLAY (FIXED)
-# =========================
-st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+st.info("Now with real math solving + real news 🌍")
 
+# =========================
+# CHAT DISPLAY
+# =========================
 for msg in st.session_state.chats[st.session_state.current_chat]:
-    text = msg.get("text") or msg.get("content") or ""
-
-    if msg.get("role") == "user":
-        st.markdown(f"<div class='chat-user'>🧑 {text}</div>", unsafe_allow_html=True)
+    if msg["role"] == "user":
+        st.markdown(f"<div class='chat-user'>🧑 {msg['text']}</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='chat-ai'>🤖 {text}</div>", unsafe_allow_html=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f"<div class='chat-ai'>🤖✨ {msg['text']}</div>", unsafe_allow_html=True)
 
 # =========================
 # INPUT
 # =========================
-st.markdown('<div class="input-box">', unsafe_allow_html=True)
+q = st.text_input("Ask SmartLoop...", key="input")
 
-q = st.text_input("", placeholder="Ask SmartLoop...", key="input")
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================
-# LOGIC
-# =========================
 if q and q != st.session_state.last_q:
 
     st.session_state.last_q = q
