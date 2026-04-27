@@ -1,7 +1,6 @@
 import streamlit as st
-import re, os
+import re, os, time, itertools
 import PyPDF2
-import itertools
 from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
@@ -23,9 +22,9 @@ if st.session_state.grade is None:
 st.write(f"🎯 Grade {st.session_state.grade}")
 
 # =========================
-# 📄 LOAD BOOKS
+# 📄 LOAD BOOKS (FAST)
 # =========================
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_books(grade):
     chunks = []
 
@@ -66,31 +65,56 @@ def load_books(grade):
 PDF_CHUNKS = load_books(st.session_state.grade)
 
 # =========================
-# 🔑 API SETUP
+# 🔑 API KEYS (ROTATION)
 # =========================
-UNDERSTAND_KEY = st.secrets["OPENAI_API_KEY_1"]
-
-PDF_JUDGE_KEYS = [
-    st.secrets["GOOGLE_API_KEY_1"],
-    st.secrets["GOOGLE_API_KEY_2"],
-    st.secrets["GOOGLE_API_KEY_3"],
-    st.secrets["GOOGLE_API_KEY_4"]
+UNDERSTAND_KEYS = [
+    st.secrets.get("OPENAI_API_KEY_1"),
+    st.secrets.get("OPENAI_API_KEY_2"),
+    st.secrets.get("OPENAI_API_KEY_3")
 ]
 
 ANSWER_KEYS = [
-    st.secrets["OPENAI_API_KEY_2"],
-    st.secrets["OPENAI_API_KEY_3"]
+    st.secrets.get("OPENAI_API_KEY_2"),
+    st.secrets.get("OPENAI_API_KEY_3")
 ]
 
-judge_cycle = itertools.cycle(PDF_JUDGE_KEYS)
-answer_cycle = itertools.cycle(ANSWER_KEYS)
+JUDGE_KEYS = [
+    st.secrets.get("GOOGLE_API_KEY_1"),
+    st.secrets.get("GOOGLE_API_KEY_2"),
+    st.secrets.get("GOOGLE_API_KEY_3"),
+    st.secrets.get("GOOGLE_API_KEY_4")
+]
+
+UNDERSTAND_KEYS = [k for k in UNDERSTAND_KEYS if k]
+ANSWER_KEYS = [k for k in ANSWER_KEYS if k]
+JUDGE_KEYS = [k for k in JUDGE_KEYS if k]
+
+understand_cycle = itertools.cycle(UNDERSTAND_KEYS) if UNDERSTAND_KEYS else None
+answer_cycle = itertools.cycle(ANSWER_KEYS) if ANSWER_KEYS else None
+judge_cycle = itertools.cycle(JUDGE_KEYS) if JUDGE_KEYS else None
 
 # =========================
-# 🧠 UNDERSTAND
+# 🧠 FALLBACK UNDERSTAND
 # =========================
+def simple_understand(q):
+    q = q.lower()
+
+    topic = re.sub(r"what is|what are|define|explain|laws of", "", q).strip()
+
+    if "law" in q or "what" in q:
+        intent = "definition"
+    elif re.fullmatch(r"[0-9+\-*/().\s^]+", q):
+        intent = "math"
+    else:
+        intent = "general"
+
+    return topic, intent
+
+# =========================
+# 🧠 UNDERSTAND (SAFE)
+# =========================
+@st.cache_data(show_spinner=False)
 def understand(q):
-    client = OpenAI(api_key=UNDERSTAND_KEY)
-
     prompt = f"""
 Extract clearly:
 Topic:
@@ -99,54 +123,71 @@ Intent:
 Question: {q}
 """
 
-    r = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role":"user","content":prompt}]
-    )
+    for attempt in range(3):
+        key = next(understand_cycle, None)
+        if not key:
+            break
 
-    text = r.choices[0].message.content.lower()
+        try:
+            client = OpenAI(api_key=key)
 
-    topic = text.split("topic:")[-1].split("\n")[0].strip()
-    intent = text.split("intent:")[-1].strip()
+            r = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role":"user","content":prompt}]
+            )
 
-    return topic, intent
+            text = r.choices[0].message.content.lower()
+
+            topic = text.split("topic:")[-1].split("\n")[0].strip()
+            intent = text.split("intent:")[-1].strip()
+
+            return topic, intent
+
+        except Exception:
+            time.sleep(1.5 * (attempt + 1))
+
+    return simple_understand(q)
 
 # =========================
-# 🔍 GET CANDIDATES
+# 🔍 GET PDF CANDIDATES
 # =========================
 def get_candidates(topic):
     return [c for c in PDF_CHUNKS if topic in c][:8]
 
 # =========================
-# 🔍 JUDGE CHUNK
+# 🔍 JUDGE CHUNK (AI)
 # =========================
 def judge_chunk(chunk, topic):
-    key = next(judge_cycle)
-    client = genai.Client(api_key=key)
+    key = next(judge_cycle, None)
+    if not key:
+        return False
 
-    prompt = f"""
+    try:
+        client = genai.Client(api_key=key)
+
+        prompt = f"""
 Topic: {topic}
 
 Text:
 {chunk}
 
-Is this a GOOD explanation of the topic?
+Is this a GOOD explanation?
 
 Reject if:
 - question
 - exercise
 - incomplete
-- vague
 
 Answer ONLY: YES or NO
 """
 
-    try:
         r = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt
         )
+
         return "YES" in r.text.upper()
+
     except:
         return False
 
@@ -154,41 +195,48 @@ Answer ONLY: YES or NO
 # ⚡ PARALLEL FILTER
 # =========================
 def filter_chunks_parallel(chunks, topic):
-    good = []
+    if not chunks:
+        return []
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(lambda c: (c, judge_chunk(c, topic)), chunks))
 
-    for chunk, is_good in results:
-        if is_good:
-            good.append(chunk)
-
-    return good
+    return [c for c, ok in results if ok]
 
 # =========================
 # ✍️ GENERATE ANSWER
 # =========================
 def generate_answer(info, question):
-    key = next(answer_cycle)
-    client = OpenAI(api_key=key)
+    for _ in range(2):
+        key = next(answer_cycle, None)
+        if not key:
+            break
 
-    prompt = f"""
+        try:
+            client = OpenAI(api_key=key)
+
+            prompt = f"""
 Explain clearly for a student:
 
 Question: {question}
 
-Use:
+Use this info:
 {info}
 
-Give proper explanation with examples.
+Give a clean explanation with examples.
 """
 
-    r = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role":"user","content":prompt}]
-    )
+            r = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role":"user","content":prompt}]
+            )
 
-    return r.choices[0].message.content
+            return r.choices[0].message.content
+
+        except:
+            time.sleep(1)
+
+    return "⚠️ Couldn't generate answer."
 
 # =========================
 # 🤖 MAIN PIPELINE
@@ -209,7 +257,7 @@ def ai(q):
 # =========================
 # 🎨 UI
 # =========================
-st.title("🧠 SmartBot (Parallel AI System)")
+st.title("🧠 SmartBot (Stable Parallel AI)")
 
 q = st.text_input("Ask anything...")
 
