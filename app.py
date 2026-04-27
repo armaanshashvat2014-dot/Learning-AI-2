@@ -39,12 +39,18 @@ if "last_q" not in st.session_state:
 if "grade" not in st.session_state:
     st.session_state.grade = None
 
+# 🔥 NEW MEMORY
+if "last_quiz_topic" not in st.session_state:
+    st.session_state.last_quiz_topic = None
+
+if "last_quiz_text" not in st.session_state:
+    st.session_state.last_quiz_text = None
+
 # =========================
 # 🧠 GRADE DETECTION
 # =========================
 def extract_grade(q):
-    ql = q.lower()
-    match = re.search(r"(\d+)\s*(st|nd|rd|th)?\s*(grade|graders)?", ql)
+    match = re.search(r"(\d+)\s*(st|nd|rd|th)?\s*(grade|graders)?", q.lower())
     if match:
         g = int(match.group(1))
         if 1 <= g <= 12:
@@ -75,24 +81,7 @@ def extract_topic(q):
     return topic.strip().capitalize()
 
 # =========================
-# 🧠 QUIZ MODE
-# =========================
-def detect_quiz_mode(q):
-    ql = q.lower()
-
-    if "only answers" in ql:
-        return "answers_only"
-
-    if "answers" in ql and "quiz" in ql:
-        return "qa"
-
-    if "answers" in ql:
-        return "answers_only"
-
-    return "questions_only"
-
-# =========================
-# 🧮 MATH SUPPORT
+# 🧮 MATH
 # =========================
 def normalize_expression(expr):
     expr = expr.replace("[", "(").replace("]", ")")
@@ -131,19 +120,19 @@ def solve_math(q):
 # 🔥 FALLBACK QUIZ
 # =========================
 def fallback_quiz(topic):
-    return f"""🧠 Quiz on {topic}:
-
-Q1. {topic} is related to which subject?
+    return f"""Q1. {topic} is related to which subject?
 A) Physics
 B) Biology
 C) Math
 D) History
+Answer: B
 
 Q2. Which factor is important in {topic}?
 A) Light
 B) Water
 C) Air
 D) All of these
+Answer: D
 """
 
 # =========================
@@ -151,41 +140,19 @@ D) All of these
 # =========================
 def generate_quiz(q):
     topic = extract_topic(q)
-    mode = detect_quiz_mode(q)
     grade = st.session_state.grade or 6
-
-    # difficulty mapping
-    if grade <= 5:
-        level = "very simple"
-    elif grade <= 8:
-        level = "easy"
-    elif grade <= 10:
-        level = "medium"
-    else:
-        level = "advanced"
 
     seed = random.randint(1, 10000)
 
-    if mode == "questions_only":
-        instruction = "DO NOT include answers."
-
-    elif mode == "answers_only":
-        instruction = "ONLY give answers like Q1: B"
-
-    else:
-        instruction = "Include both questions and answers."
-
     prompt = f"""
-Create a {level} 5-question MCQ quiz on {topic} for Grade {grade} students.
+Create a 5-question MCQ quiz on {topic} for Grade {grade} students.
 
 Variation seed: {seed}
 
 Rules:
 - No repetition
 - Use Q1, A), B), C), D)
-- Keep language appropriate to grade
-
-{instruction}
+- Include answers
 """
 
     text = None
@@ -212,9 +179,32 @@ Rules:
             pass
 
     if not text or len(text.strip()) < 20:
-        return fallback_quiz(topic)
+        text = fallback_quiz(topic)
+
+    # 🔥 SAVE MEMORY
+    st.session_state.last_quiz_topic = topic
+    st.session_state.last_quiz_text = text
 
     return f"🧠 Quiz on {topic}:\n{text.strip()}"
+
+# =========================
+# 🧠 ANSWER HANDLER
+# =========================
+def get_last_answers():
+    text = st.session_state.last_quiz_text
+
+    if not text:
+        return "⚠️ No quiz found. Ask for a quiz first."
+
+    answers = []
+    for line in text.split("\n"):
+        if "Answer" in line:
+            answers.append(line.strip())
+
+    if not answers:
+        return "⚠️ No answers available."
+
+    return "🧠 Answers:\n" + "\n".join(answers)
 
 # =========================
 # 📰 NEWS
@@ -229,13 +219,16 @@ def get_news():
 # =========================
 def ai_answer(q):
 
-    # detect grade first
     grade = extract_grade(q)
     if grade:
         st.session_state.grade = grade
         return f"✅ Got it! Grade {grade} saved."
 
     ql = q.lower()
+
+    # 🔥 ANSWERS FIX
+    if "answer" in ql:
+        return get_last_answers()
 
     if "quiz" in ql:
         if st.session_state.grade is None:
@@ -274,7 +267,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧠 SmartLoop AI")
-st.caption("Grade-aware Quiz + No Fail System 🚀")
+st.caption("Memory + Quiz + Answers System 🚀")
 
 # =========================
 # CHAT DISPLAY
@@ -305,3 +298,4 @@ if q and q != st.session_state.last_q:
     })
 
     st.rerun()
+    
