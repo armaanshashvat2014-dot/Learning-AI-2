@@ -1,5 +1,5 @@
 import streamlit as st
-import itertools, re, wikipedia, feedparser
+import itertools, re, wikipedia, feedparser, random
 from google import genai
 from openai import OpenAI
 
@@ -46,11 +46,11 @@ def detect_quiz_mode(q):
     if "only answers" in ql:
         return "answers_only"
 
-    if "answers" in ql:
+    if "answers" in ql and "quiz" in ql:
         return "qa"
 
-    if "only quiz" in ql or "only questions" in ql:
-        return "questions_only"
+    if "answers" in ql:
+        return "answers_only"
 
     return "questions_only"
 
@@ -60,15 +60,43 @@ def detect_quiz_mode(q):
 def extract_topic(q):
     ql = q.lower()
 
-    match = re.search(r"quiz on ([a-zA-Z0-9\s]+)", ql)
-    if match:
-        return match.group(1).strip().capitalize()
+    matches = re.findall(r"quiz on ([a-zA-Z\s]+)", ql)
 
-    words = [w for w in ql.split() if len(w) > 3]
-    if words:
-        return words[-1].capitalize()
+    if matches:
+        topic = matches[-1]
+    else:
+        topic = ql
 
-    return "General Knowledge"
+    stop_words = [
+        "make","easier","later","regenerate",
+        "quiz","answers","only","for","grade","grader"
+    ]
+
+    words = [w for w in topic.split() if w not in stop_words]
+
+    topic = " ".join(words)
+
+    if not topic.strip():
+        return "General Knowledge"
+
+    return topic.strip().capitalize()
+
+# =========================
+# 🧠 DIFFICULTY
+# =========================
+def detect_difficulty(q):
+    ql = q.lower()
+
+    if "6th" in ql or "grade 6" in ql:
+        return "easy"
+
+    if "easy" in ql:
+        return "easy"
+
+    if "hard" in ql:
+        return "hard"
+
+    return "normal"
 
 # =========================
 # 🧮 MATH (WITH [] {})
@@ -112,10 +140,31 @@ def solve_math(q):
 def generate_quiz(q):
     topic = extract_topic(q)
     mode = detect_quiz_mode(q)
+    difficulty = detect_difficulty(q)
+
+    seed = random.randint(1, 10000)
+
+    if mode == "questions_only":
+        instruction = "DO NOT include answers. Only questions."
+
+    elif mode == "answers_only":
+        instruction = "ONLY give answers like Q1: B"
+
+    else:
+        instruction = "Include both questions and answers"
 
     prompt = f"""
-Create a 5-question MCQ quiz on {topic}.
-Format clearly with Q1, A), B), C), D), Answer:
+Create a {difficulty} 5-question MCQ quiz on {topic}.
+
+Variation seed: {seed}
+
+Rules:
+- No repeated textbook questions
+- Make it interesting
+- Use Q1, A), B), C), D)
+- It should be appropriate for student's grade (first ask grade), then generate quiz
+- It must test the core abilities of the subject
+{instruction}
 """
 
     text = None
@@ -142,26 +191,9 @@ Format clearly with Q1, A), B), C), D), Answer:
             pass
 
     if not text:
-        text = """Q1. What do plants use to make food?
-A) Oxygen
-B) Sunlight
-C) Soil
-D) Water
-Answer: B"""
+        text = "⚠️ Couldn't generate quiz."
 
-    # CLEAN FORMAT
-    text = text.replace("Q", "\nQ").strip()
-
-    # MODE FILTERING
-    if mode == "questions_only":
-        lines = [l for l in text.split("\n") if "Answer" not in l]
-        return f"🧠 Quiz on {topic}:\n" + "\n".join(lines)
-
-    if mode == "answers_only":
-        lines = [l for l in text.split("\n") if "Answer" in l]
-        return f"🧠 Answers ({topic}):\n" + "\n".join(lines)
-
-    return f"🧠 Quiz on {topic}:\n{text}"
+    return f"🧠 Quiz on {topic}:\n{text.strip()}"
 
 # =========================
 # 📰 NEWS
@@ -237,7 +269,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧠 SmartLoop AI")
-st.caption("Clean UI + Smart Quiz + Math 🚀")
+st.caption("Clean AI + Smart Quiz Modes 🚀")
 
 # =========================
 # CHAT DISPLAY
