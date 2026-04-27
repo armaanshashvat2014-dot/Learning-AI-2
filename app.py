@@ -80,12 +80,11 @@ Query:
     return True
 
 # =========================
-# 🧠 INTENT DETECTION (FIXED)
+# 🧠 INTENT DETECTION
 # =========================
 def detect_intent(q):
     ql = q.lower()
 
-    # PRIORITY ORDER
     if any(w in ql for w in ["news", "latest", "headlines", "current events"]):
         return "news"
 
@@ -110,27 +109,53 @@ def extract_topic(q):
     return q.strip().capitalize()
 
 # =========================
-# 🧮 MATH
+# 🧮 MATH (UPGRADED)
 # =========================
+def normalize_expression(expr):
+    # Convert [] and {} to ()
+    expr = expr.replace("[", "(").replace("]", ")")
+    expr = expr.replace("{", "(").replace("}", ")")
+
+    # Remove spaces
+    expr = expr.replace(" ", "")
+
+    # Implicit multiplication
+    expr = re.sub(r"(\d)(\()", r"\1*\2", expr)   # 2(3+4)
+    expr = re.sub(r"(\))(\()", r"\1*\2", expr)   # (2+3)(4+5)
+    expr = re.sub(r"(\))(\d)", r"\1*\2", expr)   # (2+3)4
+
+    return expr
+
 def extract_math(q):
-    pattern = r"(\d+[\d\+\-\*/\^\(\)\s\.]+)"
-    match = re.search(pattern, q)
-    if not match:
+    pattern = r"[0-9\+\-\*/\^\(\)\[\]\{\}\.\s]+"
+    matches = re.findall(pattern, q)
+
+    if not matches:
         return None
-    return match.group(0).replace("^", "**")
+
+    expr = "".join(matches).strip()
+
+    if not any(c.isdigit() for c in expr):
+        return None
+
+    expr = expr.replace("^", "**")
+    expr = normalize_expression(expr)
+
+    return expr
 
 def solve_math(q):
     expr = extract_math(q)
     if not expr:
         return None
+
     try:
         result = eval(expr, {"__builtins__": None}, {})
-        return f"🧮 Answer: {result}"
+        return f"🧮 {expr} = {result}"
     except:
         return None
 
 # =========================
-# 🧠 QUIZ GENERATOR (FIXED)
+# 🧠 QUIZ GENERATOR
 # =========================
 def generate_quiz(q):
     topic = extract_topic(q)
@@ -149,7 +174,6 @@ Answer:
 Keep it simple.
 """
 
-    # GOOGLE
     try:
         c = get_google()
         r = c.models.generate_content(
@@ -161,7 +185,6 @@ Keep it simple.
     except:
         pass
 
-    # OPENAI
     try:
         c = get_openai()
         r = c.chat.completions.create(
@@ -175,7 +198,6 @@ Keep it simple.
     except:
         pass
 
-    # HARD FALLBACK
     return f"""🧠 Quiz on {topic}:
 
 Q1. What is 1/2 + 1/2?
@@ -184,13 +206,6 @@ B) 2
 C) 1/2
 D) 0
 Answer: A
-
-Q2. What is 0.5 as a fraction?
-A) 1/5
-B) 1/2
-C) 2/5
-D) 5/10
-Answer: B
 """
 
 # =========================
@@ -234,13 +249,12 @@ def ai_answer(q):
         if math:
             return math
 
-    # CONTEXT MEMORY
     history = st.session_state.chats[st.session_state.current_chat][-6:]
     context = "\n".join([f"{m['role']}: {m['text']}" for m in history])
 
     prompt = f"""
 You are SmartLoop AI.
-Be clear, correct, and helpful.
+Be clear, concise and correct.
 
 Conversation:
 {context}
@@ -248,7 +262,6 @@ Conversation:
 User: {q}
 """
 
-    # GOOGLE
     try:
         c = get_google()
         r = c.models.generate_content(
@@ -260,7 +273,6 @@ User: {q}
     except:
         pass
 
-    # OPENAI
     try:
         c = get_openai()
         r = c.chat.completions.create(
@@ -311,7 +323,7 @@ if st.sidebar.button("🗑 Delete Chat"):
 # TITLE
 # =========================
 st.title("🧠 SmartLoop AI")
-st.info("Your guide for quiz, news, math & memory 🚀")
+st.info("Now supports (), [], {} in math + quiz + news 🚀")
 
 # =========================
 # CHAT DISPLAY
