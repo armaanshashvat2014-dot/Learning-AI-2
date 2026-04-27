@@ -8,11 +8,14 @@ from openai import OpenAI
 # =========================
 GOOGLE_KEYS = [
     st.secrets["GOOGLE_API_KEY_1"],
-    st.secrets["GOOGLE_API_KEY_2"]
+    st.secrets["GOOGLE_API_KEY_2"],
+    st.secrets["GOOGLE_API_KEY_3"],
+    st.secrets["GOOGLE_API_KEY_4"]  
 ]
 OPENAI_KEYS = [
     st.secrets["OPENAI_API_KEY_1"],
-    st.secrets["OPENAI_API_KEY_2"]
+    st.secrets["OPENAI_API_KEY_2"],
+    st.secrets["OPENAI_API_KEY_3"]
 ]
 
 google_cycle = itertools.cycle(GOOGLE_KEYS)
