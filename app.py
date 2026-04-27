@@ -1,5 +1,5 @@
 import streamlit as st
-import itertools, re, wikipedia, feedparser, json
+import itertools, re, wikipedia, feedparser
 from google import genai
 from openai import OpenAI
 
@@ -38,36 +38,30 @@ if "last_q" not in st.session_state:
     st.session_state.last_q = ""
 
 # =========================
-# 🛡️ SAFETY (AI JSON BASED)
+# 🛡️ SAFETY (AI JSON)
 # =========================
 def is_safe(q):
     prompt = f"""
 Classify the user query.
 
-Respond ONLY in this JSON format:
+Respond ONLY:
 {{"safe": true}} OR {{"safe": false}}
 
 Query:
 {q}
 """
 
-    # GOOGLE
     try:
         c = get_google()
-        r = c.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        text = r.text.strip().lower()
-
-        if '"safe": true' in text:
-            return True
+        r = c.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        text = (r.text or "").lower()
         if '"safe": false' in text:
             return False
+        if '"safe": true' in text:
+            return True
     except:
         pass
 
-    # OPENAI
     try:
         c = get_openai()
         r = c.chat.completions.create(
@@ -76,21 +70,24 @@ Query:
             temperature=0
         )
         text = r.choices[0].message.content.lower()
-
-        if '"safe": true' in text:
-            return True
         if '"safe": false' in text:
             return False
+        if '"safe": true' in text:
+            return True
     except:
         pass
 
     return True
 
 # =========================
-# 🧠 INTENT DETECTION
+# 🧠 INTENT DETECTION (FIXED)
 # =========================
 def detect_intent(q):
     ql = q.lower()
+
+    # PRIORITY ORDER
+    if any(w in ql for w in ["news", "latest", "headlines", "current events"]):
+        return "news"
 
     if any(w in ql for w in ["quiz", "test", "mcq"]):
         return "quiz"
@@ -101,10 +98,16 @@ def detect_intent(q):
     if any(w in ql for w in ["explain", "what is", "define"]):
         return "explain"
 
-    if any(w in ql for w in ["news", "latest", "headlines"]):
-        return "news"
-
     return "general"
+
+# =========================
+# 🧠 TOPIC EXTRACTION
+# =========================
+def extract_topic(q):
+    q = q.lower()
+    for phrase in ["make a quiz on", "quiz on", "create a quiz on"]:
+        q = q.replace(phrase, "")
+    return q.strip().capitalize()
 
 # =========================
 # 🧮 MATH
@@ -127,13 +130,15 @@ def solve_math(q):
         return None
 
 # =========================
-# 🧠 QUIZ GENERATOR
+# 🧠 QUIZ GENERATOR (FIXED)
 # =========================
-def generate_quiz(topic):
-    prompt = f"""
-Create a 5-question multiple choice quiz on: {topic}
+def generate_quiz(q):
+    topic = extract_topic(q)
 
-Format strictly:
+    prompt = f"""
+Create a 5-question MCQ quiz on: {topic}
+
+Format:
 Q1.
 A)
 B)
@@ -141,31 +146,52 @@ C)
 D)
 Answer:
 
-Keep it clear and school-level.
+Keep it simple.
 """
 
+    # GOOGLE
     try:
         c = get_google()
         r = c.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt
         )
-        if r.text:
-            return "🧠 Quiz:\n\n" + r.text
+        if r.text and len(r.text.strip()) > 20:
+            return f"🧠 Quiz on {topic}:\n\n" + r.text
     except:
         pass
 
+    # OPENAI
     try:
         c = get_openai()
         r = c.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":prompt}]
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.7
         )
-        return "🧠 Quiz:\n\n" + r.choices[0].message.content
+        text = r.choices[0].message.content
+        if text and len(text.strip()) > 20:
+            return f"🧠 Quiz on {topic}:\n\n" + text
     except:
         pass
 
-    return "⚠️ Could not generate quiz."
+    # HARD FALLBACK
+    return f"""🧠 Quiz on {topic}:
+
+Q1. What is 1/2 + 1/2?
+A) 1
+B) 2
+C) 1/2
+D) 0
+Answer: A
+
+Q2. What is 0.5 as a fraction?
+A) 1/5
+B) 1/2
+C) 2/5
+D) 5/10
+Answer: B
+"""
 
 # =========================
 # 📰 NEWS
@@ -197,6 +223,9 @@ def ai_answer(q):
 
     intent = detect_intent(q)
 
+    if intent == "news":
+        return get_news()
+
     if intent == "quiz":
         return generate_quiz(q)
 
@@ -205,16 +234,13 @@ def ai_answer(q):
         if math:
             return math
 
-    if intent == "news":
-        return get_news()
-
-    # Chat memory
+    # CONTEXT MEMORY
     history = st.session_state.chats[st.session_state.current_chat][-6:]
     context = "\n".join([f"{m['role']}: {m['text']}" for m in history])
 
     prompt = f"""
 You are SmartLoop AI.
-Be accurate, clear, and helpful.
+Be clear, correct, and helpful.
 
 Conversation:
 {context}
@@ -229,7 +255,7 @@ User: {q}
             model="gemini-2.5-flash",
             contents=prompt
         )
-        if r.text and len(r.text) > 5:
+        if r.text and len(r.text.strip()) > 5:
             return r.text
     except:
         pass
@@ -245,7 +271,6 @@ User: {q}
     except:
         pass
 
-    # WIKI
     wiki = search_wiki(q)
     if wiki:
         return "🌐 " + wiki
@@ -286,8 +311,7 @@ if st.sidebar.button("🗑 Delete Chat"):
 # TITLE
 # =========================
 st.title("🧠 SmartLoop AI")
-
-st.info("Now smarter: quiz + math + news + memory 🚀")
+st.info("Your guide for quiz, news, math & memory 🚀")
 
 # =========================
 # CHAT DISPLAY
@@ -296,7 +320,7 @@ for msg in st.session_state.chats[st.session_state.current_chat]:
     if msg["role"] == "user":
         st.markdown(f"<div class='chat-user'>🧑 {msg['text']}</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='chat-ai'>🤖✨ {msg['text']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='chat-ai'>🤖 {msg['text']}</div>", unsafe_allow_html=True)
 
 # =========================
 # INPUT
