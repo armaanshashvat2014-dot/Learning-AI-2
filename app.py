@@ -6,7 +6,29 @@ import wikipedia
 
 from openai import OpenAI
 from google import genai
+import fitz  # pymupdf
 
+def extract_pdf(fname):
+    chunks = []
+    try:
+        doc = fitz.open(fname)
+        for page_num, page in enumerate(doc):
+            text = page.get_text().strip()
+            if len(text) > 60:
+                words = set(
+                    re.sub(r'[^a-z0-9 ]', ' ',
+                    text.lower()).split()
+                )
+                chunks.append({
+                    "text":  text[:1500],
+                    "words": words,
+                    "file":  fname,
+                    "page":  page_num + 1
+                })
+        doc.close()
+    except:
+        pass
+    return chunks
 # =========================
 # PAGE CONFIG
 # =========================
