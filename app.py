@@ -269,71 +269,9 @@ if st.session_state.grade is None:
             st.session_state.grade = int(grade.split()[1])
             st.rerun()
     st.stop()
-
 # =========================
-# PDF LOADING
-# Uses PyPDF2 with parallel
-# page extraction for speed
+# PDF CHUNKING
 # =========================
-def extract_pdf(fname):
-    chunks = []
-    try:
-        reader = PyPDF2.PdfReader(fname)
-
-        def extract_page(args):
-            page_num, page = args
-            try:
-                text = page.extract_text() or ""
-                clean = text.strip()
-                if len(clean) > 60:
-                    words = set(
-                        re.sub(
-                            r'[^a-z0-9 ]', ' ',
-                            clean.lower()
-                        ).split()
-                    )
-                    return {
-                        "text":  clean[:1500],
-                        "words": words,
-                        "file":  fname,
-                        "page":  page_num + 1
-                    }
-            except:
-                pass
-            return None
-
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            results = list(ex.map(
-                extract_page,
-                enumerate(reader.pages)
-            ))
-        chunks = [r for r in results if r]
-    except:
-        pass
-    return chunks
-
-@st.cache_resource(show_spinner=False)
-def load_all_pdfs():
-    all_chunks = []
-    pdf_files = [
-        f for f in os.listdir(".")
-        if f.endswith(".pdf")
-    ]
-    if not pdf_files:
-        return all_chunks
-
-    # Extract all PDFs in parallel
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {
-            ex.submit(extract_pdf, f): f
-            for f in pdf_files
-        }
-        for future in as_completed(futures):
-            all_chunks.extend(future.result())
-
-    return all_chunks
-
-with st.spinner("📚 Loading library..."):
     PDF_CHUNKS = load_all_pdfs()
 
 # =========================
