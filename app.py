@@ -1,6 +1,5 @@
 import streamlit as st
 import re, os, time, itertools
-import PyPDF2
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import wikipedia
 
