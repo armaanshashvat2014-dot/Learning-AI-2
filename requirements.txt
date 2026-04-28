@@ -1,7 +1,7 @@
 streamlit
 google-genai
 openai
-PyPDF2
+PyMuPDF
 wikipedia
 feedparser
 sympy
