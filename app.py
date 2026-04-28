@@ -231,7 +231,10 @@ def get_google_client():
     if not google_cycle:
         return None
     return genai.Client(api_key=next(google_cycle))
-
+# =========================
+# PDF CHUNKING
+# =========================
+    PDF_CHUNKS = load_all_pdfs()
 # =========================
 # GRADE SELECTION POPUP
 # =========================
@@ -269,10 +272,7 @@ if st.session_state.grade is None:
             st.session_state.grade = int(grade.split()[1])
             st.rerun()
     st.stop()
-# =========================
-# PDF CHUNKING
-# =========================
-    PDF_CHUNKS = load_all_pdfs()
+
 
 # =========================
 # SESSION STATE
