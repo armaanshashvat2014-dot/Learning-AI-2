@@ -8,24 +8,15 @@ import fitz
 from openai import OpenAI
 from google import genai
 
-# =========================
-# SUPPRESS PDF WARNINGS
-# =========================
 warnings.filterwarnings("ignore")
 logging.getLogger("pymupdf").setLevel(logging.ERROR)
 
-# =========================
-# PAGE CONFIG
-# =========================
 st.set_page_config(
     page_title="SmartLoop AI",
     page_icon="🧠",
     layout="wide"
 )
 
-# =========================
-# CSS
-# =========================
 st.markdown("""
 <style>
 .stApp {
@@ -150,25 +141,22 @@ st.markdown("""
 # API KEYS
 # =========================
 ALL_OPENAI_KEYS = [
-    st.secrets.get(f"OPENAI_API_KEY_{i}")
-    for i in range(1, 5)
+    st.secrets.get(f"OPENAI_API_KEY_{i}") for i in range(1, 5)
 ]
 ALL_OPENAI_KEYS = [k for k in ALL_OPENAI_KEYS if k]
 
 ALL_GOOGLE_KEYS = [
-    st.secrets.get(f"GOOGLE_API_KEY_{i}")
-    for i in range(1, 5)
+    st.secrets.get(f"GOOGLE_API_KEY_{i}") for i in range(1, 5)
 ]
 ALL_GOOGLE_KEYS = [k for k in ALL_GOOGLE_KEYS if k]
 
 if not ALL_OPENAI_KEYS and not ALL_GOOGLE_KEYS:
-    st.error("No API keys found in secrets.")
+    st.error("No API keys found.")
     st.stop()
 
-# Key role assignment
-PDF_JUDGE_KEYS    = ALL_OPENAI_KEYS.copy()
-PRIMARY_ANS_KEYS  = [k for i,k in enumerate(ALL_OPENAI_KEYS) if i in [1,2]]
-EXTRA_ANS_KEYS    = [k for i,k in enumerate(ALL_OPENAI_KEYS) if i == 3]
+PDF_JUDGE_KEYS   = ALL_OPENAI_KEYS.copy()
+PRIMARY_ANS_KEYS = [k for i,k in enumerate(ALL_OPENAI_KEYS) if i in [1,2]]
+EXTRA_ANS_KEYS   = [k for i,k in enumerate(ALL_OPENAI_KEYS) if i == 3]
 
 pdf_judge_cycle   = itertools.cycle(PDF_JUDGE_KEYS)   if PDF_JUDGE_KEYS   else None
 primary_ans_cycle = itertools.cycle(PRIMARY_ANS_KEYS) if PRIMARY_ANS_KEYS else None
@@ -192,7 +180,7 @@ def get_google():
     return genai.Client(api_key=next(google_cycle)) if google_cycle else None
 
 # =========================
-# GRADE SELECTION POPUP
+# GRADE SELECTION
 # =========================
 if "grade" not in st.session_state:
     st.session_state.grade = None
@@ -206,9 +194,7 @@ if st.session_state.grade is None:
     text-align:center; backdrop-filter:blur(40px);'>
     <div style='font-size:40px; margin-bottom:12px;'>🧠</div>
     <div style='font-size:28px; font-weight:800;
-        color:#00d4ff; margin-bottom:6px;'>
-        SmartLoop AI
-    </div>
+        color:#00d4ff; margin-bottom:6px;'>SmartLoop AI</div>
     <div style='color:rgba(255,255,255,0.5);
         margin-bottom:28px; font-size:15px;'>
         Select your grade to get started
@@ -234,7 +220,45 @@ if st.session_state.grade is None:
 
 # =========================
 # PDF LOADING
+# Grade filtering:
+# 6 → loads grade 6 & 7 books
+# 7 → loads grade 7 & 8 books
+# 8 → loads grade 8 & 9 books
+# others → exact match only
 # =========================
+def get_allowed_grades(grade):
+    mapping = {
+        6: [6, 7],
+        7: [7, 8],
+        8: [8, 9],
+    }
+    return mapping.get(grade, [grade])
+
+def grade_matches_file(fname, allowed_grades):
+    """
+    Returns True if the filename contains any of
+    the allowed grade numbers.
+    Matches patterns like: _6_, _7_, grade6, grade7,
+    class6, std6, g6, 6th, 7th etc.
+    """
+    name = fname.lower().replace(".pdf","")
+    for g in allowed_grades:
+        patterns = [
+            str(g),
+            f"grade{g}",
+            f"grade_{g}",
+            f"class{g}",
+            f"std{g}",
+            f"g{g}",
+            f"{g}th",
+            f"{g}st",
+            f"{g}nd",
+            f"{g}rd",
+        ]
+        if any(p in name for p in patterns):
+            return True
+    return False
+
 def extract_pdf(fname):
     chunks = []
     try:
@@ -260,17 +284,33 @@ def extract_pdf(fname):
     return chunks
 
 @st.cache_resource(show_spinner=False)
-def load_all_pdfs():
+def load_all_pdfs(grade):
     all_chunks = []
+    allowed = get_allowed_grades(grade)
     pdf_files = [f for f in os.listdir(".") if f.endswith(".pdf")]
+
+    # Filter to only grade-appropriate PDFs
+    grade_files = [
+        f for f in pdf_files
+        if grade_matches_file(f, allowed)
+    ]
+
+    # If no grade-matched files found, load all PDFs
+    if not grade_files:
+        grade_files = pdf_files
+
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(extract_pdf, f): f for f in pdf_files}
+        futures = {
+            ex.submit(extract_pdf, f): f
+            for f in grade_files
+        }
         for future in as_completed(futures):
             all_chunks.extend(future.result())
+
     return all_chunks
 
 with st.spinner("📚 Loading library..."):
-    PDF_CHUNKS = load_all_pdfs()
+    PDF_CHUNKS = load_all_pdfs(st.session_state.grade)
 
 # =========================
 # SESSION STATE
@@ -333,7 +373,8 @@ def judge_single(args):
         f"Question: {question}\n\n"
         f"Excerpt:\n{chunk['text'][:500]}\n\n"
         f"Does this excerpt directly help answer "
-        f"the question? Reply ONLY: YES or NO"
+        f"the question about the academic/school subject? "
+        f"Reply ONLY: YES or NO"
     )
     try:
         client = OpenAI(api_key=key)
@@ -373,13 +414,30 @@ def parallel_judge(candidates, question):
 # =========================
 def grade_style(g):
     if g <= 3:
-        return "Use very simple words and short sentences. Fun examples. Like explaining to a young child."
+        return "Use very simple words, short sentences, and fun examples. Like explaining to a young child."
     elif g <= 6:
         return "Use clear simple language with relatable everyday examples."
     elif g <= 8:
         return "Use clear academic language with key terms and worked examples."
     else:
         return "Use detailed academic language suitable for high school with equations and analysis."
+
+# =========================
+# THINKING ANIMATION PHASES
+# =========================
+PHASES = ["Reading", "Defining", "Processing", "Answer"]
+
+def update_phase(placeholder, phase_text):
+    placeholder.markdown(f"""
+<div class="thinking-container">
+    <span class="thinking-text">{phase_text}</span>
+    <div class="thinking-dots">
+        <div class="thinking-dot"></div>
+        <div class="thinking-dot"></div>
+        <div class="thinking-dot"></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # =========================
 # TIER 1: PDF ANSWER
@@ -396,11 +454,12 @@ def answer_from_pdf(question, chunks, grade, history):
         f"{m.get('content','')}\n"
         for m in history[-4:]
     ])
-    prompt = f"""You are SmartLoop AI, an expert tutor for Grade {grade} students.
+    prompt = f"""You are SmartLoop AI, an expert academic tutor for Grade {grade} students.
 {style}
 
-Use the textbook excerpts to answer accurately.
-If excerpts don't fully cover it, use your own knowledge.
+Use the textbook excerpts below to answer the question.
+Give a clear, well-structured explanation with examples.
+If the excerpts don't fully cover it, supplement with your knowledge.
 
 TEXTBOOK:
 {context}
@@ -412,7 +471,6 @@ QUESTION: {question}
 
 Answer:"""
 
-    # Primary keys
     for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
         try:
             c = get_primary()
@@ -428,7 +486,6 @@ Answer:"""
         except:
             time.sleep(1)
 
-    # Extra key
     try:
         c = get_extra()
         if c:
@@ -447,6 +504,9 @@ Answer:"""
 
 # =========================
 # TIER 2: AI ANSWER
+# Wikipedia is NOT used here
+# AI always answers general
+# knowledge questions itself
 # =========================
 def answer_from_ai(question, grade, history):
     style = grade_style(grade)
@@ -455,9 +515,13 @@ def answer_from_ai(question, grade, history):
         f"{m.get('content','')}\n"
         for m in history[-4:]
     ])
-    prompt = f"""You are SmartLoop AI, an expert tutor for Grade {grade} students.
+    prompt = f"""You are SmartLoop AI, an expert academic tutor for Grade {grade} students.
 {style}
-Answer completely and accurately. Never refuse.
+
+Answer this question completely and accurately from your knowledge.
+This is a school/academic question — give the correct educational answer.
+Use bullet points, examples, and formulas where helpful.
+Never refuse. Always give a complete, accurate answer.
 
 CONVERSATION:
 {hist}
@@ -486,10 +550,11 @@ Answer:"""
             c = get_primary()
             if c:
                 msgs = [{
-                    "role":"system",
+                    "role": "system",
                     "content": (
-                        f"You are SmartLoop AI, expert tutor "
-                        f"for Grade {grade}. {style}"
+                        f"You are SmartLoop AI, expert academic tutor "
+                        f"for Grade {grade}. {style} "
+                        f"Always give complete, accurate educational answers."
                     )
                 }]
                 for m in history[-4:]:
@@ -528,6 +593,9 @@ Answer:"""
 
 # =========================
 # TIER 3: WIKIPEDIA
+# Only used when BOTH pdf
+# AND all AI keys fail
+# Filtered to avoid junk
 # =========================
 def answer_from_wiki(question):
     try:
@@ -536,19 +604,59 @@ def answer_from_wiki(question):
             r"how does|tell me about|describe)",
             "", question.lower()
         ).strip()
-        result = wikipedia.summary(
-            search_q[:60], sentences=3, auto_suggest=True
-        )
+
+        # Search and pick best result
+        search_results = wikipedia.search(search_q, results=5)
+
+        # Prefer results that look academic
+        academic_keywords = [
+            "physics","chemistry","biology","mathematics",
+            "science","history","geography","economics",
+            "force","energy","cell","atom","equation"
+        ]
+        best = None
+        for result in search_results:
+            result_lower = result.lower()
+            if any(k in result_lower for k in academic_keywords):
+                best = result
+                break
+        if not best and search_results:
+            best = search_results[0]
+
+        if not best:
+            return None, None, None
+
+        result = wikipedia.summary(best, sentences=3)
+
+        # Reject disambiguation/junk articles
         bad = [
             "may refer to","disambiguation",
-            "is a list","index (","is an index"
+            "is a list","index (","is an index",
+            "comic","marvel","dc comics","film","movie",
+            "tv series","television","album","song","band"
         ]
         if any(b in result.lower() for b in bad):
             return None, None, None
+
         return result, "wiki", None
+
     except wikipedia.exceptions.DisambiguationError as e:
         try:
-            result = wikipedia.summary(e.options[0], sentences=3)
+            # Pick first non-entertainment option
+            bad_options = [
+                "film","comic","song","album",
+                "band","tv","series","novel"
+            ]
+            best_option = next(
+                (o for o in e.options
+                 if not any(b in o.lower() for b in bad_options)),
+                e.options[0] if e.options else None
+            )
+            if not best_option:
+                return None, None, None
+            result = wikipedia.summary(best_option, sentences=3)
+            if any(b in result.lower() for b in ["comic","marvel","film","movie"]):
+                return None, None, None
             return result, "wiki", None
         except:
             return None, None, None
@@ -559,30 +667,41 @@ def answer_from_wiki(question):
 # MAIN PIPELINE
 # calc → pdf → ai → wiki
 # =========================
-def smartloop(question, grade, history):
+def smartloop(question, grade, history, thinking_placeholder):
+
     # Calculator
     if is_pure_calc(question):
+        update_phase(thinking_placeholder, "Processing")
         ans, tier = solve_math(question)
         if ans:
             return ans, tier, None
 
-    # PDF
+    # Phase 1: Reading
+    update_phase(thinking_placeholder, "Reading")
     candidates = keyword_search(question)
-    if candidates:
-        good = parallel_judge(candidates, question)
-        if good:
-            ans, tier, src = answer_from_pdf(
-                question, good, grade, history
-            )
-            if ans:
-                return ans, tier, src
 
-    # AI
+    # Phase 2: Defining
+    update_phase(thinking_placeholder, "Defining")
+    good_chunks = []
+    if candidates:
+        good_chunks = parallel_judge(candidates, question)
+
+    # Phase 3: Processing
+    update_phase(thinking_placeholder, "Processing")
+
+    if good_chunks:
+        ans, tier, src = answer_from_pdf(
+            question, good_chunks, grade, history
+        )
+        if ans:
+            return ans, tier, src
+
+    # AI fallback
     ans, tier, src = answer_from_ai(question, grade, history)
     if ans:
         return ans, tier, src
 
-    # Wikipedia
+    # Wikipedia last resort
     ans, tier, src = answer_from_wiki(question)
     if ans:
         return ans, tier, src
@@ -593,7 +712,7 @@ def smartloop(question, grade, history):
     )
 
 # =========================
-# SOURCE BADGE HELPER
+# BADGE HELPER
 # =========================
 def show_badge(tier, source):
     if tier == "pdf" and source:
@@ -605,7 +724,7 @@ def show_badge(tier, source):
     elif tier == "ai":
         st.markdown(
             '<span class="source-badge src-ai">'
-            '💡 AI general knowledge</span>',
+            '💡 AI knowledge</span>',
             unsafe_allow_html=True
         )
     elif tier == "wiki":
@@ -646,6 +765,7 @@ with st.sidebar:
     )
     if int(new_grade.split()[1]) != st.session_state.grade:
         st.session_state.grade = int(new_grade.split()[1])
+        st.cache_resource.clear()
         st.rerun()
 
     st.divider()
@@ -676,8 +796,7 @@ with st.sidebar:
         )
         msgs = st.session_state.chats.get(chat_name, [])
         first_user = next(
-            (m["content"] for m in msgs
-             if m["role"] == "user"),
+            (m["content"] for m in msgs if m["role"] == "user"),
             chat_name
         )
         title = (
@@ -707,7 +826,6 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-
     st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
     st.info(
         f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | "
@@ -716,6 +834,7 @@ with st.sidebar:
 
     if st.button("🔄 Change Grade", use_container_width=True):
         st.session_state.grade = None
+        st.cache_resource.clear()
         st.rerun()
 
     with st.expander("🏫 Are you a Teacher?"):
@@ -753,27 +872,24 @@ messages = st.session_state.chats.get(
     st.session_state.current_chat, []
 )
 
-# Greeting
 if not messages:
     with st.chat_message("assistant"):
         st.markdown(
             f"👋 **Hey! I'm SmartLoop AI!**\n\n"
             f"I'm your Grade {st.session_state.grade} tutor.\n\n"
-            f"- 📖 I search your **textbooks first**\n"
-            f"- 🤖 If not found → **AI knowledge**\n"
-            f"- 🌐 If AI fails → **Wikipedia**\n"
+            f"- 📖 Searches your **textbooks first**\n"
+            f"- 🤖 Falls back to **AI knowledge**\n"
+            f"- 🌐 Last resort → **Wikipedia**\n"
             f"- 🧮 Solves **maths step-by-step**\n"
             f"- 💬 Remembers our **conversation**\n\n"
             f"*What would you like to learn today?*"
         )
 
-# Display history
 for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg.get("content",""))
         show_badge(msg.get("tier",""), msg.get("source",""))
 
-# Chat input
 q = st.chat_input("Ask SmartLoop...")
 
 if q and q != st.session_state.last_q:
@@ -788,21 +904,12 @@ if q and q != st.session_state.last_q:
 
     with st.chat_message("assistant"):
         thinking = st.empty()
-        thinking.markdown("""
-<div class="thinking-container">
-    <span class="thinking-text">Searching & thinking</span>
-    <div class="thinking-dots">
-        <div class="thinking-dot"></div>
-        <div class="thinking-dot"></div>
-        <div class="thinking-dot"></div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
         ans, tier, source = smartloop(
             q,
             st.session_state.grade,
-            messages[:-1]
+            messages[:-1],
+            thinking
         )
 
         thinking.empty()
