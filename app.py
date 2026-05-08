@@ -5,7 +5,6 @@ import warnings, logging
 import wikipedia
 import fitz
 import requests
-import duckduckgo
 from bs4 import BeautifulSoup
 
 from openai import OpenAI
