@@ -1,6 +1,7 @@
 import streamlit as st
-import re, os, time, itertools
+import re, os, time, itertools, math
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
 import warnings, logging
 import wikipedia
 import fitz
@@ -219,7 +220,7 @@ if st.session_state.grade is None:
     st.stop()
 
 # =========================
-# PDF LOADING
+# PDF LOADING — with better chunking
 # =========================
 def get_allowed_grades(grade):
     return {6:[6,7], 7:[7,8], 8:[8,9]}.get(grade, [grade])
@@ -236,21 +237,43 @@ def grade_matches_file(fname, allowed_grades):
             return True
     return False
 
-def extract_pdf(fname):
+def extract_pdf_smart(fname):
+    """
+    UPGRADE: Overlapping paragraph-aware chunking instead of raw page truncation.
+    Splits each page into ~400-word chunks with 100-word overlap for better retrieval.
+    Also computes IDF-ready word frequency maps per chunk.
+    """
     chunks = []
     try:
         doc = fitz.open(fname)
         for page_num, page in enumerate(doc):
             text = page.get_text().strip()
-            if len(text) > 60:
-                words = set(
-                    re.sub(r'[^a-z0-9 ]',' ',text.lower()).split()
-                )
+            if len(text) < 60:
+                continue
+
+            # Split into paragraphs first, then chunk
+            paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if len(p.strip()) > 40]
+            if not paragraphs:
+                paragraphs = [text]
+
+            # Sliding window chunking: ~400 words, 100-word overlap
+            words = text.split()
+            step, size = 300, 400
+            for i in range(0, max(1, len(words) - size + step), step):
+                chunk_text = " ".join(words[i:i+size])
+                if len(chunk_text) < 80:
+                    continue
+                clean = re.sub(r'[^a-z0-9 ]', ' ', chunk_text.lower())
+                word_freq = defaultdict(int)
+                for w in clean.split():
+                    word_freq[w] += 1
                 chunks.append({
-                    "text":  text[:1500],
-                    "words": words,
-                    "file":  fname,
-                    "page":  page_num + 1
+                    "text":      chunk_text[:2000],
+                    "word_freq": dict(word_freq),
+                    "words":     set(word_freq.keys()),
+                    "file":      fname,
+                    "page":      page_num + 1,
+                    "chunk_i":   i
                 })
         doc.close()
     except Exception as e:
@@ -266,13 +289,79 @@ def load_all_pdfs(grade):
     if not grade_files:
         grade_files = pdf_files
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(extract_pdf, f): f for f in grade_files}
+        futures = {ex.submit(extract_pdf_smart, f): f for f in grade_files}
         for future in as_completed(futures):
             all_chunks.extend(future.result())
+
+    # Build corpus-level IDF for BM25
+    _build_idf(all_chunks)
     return all_chunks
 
-with st.spinner("📚 Loading library..."):
-    PDF_CHUNKS = load_all_pdfs(st.session_state.grade)
+# =========================
+# BM25 RETRIEVAL
+# =========================
+# Global IDF store (built once after PDF load)
+_IDF: dict = {}
+_CORPUS_SIZE: int = 0
+_AVG_DL: float = 0.0
+
+def _build_idf(chunks):
+    global _IDF, _CORPUS_SIZE, _AVG_DL
+    _CORPUS_SIZE = len(chunks)
+    if not _CORPUS_SIZE:
+        return
+    df = defaultdict(int)
+    total_len = 0
+    for c in chunks:
+        total_len += sum(c["word_freq"].values())
+        for w in c["word_freq"]:
+            df[w] += 1
+    _AVG_DL = total_len / _CORPUS_SIZE
+    _IDF = {
+        w: math.log(((_CORPUS_SIZE - freq + 0.5) / (freq + 0.5)) + 1)
+        for w, freq in df.items()
+    }
+
+def bm25_score(chunk, query_words, k1=1.5, b=0.75):
+    """BM25 ranking — far superior to plain keyword overlap."""
+    dl = sum(chunk["word_freq"].values())
+    score = 0.0
+    for w in query_words:
+        if w not in chunk["word_freq"]:
+            continue
+        tf = chunk["word_freq"][w]
+        idf = _IDF.get(w, 0.0)
+        numerator   = tf * (k1 + 1)
+        denominator = tf + k1 * (1 - b + b * dl / max(_AVG_DL, 1))
+        score += idf * (numerator / denominator)
+    return score
+
+STOPWORDS = {
+    "what","is","are","how","why","when","who","the","a","an",
+    "of","in","to","and","does","do","explain","define","me",
+    "about","give","please","describe","tell","example",
+    "examples","find","solve","calculate","show","write","can",
+    "you","i","my","we","our","its","it","was","were","will","be"
+}
+
+def tokenize_query(q: str) -> list[str]:
+    return [
+        w for w in re.sub(r'[^a-z0-9 ]', ' ', q.lower()).split()
+        if w not in STOPWORDS and len(w) > 1
+    ]
+
+def bm25_search(query: str, top_k: int = 12) -> list[dict]:
+    """UPGRADE: BM25 retrieval replaces plain keyword overlap."""
+    if not PDF_CHUNKS:
+        return []
+    q_words = tokenize_query(query)
+    if not q_words:
+        return []
+    scored = [(bm25_score(c, q_words), c) for c in PDF_CHUNKS]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    # Only return chunks with meaningful scores
+    threshold = max(0.5, scored[0][0] * 0.15) if scored else 0
+    return [c for sc, c in scored[:top_k] if sc >= threshold]
 
 # =========================
 # SESSION STATE
@@ -297,74 +386,157 @@ def solve_math(q):
         return None, None
 
 # =========================
-# PDF KEYWORD SEARCH
+# UPGRADE 1: QUERY REWRITING
+# Contextualises the question using conversation history
 # =========================
-STOPWORDS = {
-    "what","is","are","how","why","when","who","the","a","an",
-    "of","in","to","and","does","do","explain","define","me",
-    "about","give","please","describe","tell","example",
-    "examples","find","solve","calculate","show","write"
-}
+def rewrite_query(question: str, history: list) -> str:
+    """
+    If the question is ambiguous or a follow-up, rewrite it into a
+    self-contained search query using recent chat context.
+    Returns the rewritten query (or original if rewrite fails).
+    """
+    if len(history) < 2:
+        return question  # No context to leverage
 
-def keyword_search(q):
-    if not PDF_CHUNKS:
-        return []
-    q_words = set(
-        re.sub(r'[^a-z0-9 ]',' ',q.lower()).split()
-    ) - STOPWORDS
-    if not q_words:
-        return []
-    scored = []
-    for chunk in PDF_CHUNKS:
-        score = len(q_words & chunk["words"])
-        if score >= 2:
-            scored.append((score, chunk))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return scored[:8]
+    recent = history[-4:]
+    hist_text = "\n".join([
+        f"{'Student' if m['role']=='user' else 'AI'}: {m.get('content','')[:200]}"
+        for m in recent
+    ])
+
+    prompt = (
+        f"Given this conversation:\n{hist_text}\n\n"
+        f"Rewrite the student's new question as a clear, self-contained "
+        f"search query (no pronouns, no 'it'/'this'/'that', include topic context). "
+        f"Return ONLY the rewritten query, nothing else.\n"
+        f"Question: {question}\nRewritten:"
+    )
+    try:
+        c = get_primary()
+        if c:
+            r = c.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=60,
+                temperature=0
+            )
+            rewritten = r.choices[0].message.content.strip()
+            if rewritten and len(rewritten) > 5:
+                return rewritten
+    except:
+        pass
+    return question
 
 # =========================
-# AI JUDGE — parallel
+# UPGRADE 2: MULTI-QUERY EXPANSION
+# Generate 3 variants of the query for broader retrieval
 # =========================
-def judge_single(args):
+def expand_queries(question: str) -> list[str]:
+    """
+    Generate 2 alternative phrasings of the question.
+    Merges BM25 results from all variants (reciprocal rank fusion).
+    """
+    prompt = (
+        f"Generate 2 alternative search queries for this academic question. "
+        f"Each on a new line. No numbering, no explanations.\n"
+        f"Question: {question}"
+    )
+    try:
+        c = get_primary()
+        if c:
+            r = c.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=80,
+                temperature=0.3
+            )
+            variants = [
+                line.strip() for line in
+                r.choices[0].message.content.strip().split("\n")
+                if line.strip() and len(line.strip()) > 5
+            ]
+            return [question] + variants[:2]
+    except:
+        pass
+    return [question]
+
+def reciprocal_rank_fusion(ranked_lists: list[list[dict]], k: int = 60) -> list[dict]:
+    """
+    UPGRADE: Fuse multiple ranked retrieval lists using RRF.
+    Deduplicates by (file, page, chunk_i).
+    """
+    scores = defaultdict(float)
+    chunk_map = {}
+    for ranked in ranked_lists:
+        for rank, chunk in enumerate(ranked):
+            key = (chunk["file"], chunk["page"], chunk.get("chunk_i", 0))
+            scores[key] += 1.0 / (k + rank + 1)
+            chunk_map[key] = chunk
+    sorted_keys = sorted(scores, key=lambda x: scores[x], reverse=True)
+    return [chunk_map[k] for k in sorted_keys]
+
+# =========================
+# UPGRADE 3: GPT RERANKER
+# Scores 0-10 instead of binary YES/NO
+# =========================
+def rerank_single(args):
     chunk, question, key = args
     prompt = (
         f"Question: {question}\n\n"
-        f"Excerpt:\n{chunk['text'][:500]}\n\n"
-        f"Does this excerpt directly help answer "
-        f"the academic question? Reply ONLY: YES or NO"
+        f"Excerpt:\n{chunk['text'][:600]}\n\n"
+        f"Score how relevant this excerpt is to answering the question.\n"
+        f"Reply with ONLY a number from 0 to 10. No explanation."
     )
     try:
         client = OpenAI(api_key=key)
         r = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role":"user","content":prompt}],
-            max_tokens=3, temperature=0
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=3,
+            temperature=0
         )
-        return "YES" in r.choices[0].message.content.upper(), chunk
+        score_str = r.choices[0].message.content.strip()
+        score = float(re.search(r'\d+(\.\d+)?', score_str).group())
+        return score, chunk
     except:
-        return False, chunk
+        return 0.0, chunk
 
-def parallel_judge(candidates, question):
+def parallel_rerank(candidates: list[dict], question: str, threshold: float = 5.0) -> list[dict]:
+    """
+    UPGRADE: Numeric reranking (0-10) instead of binary YES/NO.
+    Returns chunks sorted by score, above threshold.
+    """
     if not candidates or not PDF_JUDGE_KEYS:
-        return []
+        return candidates[:4]  # Fallback: return top BM25 results
+
     key_list = list(itertools.islice(
         itertools.cycle(PDF_JUDGE_KEYS), len(candidates)
     ))
-    tasks = [
-        (chunk, question, key_list[i])
-        for i, (_, chunk) in enumerate(candidates)
-    ]
-    good = []
-    with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
-        futures = [ex.submit(judge_single, t) for t in tasks]
+    tasks = [(chunk, question, key_list[i]) for i, chunk in enumerate(candidates)]
+
+    results = []
+    with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as ex:
+        futures = [ex.submit(rerank_single, t) for t in tasks]
         for f in as_completed(futures):
             try:
-                ok, chunk = f.result()
-                if ok:
-                    good.append(chunk)
+                score, chunk = f.result()
+                if score >= threshold:
+                    results.append((score, chunk))
             except:
                 pass
-    return good
+
+    results.sort(key=lambda x: x[0], reverse=True)
+    good = [chunk for _, chunk in results]
+
+    # If nothing passes threshold, relax it
+    if not good and results:
+        results_all = sorted(
+            [rerank_single(t) for t in tasks[:3]],
+            key=lambda x: x[0], reverse=True
+        )
+        good = [chunk for _, chunk in results_all if _ >= 3.0]
+
+    return good[:5]
 
 # =========================
 # GRADE STYLE
@@ -395,55 +567,130 @@ def update_phase(ph, text):
 """, unsafe_allow_html=True)
 
 # =========================
-# TIER 1: PDF ANSWER
+# UPGRADE 4: ANSWER QUALITY GATE
+# Self-critique + regenerate if answer is weak
 # =========================
-def answer_from_pdf(question, chunks, grade, history):
-    context = "\n\n---\n\n".join([
-        f"[{c['file']} p.{c['page']}]\n{c['text']}"
-        for c in chunks[:4]
-    ])
-    src   = chunks[0]["file"]
-    style = grade_style(grade)
-    hist  = "".join([
-        f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
-        f"{m.get('content','')}\n"
-        for m in history[-4:]
-    ])
-    prompt = f"""You are SmartLoop AI, expert tutor for Grade {grade}.
-{style}
-Use the textbook excerpts to answer accurately.
+def is_weak_answer(answer: str, question: str) -> bool:
+    """Heuristic + LLM check for low-quality answers."""
+    # Heuristic checks
+    if len(answer) < 40:
+        return True
+    weak_phrases = [
+        "i don't know", "i cannot", "i'm not sure",
+        "no information", "not available", "cannot find",
+        "i am unable", "as an ai"
+    ]
+    if any(p in answer.lower() for p in weak_phrases):
+        return True
 
-TEXTBOOK:
-{context}
-
-CONVERSATION:
-{hist}
-
-QUESTION: {question}
-Answer:"""
-
-    for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
+    # LLM quality check for borderline cases
+    if len(answer) < 150:
         try:
             c = get_primary()
             if c:
                 r = c.chat.completions.create(
                     model="gpt-3.5-turbo",
-                    messages=[{"role":"user","content":prompt}],
-                    max_tokens=800
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            f"Question: {question}\n"
+                            f"Answer: {answer}\n\n"
+                            f"Is this a complete, useful answer? "
+                            f"Reply ONLY: YES or NO"
+                        )
+                    }],
+                    max_tokens=3,
+                    temperature=0
+                )
+                return "NO" in r.choices[0].message.content.upper()
+        except:
+            pass
+    return False
+
+# =========================
+# TIER 1: PDF ANSWER — with streaming
+# =========================
+def answer_from_pdf(question, chunks, grade, history, stream_placeholder=None):
+    context = "\n\n---\n\n".join([
+        f"[Source: {c['file']}, page {c['page']}]\n{c['text']}"
+        for c in chunks[:5]  # UPGRADE: use top 5 instead of 4
+    ])
+    src   = chunks[0]["file"]
+    style = grade_style(grade)
+    hist  = "".join([
+        f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
+        f"{m.get('content','')[:300]}\n"
+        for m in history[-6:]  # UPGRADE: use last 6 turns
+    ])
+
+    # UPGRADE: Richer system prompt with explicit instructions
+    system_prompt = f"""You are SmartLoop AI, an expert tutor for Grade {grade}.
+{style}
+
+INSTRUCTIONS:
+- Answer ONLY from the provided textbook excerpts when possible
+- If the excerpts cover the topic, cite which page/source your answer comes from
+- If excerpts are insufficient, clearly say so and supplement from your knowledge
+- Structure complex answers with clear steps or numbered points
+- End with a one-sentence summary if the answer is long
+- Never refuse to answer; always provide the most helpful response possible"""
+
+    prompt = f"""TEXTBOOK EXCERPTS:
+{context}
+
+RECENT CONVERSATION:
+{hist}
+
+STUDENT QUESTION: {question}
+
+Answer:"""
+
+    # Try streaming with primary key
+    for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
+        try:
+            c = get_primary()
+            if c and stream_placeholder:
+                # Streaming response
+                stream = c.chat.completions.create(
+                    model="gpt-4o-mini",  # UPGRADE: use GPT-4o-mini for better quality
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=1000,
+                    stream=True
+                )
+                ans = ""
+                for delta in stream:
+                    piece = delta.choices[0].delta.content or ""
+                    ans += piece
+                    stream_placeholder.markdown(ans + "▌")
+                stream_placeholder.markdown(ans)
+                if ans and len(ans) > 20 and not is_weak_answer(ans, question):
+                    return ans, "pdf", src
+            elif c:
+                r = c.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=1000
                 )
                 ans = r.choices[0].message.content.strip()
-                if ans and len(ans) > 20:
+                if ans and len(ans) > 20 and not is_weak_answer(ans, question):
                     return ans, "pdf", src
         except:
-            time.sleep(1)
+            time.sleep(0.5)
 
+    # Fallback to extra key
     try:
         c = get_extra()
         if c:
             r = c.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":prompt}],
-                max_tokens=800
+                messages=[{"role": "user", "content": system_prompt + "\n\n" + prompt}],
+                max_tokens=900
             )
             ans = r.choices[0].message.content.strip()
             if ans and len(ans) > 20:
@@ -454,68 +701,86 @@ Answer:"""
     return None, None, None
 
 # =========================
-# TIER 2: AI ANSWER
+# TIER 2: AI ANSWER — upgraded model + streaming
 # =========================
-def answer_from_ai(question, grade, history):
+def answer_from_ai(question, grade, history, stream_placeholder=None):
     style = grade_style(grade)
-    hist  = "".join([
-        f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
-        f"{m.get('content','')}\n"
-        for m in history[-4:]
-    ])
-    prompt = f"""You are SmartLoop AI, expert academic tutor for Grade {grade}.
-{style}
-Answer completely and accurately. Never refuse.
 
-CONVERSATION:
-{hist}
+    # Build proper message history
+    messages = [{
+        "role": "system",
+        "content": (
+            f"You are SmartLoop AI, an expert academic tutor for Grade {grade}. "
+            f"{style} "
+            f"Always give complete, accurate, structured answers. "
+            f"Use numbered steps for processes, bullet points for lists. "
+            f"Never refuse to answer academic questions."
+        )
+    }]
+    for m in history[-6:]:
+        messages.append({
+            "role": m["role"],
+            "content": m.get("content", "")[:500]
+        })
+    messages.append({"role": "user", "content": question})
 
-QUESTION: {question}
-Answer:"""
-
-    # Google first
+    # Google Gemini first
     for _ in range(min(2, max(1, len(ALL_GOOGLE_KEYS)))):
         try:
             c = get_google()
             if c:
+                hist_text = "\n".join([
+                    f"{'Student' if m['role']=='user' else 'AI'}: {m.get('content','')[:200]}"
+                    for m in history[-4:]
+                ])
+                full_prompt = (
+                    f"You are SmartLoop AI for Grade {grade}. {style}\n"
+                    f"Previous conversation:\n{hist_text}\n\n"
+                    f"Question: {question}\nAnswer:"
+                )
                 r = c.models.generate_content(
                     model="gemini-2.0-flash",
-                    contents=prompt
+                    contents=full_prompt
                 )
                 if r.text and len(r.text.strip()) > 20:
-                    return r.text.strip(), "ai", None
+                    ans = r.text.strip()
+                    if not is_weak_answer(ans, question):
+                        if stream_placeholder:
+                            stream_placeholder.markdown(ans)
+                        return ans, "ai", None
         except:
-            time.sleep(1)
+            time.sleep(0.5)
 
-    # Primary OpenAI
+    # Primary OpenAI with streaming
     for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
         try:
             c = get_primary()
-            if c:
-                msgs = [{
-                    "role": "system",
-                    "content": (
-                        f"You are SmartLoop AI, expert academic tutor "
-                        f"for Grade {grade}. {style} "
-                        f"Always give complete accurate answers."
-                    )
-                }]
-                for m in history[-4:]:
-                    msgs.append({
-                        "role": m["role"],
-                        "content": m.get("content","")
-                    })
-                msgs.append({"role":"user","content":question})
+            if c and stream_placeholder:
+                stream = c.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    max_tokens=900,
+                    stream=True
+                )
+                ans = ""
+                for delta in stream:
+                    piece = delta.choices[0].delta.content or ""
+                    ans += piece
+                    stream_placeholder.markdown(ans + "▌")
+                stream_placeholder.markdown(ans)
+                if ans and len(ans) > 20 and not is_weak_answer(ans, question):
+                    return ans, "ai", None
+            elif c:
                 r = c.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=msgs,
-                    max_tokens=800
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    max_tokens=900
                 )
                 ans = r.choices[0].message.content.strip()
-                if ans and len(ans) > 20:
+                if ans and len(ans) > 20 and not is_weak_answer(ans, question):
                     return ans, "ai", None
         except:
-            time.sleep(1)
+            time.sleep(0.5)
 
     # Extra OpenAI
     try:
@@ -523,7 +788,7 @@ Answer:"""
         if c:
             r = c.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":prompt}],
+                messages=messages,
                 max_tokens=800
             )
             ans = r.choices[0].message.content.strip()
@@ -558,7 +823,6 @@ def answer_from_duckduckgo(question):
             "", question.lower()
         ).strip()
 
-        # DDG instant answer API
         api_url = (
             f"https://api.duckduckgo.com/?q="
             f"{requests.utils.quote(search_q + ' school definition')}"
@@ -586,7 +850,6 @@ def answer_from_duckduckgo(question):
             if not any(b in result_text.lower() for b in BAD_CONTENT):
                 return result_text, "ddg", None
 
-        # Fallback: scrape DDG HTML snippets
         search_url = (
             f"https://html.duckduckgo.com/html/?q="
             f"{requests.utils.quote(search_q + ' academic definition school')}"
@@ -596,9 +859,7 @@ def answer_from_duckduckgo(question):
         snippets = []
         for result in soup.select(".result__snippet")[:5]:
             text = result.get_text(strip=True)
-            if len(text) > 40 and not any(
-                b in text.lower() for b in BAD_CONTENT
-            ):
+            if len(text) > 40 and not any(b in text.lower() for b in BAD_CONTENT):
                 snippets.append(text)
 
         if snippets:
@@ -641,7 +902,7 @@ def answer_from_wiki(question):
         if not best:
             return None, None, None
 
-        result = wikipedia.summary(best, sentences=3)
+        result = wikipedia.summary(best, sentences=4)  # UPGRADE: 4 sentences
         if any(b in result.lower() for b in BAD_CONTENT + [
             "may refer to","disambiguation","is a list"
         ]):
@@ -660,7 +921,7 @@ def answer_from_wiki(question):
             )
             if not best:
                 return None, None, None
-            result = wikipedia.summary(best, sentences=3)
+            result = wikipedia.summary(best, sentences=4)
             if any(b in result.lower() for b in ["comic","marvel","film"]):
                 return None, None, None
             return result, "wiki", None
@@ -670,52 +931,83 @@ def answer_from_wiki(question):
         return None, None, None
 
 # =========================
-# MAIN PIPELINE
-# calc→pdf→ai→ddg→wiki
+# MAIN PIPELINE — upgraded
+# calc → query_rewrite → multi_query_bm25 → rerank → pdf → ai → ddg → wiki
 # =========================
-def smartloop(question, grade, history, thinking_ph):
+def smartloop(question, grade, history, thinking_ph, stream_ph=None):
 
+    # Step 0: Math shortcut
     if is_pure_calc(question):
-        update_phase(thinking_ph, "Processing")
+        update_phase(thinking_ph, "Calculating")
         ans, tier = solve_math(question)
         if ans:
+            if stream_ph:
+                stream_ph.markdown(ans)
             return ans, tier, None
 
-    update_phase(thinking_ph, "Reading")
-    candidates = keyword_search(question)
+    # Step 1: Contextual query rewriting
+    update_phase(thinking_ph, "Understanding question")
+    rewritten_q = rewrite_query(question, history)
 
-    update_phase(thinking_ph, "Defining")
+    # Step 2: Multi-query expansion + BM25 retrieval
+    update_phase(thinking_ph, "Searching textbooks")
+    queries = expand_queries(rewritten_q)
+
+    # Run BM25 for each query variant in parallel
+    all_ranked_lists = []
+    with ThreadPoolExecutor(max_workers=len(queries)) as ex:
+        futures = [ex.submit(bm25_search, q, 10) for q in queries]
+        for f in as_completed(futures):
+            result = f.result()
+            if result:
+                all_ranked_lists.append(result)
+
+    # Step 3: Reciprocal Rank Fusion
+    if all_ranked_lists:
+        fused_candidates = reciprocal_rank_fusion(all_ranked_lists)
+    else:
+        fused_candidates = []
+
+    # Step 4: GPT Reranking
+    update_phase(thinking_ph, "Ranking relevant content")
     good_chunks = []
-    if candidates:
-        good_chunks = parallel_judge(candidates, question)
+    if fused_candidates:
+        good_chunks = parallel_rerank(fused_candidates[:10], rewritten_q)
 
-    update_phase(thinking_ph, "Processing")
+    # Step 5: Generate answer
+    update_phase(thinking_ph, "Generating answer")
 
     if good_chunks:
         ans, tier, src = answer_from_pdf(
-            question, good_chunks, grade, history
+            question, good_chunks, grade, history, stream_ph
         )
         if ans:
             return ans, tier, src
 
-    ans, tier, src = answer_from_ai(question, grade, history)
+    ans, tier, src = answer_from_ai(question, grade, history, stream_ph)
     if ans:
         return ans, tier, src
 
     update_phase(thinking_ph, "Searching web")
     ans, tier, src = answer_from_duckduckgo(question)
     if ans:
+        if stream_ph:
+            stream_ph.markdown(ans)
         return ans, tier, src
 
     ans, tier, src = answer_from_wiki(question)
     if ans:
+        if stream_ph:
+            stream_ph.markdown(ans)
         return ans, tier, src
 
-    return (
+    fallback = (
         "All sources are currently unavailable. "
-        "Please check your API keys in Streamlit secrets.",
-        "", None
+        "Please check your API keys in Streamlit secrets."
     )
+    if stream_ph:
+        stream_ph.markdown(fallback)
+    return fallback, "", None
 
 # =========================
 # BADGE HELPER
@@ -736,6 +1028,12 @@ def show_badge(tier, source):
             f'<span class="source-badge {cls}">{label}</span>',
             unsafe_allow_html=True
         )
+
+# =========================
+# LOAD PDFs
+# =========================
+with st.spinner("📚 Loading library..."):
+    PDF_CHUNKS = load_all_pdfs(st.session_state.grade)
 
 # =========================
 # SIDEBAR
@@ -766,11 +1064,7 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button(
-        "➕ New Chat",
-        use_container_width=True,
-        type="primary"
-    ):
+    if st.button("➕ New Chat", use_container_width=True, type="primary"):
         name = f"Chat {len(st.session_state.chats) + 1}"
         st.session_state.chats[name] = []
         st.session_state.current_chat = name
@@ -781,49 +1075,40 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    for chat_name in list(reversed(
-        list(st.session_state.chats.keys())
-    )):
+    for chat_name in list(reversed(list(st.session_state.chats.keys()))):
         is_active = (chat_name == st.session_state.current_chat)
-        col1, col2 = st.columns(
-            [0.82, 0.18], vertical_alignment="center"
-        )
+        col1, col2 = st.columns([0.82, 0.18], vertical_alignment="center")
         msgs       = st.session_state.chats.get(chat_name, [])
         first_user = next(
             (m["content"] for m in msgs if m["role"] == "user"),
             chat_name
         )
-        title = (
-            first_user[:22] + "..."
-            if len(first_user) > 22 else first_user
-        )
+        title = first_user[:22] + "..." if len(first_user) > 22 else first_user
         label = f"{'🟢' if is_active else '💬'} {title}"
 
-        if col1.button(
-            label, key=f"ch_{chat_name}",
-            use_container_width=True
-        ):
+        if col1.button(label, key=f"ch_{chat_name}", use_container_width=True):
             st.session_state.current_chat = chat_name
             st.rerun()
 
-        if col2.button(
-            "🗑", key=f"dl_{chat_name}",
-            use_container_width=True
-        ):
+        if col2.button("🗑", key=f"dl_{chat_name}", use_container_width=True):
             if len(st.session_state.chats) > 1:
                 del st.session_state.chats[chat_name]
                 if st.session_state.current_chat == chat_name:
-                    st.session_state.current_chat = list(
-                        st.session_state.chats.keys()
-                    )[0]
+                    st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                 st.rerun()
 
     st.divider()
-    st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
+    st.success(f"📚 {len(PDF_CHUNKS)} chunks loaded")
     st.info(
         f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | "
         f"Google: {len(ALL_GOOGLE_KEYS)}"
     )
+
+    with st.expander("⚙️ RAG Info"):
+        st.caption("**Retrieval:** BM25 + Multi-query RRF")
+        st.caption("**Reranking:** GPT numeric scorer")
+        st.caption("**Model:** GPT-4o-mini / Gemini Flash")
+        st.caption("**Context:** 6-turn history")
 
     if st.button("🔄 Change Grade", use_container_width=True):
         st.session_state.grade = None
@@ -837,7 +1122,7 @@ with st.sidebar:
             label_visibility="collapsed"
         )
         if st.button("Verify", use_container_width=True):
-            if code == st.secrets.get("TEACHER_CODE",""):
+            if code == st.secrets.get("TEACHER_CODE", ""):
                 st.success("✅ Teacher access granted!")
             else:
                 st.error("Invalid code.")
@@ -860,52 +1145,56 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-messages = st.session_state.chats.get(
-    st.session_state.current_chat, []
-)
+messages = st.session_state.chats.get(st.session_state.current_chat, [])
 
 if not messages:
     with st.chat_message("assistant"):
         st.markdown(
             f"👋 **Hey! I'm SmartLoop AI!**\n\n"
-            f"I'm your Grade {st.session_state.grade} tutor.\n\n"
-            f"- 📖 Searches your **textbooks first**\n"
-            f"- 🤖 Falls back to **AI knowledge**\n"
-            f"- 🦆 Then tries **DuckDuckGo**\n"
-            f"- 🌐 Last resort → **Wikipedia**\n"
-            f"- 🧮 Solves **maths step-by-step**\n\n"
+            f"I'm your Grade {st.session_state.grade} tutor — now smarter than ever.\n\n"
+            f"- 📖 **BM25 + Multi-query** textbook search\n"
+            f"- 🔁 **Query rewriting** for follow-up questions\n"
+            f"- 🎯 **GPT reranker** picks the best excerpts\n"
+            f"- 🤖 **GPT-4o-mini** for higher quality answers\n"
+            f"- ⚡ **Streaming** responses in real time\n\n"
             f"*What would you like to learn today?*"
         )
 
 for msg in messages:
     with st.chat_message(msg["role"]):
-        st.markdown(msg.get("content",""))
-        show_badge(msg.get("tier",""), msg.get("source",""))
+        st.markdown(msg.get("content", ""))
+        show_badge(msg.get("tier", ""), msg.get("source", ""))
 
 # =========================
-# CHAT INPUT — no last_q
+# CHAT INPUT
 # =========================
 q = st.chat_input("Ask SmartLoop...")
 
 if q:
     messages = st.session_state.chats[st.session_state.current_chat]
-    messages.append({"role":"user","content":q})
+    messages.append({"role": "user", "content": q})
 
     with st.chat_message("user"):
         st.markdown(q)
 
     with st.chat_message("assistant"):
-        thinking = st.empty()
+        thinking   = st.empty()
+        stream_box = st.empty()  # Streaming target
 
         ans, tier, source = smartloop(
             q,
             st.session_state.grade,
             messages[:-1],
-            thinking
+            thinking,
+            stream_box
         )
 
         thinking.empty()
-        st.markdown(ans)
+
+        # If stream_box already has content, don't re-render
+        if not stream_box._provided_cursor:
+            stream_box.markdown(ans)
+
         show_badge(tier, source)
 
     messages.append({
