@@ -1,7 +1,8 @@
-streamlit
 google-genai
 openai
-PyMuPDF
+pymupdf
 wikipedia
-feedparser
-sympy
+streamlit
+requests
+beautifulsoup4
+duckduckgo
