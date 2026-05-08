@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings, logging
 import wikipedia
 import fitz
+import requests
+from bs4 import BeautifulSoup
 
 from openai import OpenAI
 from google import genai
@@ -133,6 +135,7 @@ st.markdown("""
 .src-pdf  { background:rgba(0,212,255,0.15); color:#00d4ff; border:1px solid rgba(0,212,255,0.3); }
 .src-ai   { background:rgba(252,132,4,0.15); color:#fc8404; border:1px solid rgba(252,132,4,0.3); }
 .src-wiki { background:rgba(52,152,219,0.15); color:#3498db; border:1px solid rgba(52,152,219,0.3); }
+.src-ddg  { background:rgba(255,69,0,0.15);  color:#ff6b35; border:1px solid rgba(255,69,0,0.3); }
 .src-calc { background:rgba(155,89,182,0.2);  color:#9b59b6; border:1px solid rgba(155,89,182,0.4); }
 </style>
 """, unsafe_allow_html=True)
@@ -220,40 +223,17 @@ if st.session_state.grade is None:
 
 # =========================
 # PDF LOADING
-# Grade filtering:
-# 6 → loads grade 6 & 7 books
-# 7 → loads grade 7 & 8 books
-# 8 → loads grade 8 & 9 books
-# others → exact match only
 # =========================
 def get_allowed_grades(grade):
-    mapping = {
-        6: [6, 7],
-        7: [7, 8],
-        8: [8, 9],
-    }
-    return mapping.get(grade, [grade])
+    return {6:[6,7], 7:[7,8], 8:[8,9]}.get(grade, [grade])
 
 def grade_matches_file(fname, allowed_grades):
-    """
-    Returns True if the filename contains any of
-    the allowed grade numbers.
-    Matches patterns like: _6_, _7_, grade6, grade7,
-    class6, std6, g6, 6th, 7th etc.
-    """
     name = fname.lower().replace(".pdf","")
     for g in allowed_grades:
         patterns = [
-            str(g),
-            f"grade{g}",
-            f"grade_{g}",
-            f"class{g}",
-            f"std{g}",
-            f"g{g}",
-            f"{g}th",
-            f"{g}st",
-            f"{g}nd",
-            f"{g}rd",
+            str(g), f"grade{g}", f"grade_{g}",
+            f"class{g}", f"std{g}", f"g{g}",
+            f"{g}th", f"{g}st", f"{g}nd", f"{g}rd",
         ]
         if any(p in name for p in patterns):
             return True
@@ -267,10 +247,7 @@ def extract_pdf(fname):
             text = page.get_text().strip()
             if len(text) > 60:
                 words = set(
-                    re.sub(
-                        r'[^a-z0-9 ]', ' ',
-                        text.lower()
-                    ).split()
+                    re.sub(r'[^a-z0-9 ]',' ',text.lower()).split()
                 )
                 chunks.append({
                     "text":  text[:1500],
@@ -286,27 +263,15 @@ def extract_pdf(fname):
 @st.cache_resource(show_spinner=False)
 def load_all_pdfs(grade):
     all_chunks = []
-    allowed = get_allowed_grades(grade)
-    pdf_files = [f for f in os.listdir(".") if f.endswith(".pdf")]
-
-    # Filter to only grade-appropriate PDFs
-    grade_files = [
-        f for f in pdf_files
-        if grade_matches_file(f, allowed)
-    ]
-
-    # If no grade-matched files found, load all PDFs
+    allowed    = get_allowed_grades(grade)
+    pdf_files  = [f for f in os.listdir(".") if f.endswith(".pdf")]
+    grade_files = [f for f in pdf_files if grade_matches_file(f, allowed)]
     if not grade_files:
         grade_files = pdf_files
-
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {
-            ex.submit(extract_pdf, f): f
-            for f in grade_files
-        }
+        futures = {ex.submit(extract_pdf, f): f for f in grade_files}
         for future in as_completed(futures):
             all_chunks.extend(future.result())
-
     return all_chunks
 
 with st.spinner("📚 Loading library..."):
@@ -326,13 +291,11 @@ if "last_q"       not in st.session_state:
 # MATH SOLVER
 # =========================
 def is_pure_calc(q):
-    return bool(re.fullmatch(
-        r"[\d\.\+\-\*\/\(\)\s\^%]+", q.strip()
-    ))
+    return bool(re.fullmatch(r"[\d\.\+\-\*\/\(\)\s\^%]+", q.strip()))
 
 def solve_math(q):
     try:
-        expr = q.strip().replace("^","**").replace(" ","")
+        expr   = q.strip().replace("^","**").replace(" ","")
         result = eval(expr, {"__builtins__": None}, {})
         return f"**= {round(result, 8)}**", "calc"
     except:
@@ -351,9 +314,7 @@ STOPWORDS = {
 def keyword_search(q):
     if not PDF_CHUNKS:
         return []
-    q_words = set(
-        re.sub(r'[^a-z0-9 ]', ' ', q.lower()).split()
-    ) - STOPWORDS
+    q_words = set(re.sub(r'[^a-z0-9 ]',' ',q.lower()).split()) - STOPWORDS
     if not q_words:
         return []
     scored = []
@@ -373,8 +334,7 @@ def judge_single(args):
         f"Question: {question}\n\n"
         f"Excerpt:\n{chunk['text'][:500]}\n\n"
         f"Does this excerpt directly help answer "
-        f"the question about the academic/school subject? "
-        f"Reply ONLY: YES or NO"
+        f"the academic question? Reply ONLY: YES or NO"
     )
     try:
         client = OpenAI(api_key=key)
@@ -420,13 +380,11 @@ def grade_style(g):
     elif g <= 8:
         return "Use clear academic language with key terms and worked examples."
     else:
-        return "Use detailed academic language suitable for high school with equations and analysis."
+        return "Use detailed academic language suitable for high school."
 
 # =========================
-# THINKING ANIMATION PHASES
+# THINKING PHASES
 # =========================
-PHASES = ["Reading", "Defining", "Processing", "Answer"]
-
 def update_phase(placeholder, phase_text):
     placeholder.markdown(f"""
 <div class="thinking-container">
@@ -447,19 +405,16 @@ def answer_from_pdf(question, chunks, grade, history):
         f"[{c['file']} p.{c['page']}]\n{c['text']}"
         for c in chunks[:4]
     ])
-    src = chunks[0]["file"]
+    src   = chunks[0]["file"]
     style = grade_style(grade)
-    hist = "".join([
+    hist  = "".join([
         f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
         f"{m.get('content','')}\n"
         for m in history[-4:]
     ])
-    prompt = f"""You are SmartLoop AI, an expert academic tutor for Grade {grade} students.
+    prompt = f"""You are SmartLoop AI, expert tutor for Grade {grade}.
 {style}
-
-Use the textbook excerpts below to answer the question.
-Give a clear, well-structured explanation with examples.
-If the excerpts don't fully cover it, supplement with your knowledge.
+Use the textbook excerpts to answer accurately.
 
 TEXTBOOK:
 {context}
@@ -468,7 +423,6 @@ CONVERSATION:
 {hist}
 
 QUESTION: {question}
-
 Answer:"""
 
     for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
@@ -504,30 +458,22 @@ Answer:"""
 
 # =========================
 # TIER 2: AI ANSWER
-# Wikipedia is NOT used here
-# AI always answers general
-# knowledge questions itself
 # =========================
 def answer_from_ai(question, grade, history):
     style = grade_style(grade)
-    hist = "".join([
+    hist  = "".join([
         f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
         f"{m.get('content','')}\n"
         for m in history[-4:]
     ])
-    prompt = f"""You are SmartLoop AI, an expert academic tutor for Grade {grade} students.
+    prompt = f"""You are SmartLoop AI, expert academic tutor for Grade {grade}.
 {style}
-
-Answer this question completely and accurately from your knowledge.
-This is a school/academic question — give the correct educational answer.
-Use bullet points, examples, and formulas where helpful.
-Never refuse. Always give a complete, accurate answer.
+Answer completely and accurately. Never refuse.
 
 CONVERSATION:
 {hist}
 
 QUESTION: {question}
-
 Answer:"""
 
     # Google first
@@ -536,8 +482,7 @@ Answer:"""
             c = get_google()
             if c:
                 r = c.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=prompt
+                    model="gemini-2.0-flash", contents=prompt
                 )
                 if r.text and len(r.text.strip()) > 20:
                     return r.text.strip(), "ai", None
@@ -554,7 +499,7 @@ Answer:"""
                     "content": (
                         f"You are SmartLoop AI, expert academic tutor "
                         f"for Grade {grade}. {style} "
-                        f"Always give complete, accurate educational answers."
+                        f"Always give complete accurate answers."
                     )
                 }]
                 for m in history[-4:]:
@@ -592,10 +537,100 @@ Answer:"""
     return None, None, None
 
 # =========================
-# TIER 3: WIKIPEDIA
-# Only used when BOTH pdf
-# AND all AI keys fail
-# Filtered to avoid junk
+# TIER 3: DUCKDUCKGO
+# Scrapes DDG instant answer
+# and top result snippets
+# No API key needed
+# =========================
+def answer_from_duckduckgo(question):
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+
+        # DDG instant answer API
+        search_q = re.sub(
+            r"(what is|what are|explain|define|"
+            r"how does|tell me about|describe)",
+            "", question.lower()
+        ).strip()
+
+        # Try DDG instant answer first
+        api_url = (
+            f"https://api.duckduckgo.com/"
+            f"?q={requests.utils.quote(search_q + ' school definition')}"
+            f"&format=json&no_html=1&skip_disambig=1"
+        )
+        resp = requests.get(api_url, headers=headers, timeout=8)
+        data = resp.json()
+
+        result_text = ""
+
+        # Abstract text (best — from Wikipedia/Britannica etc)
+        if data.get("AbstractText") and len(data["AbstractText"]) > 50:
+            result_text = data["AbstractText"]
+
+        # Answer (short direct answer)
+        elif data.get("Answer") and len(data["Answer"]) > 10:
+            result_text = data["Answer"]
+
+        # Definition
+        elif data.get("Definition") and len(data["Definition"]) > 20:
+            result_text = data["Definition"]
+
+        # Related topics
+        elif data.get("RelatedTopics"):
+            snippets = []
+            for topic in data["RelatedTopics"][:3]:
+                if isinstance(topic, dict) and topic.get("Text"):
+                    snippets.append(topic["Text"])
+            if snippets:
+                result_text = " ".join(snippets[:2])
+
+        if result_text and len(result_text) > 40:
+            # Filter out entertainment/non-academic content
+            bad = [
+                "comic","marvel","dc comics","film","movie",
+                "tv series","television","album","song","band",
+                "actor","actress","footballer","celebrity"
+            ]
+            if not any(b in result_text.lower() for b in bad):
+                return result_text, "ddg", None
+
+        # Fallback: scrape DDG HTML search snippets
+        search_url = (
+            f"https://html.duckduckgo.com/html/"
+            f"?q={requests.utils.quote(search_q + ' academic definition school')}"
+        )
+        resp2 = requests.get(search_url, headers=headers, timeout=8)
+        soup  = BeautifulSoup(resp2.text, "html.parser")
+
+        snippets = []
+        for result in soup.select(".result__snippet")[:5]:
+            text = result.get_text(strip=True)
+            if (
+                len(text) > 40 and
+                not any(b in text.lower() for b in bad)
+            ):
+                snippets.append(text)
+
+        if snippets:
+            combined = " ".join(snippets[:2])
+            if len(combined) > 50:
+                return combined, "ddg", None
+
+    except Exception as e:
+        print(f"DDG error: {e}")
+
+    return None, None, None
+
+# =========================
+# TIER 4: WIKIPEDIA
+# Only after DDG also fails
 # =========================
 def answer_from_wiki(question):
     try:
@@ -605,35 +640,32 @@ def answer_from_wiki(question):
             "", question.lower()
         ).strip()
 
-        # Search and pick best result
-        search_results = wikipedia.search(search_q, results=5)
+        search_results = wikipedia.search(
+            search_q + " mathematics science", results=5
+        )
 
-        # Prefer results that look academic
-        academic_keywords = [
+        academic_kw = [
             "physics","chemistry","biology","mathematics",
             "science","history","geography","economics",
-            "force","energy","cell","atom","equation"
+            "force","energy","cell","atom","equation",
+            "decimal","fraction","geometry","algebra"
         ]
         best = None
         for result in search_results:
-            result_lower = result.lower()
-            if any(k in result_lower for k in academic_keywords):
+            if any(k in result.lower() for k in academic_kw):
                 best = result
                 break
         if not best and search_results:
             best = search_results[0]
-
         if not best:
             return None, None, None
 
         result = wikipedia.summary(best, sentences=3)
 
-        # Reject disambiguation/junk articles
         bad = [
-            "may refer to","disambiguation",
-            "is a list","index (","is an index",
+            "may refer to","disambiguation","is a list",
             "comic","marvel","dc comics","film","movie",
-            "tv series","television","album","song","band"
+            "tv series","album","song","band"
         ]
         if any(b in result.lower() for b in bad):
             return None, None, None
@@ -642,20 +674,16 @@ def answer_from_wiki(question):
 
     except wikipedia.exceptions.DisambiguationError as e:
         try:
-            # Pick first non-entertainment option
-            bad_options = [
-                "film","comic","song","album",
-                "band","tv","series","novel"
-            ]
-            best_option = next(
+            bad_opts = ["film","comic","song","album","band","tv"]
+            best = next(
                 (o for o in e.options
-                 if not any(b in o.lower() for b in bad_options)),
+                 if not any(b in o.lower() for b in bad_opts)),
                 e.options[0] if e.options else None
             )
-            if not best_option:
+            if not best:
                 return None, None, None
-            result = wikipedia.summary(best_option, sentences=3)
-            if any(b in result.lower() for b in ["comic","marvel","film","movie"]):
+            result = wikipedia.summary(best, sentences=3)
+            if any(b in result.lower() for b in ["comic","marvel","film"]):
                 return None, None, None
             return result, "wiki", None
         except:
@@ -665,30 +693,31 @@ def answer_from_wiki(question):
 
 # =========================
 # MAIN PIPELINE
-# calc → pdf → ai → wiki
+# calc→pdf→ai→ddg→wiki
 # =========================
-def smartloop(question, grade, history, thinking_placeholder):
+def smartloop(question, grade, history, thinking_ph):
 
     # Calculator
     if is_pure_calc(question):
-        update_phase(thinking_placeholder, "Processing")
+        update_phase(thinking_ph, "Processing")
         ans, tier = solve_math(question)
         if ans:
             return ans, tier, None
 
-    # Phase 1: Reading
-    update_phase(thinking_placeholder, "Reading")
+    # Phase 1
+    update_phase(thinking_ph, "Reading")
     candidates = keyword_search(question)
 
-    # Phase 2: Defining
-    update_phase(thinking_placeholder, "Defining")
+    # Phase 2
+    update_phase(thinking_ph, "Defining")
     good_chunks = []
     if candidates:
         good_chunks = parallel_judge(candidates, question)
 
-    # Phase 3: Processing
-    update_phase(thinking_placeholder, "Processing")
+    # Phase 3
+    update_phase(thinking_ph, "Processing")
 
+    # PDF
     if good_chunks:
         ans, tier, src = answer_from_pdf(
             question, good_chunks, grade, history
@@ -696,8 +725,14 @@ def smartloop(question, grade, history, thinking_placeholder):
         if ans:
             return ans, tier, src
 
-    # AI fallback
+    # AI
     ans, tier, src = answer_from_ai(question, grade, history)
+    if ans:
+        return ans, tier, src
+
+    # DuckDuckGo
+    update_phase(thinking_ph, "Searching web")
+    ans, tier, src = answer_from_duckduckgo(question)
     if ans:
         return ans, tier, src
 
@@ -707,7 +742,8 @@ def smartloop(question, grade, history, thinking_placeholder):
         return ans, tier, src
 
     return (
-        "I'm having trouble connecting. Please try again.",
+        "All sources are currently unavailable. "
+        "Please check your API keys in Streamlit secrets.",
         "", None
     )
 
@@ -715,28 +751,19 @@ def smartloop(question, grade, history, thinking_placeholder):
 # BADGE HELPER
 # =========================
 def show_badge(tier, source):
-    if tier == "pdf" and source:
+    badges = {
+        "pdf":  ("src-pdf",  f"📖 {source}"),
+        "ai":   ("src-ai",   "💡 AI knowledge"),
+        "ddg":  ("src-ddg",  "🦆 DuckDuckGo"),
+        "wiki": ("src-wiki", "🌐 Wikipedia"),
+        "calc": ("src-calc", "🧮 Calculator"),
+    }
+    if tier in badges:
+        cls, label = badges[tier]
+        if tier == "pdf" and not source:
+            return
         st.markdown(
-            f'<span class="source-badge src-pdf">'
-            f'📖 {source}</span>',
-            unsafe_allow_html=True
-        )
-    elif tier == "ai":
-        st.markdown(
-            '<span class="source-badge src-ai">'
-            '💡 AI knowledge</span>',
-            unsafe_allow_html=True
-        )
-    elif tier == "wiki":
-        st.markdown(
-            '<span class="source-badge src-wiki">'
-            '🌐 Wikipedia</span>',
-            unsafe_allow_html=True
-        )
-    elif tier == "calc":
-        st.markdown(
-            '<span class="source-badge src-calc">'
-            '🧮 Calculator</span>',
+            f'<span class="source-badge {cls}">{label}</span>',
             unsafe_allow_html=True
         )
 
@@ -750,7 +777,6 @@ with st.sidebar:
         f"</div>",
         unsafe_allow_html=True
     )
-
     st.divider()
 
     st.markdown(
@@ -770,11 +796,7 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button(
-        "➕ New Chat",
-        use_container_width=True,
-        type="primary"
-    ):
+    if st.button("➕ New Chat", use_container_width=True, type="primary"):
         name = f"Chat {len(st.session_state.chats) + 1}"
         st.session_state.chats[name] = []
         st.session_state.current_chat = name
@@ -788,35 +810,24 @@ with st.sidebar:
     for chat_name in list(reversed(
         list(st.session_state.chats.keys())
     )):
-        is_active = (
-            chat_name == st.session_state.current_chat
-        )
-        col1, col2 = st.columns(
-            [0.82, 0.18], vertical_alignment="center"
-        )
-        msgs = st.session_state.chats.get(chat_name, [])
+        is_active = (chat_name == st.session_state.current_chat)
+        col1, col2 = st.columns([0.82, 0.18], vertical_alignment="center")
+        msgs       = st.session_state.chats.get(chat_name, [])
         first_user = next(
             (m["content"] for m in msgs if m["role"] == "user"),
             chat_name
         )
         title = (
             first_user[:22] + "..."
-            if len(first_user) > 22
-            else first_user
+            if len(first_user) > 22 else first_user
         )
         label = f"{'🟢' if is_active else '💬'} {title}"
 
-        if col1.button(
-            label, key=f"ch_{chat_name}",
-            use_container_width=True
-        ):
+        if col1.button(label, key=f"ch_{chat_name}", use_container_width=True):
             st.session_state.current_chat = chat_name
             st.rerun()
 
-        if col2.button(
-            "🗑", key=f"dl_{chat_name}",
-            use_container_width=True
-        ):
+        if col2.button("🗑", key=f"dl_{chat_name}", use_container_width=True):
             if len(st.session_state.chats) > 1:
                 del st.session_state.chats[chat_name]
                 if st.session_state.current_chat == chat_name:
@@ -854,15 +865,14 @@ with st.sidebar:
 # =========================
 st.markdown(f"""
 <div style='text-align:center; padding:20px 0 8px;'>
-    <span style='font-size:44px; font-weight:800;
-        color:#00d4ff; letter-spacing:-2px;
+    <span style='font-size:44px; font-weight:800; color:#00d4ff;
+        letter-spacing:-2px;
         text-shadow:0 0 16px rgba(0,212,255,0.45);'>
         🧠 SmartLoop AI
     </span>
     <span class='beta-badge'>BETA</span>
 </div>
-<div style='text-align:center;
-    color:rgba(255,255,255,0.4);
+<div style='text-align:center; color:rgba(255,255,255,0.4);
     font-size:15px; margin-bottom:24px;'>
     Grade {st.session_state.grade} Tutor
 </div>
@@ -880,8 +890,7 @@ if not messages:
             f"- 📖 Searches your **textbooks first**\n"
             f"- 🤖 Falls back to **AI knowledge**\n"
             f"- 🌐 Last resort → **Wikipedia**\n"
-            f"- 🧮 Solves **maths step-by-step**\n"
-            f"- 💬 Remembers our **conversation**\n\n"
+            f"- 🧮 Solves **maths step-by-step**\n\n"
             f"*What would you like to learn today?*"
         )
 
@@ -894,9 +903,7 @@ q = st.chat_input("Ask SmartLoop...")
 
 if q and q != st.session_state.last_q:
     st.session_state.last_q = q
-    messages = st.session_state.chats[
-        st.session_state.current_chat
-    ]
+    messages = st.session_state.chats[st.session_state.current_chat]
     messages.append({"role":"user","content":q})
 
     with st.chat_message("user"):
