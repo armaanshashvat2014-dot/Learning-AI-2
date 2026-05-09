@@ -988,7 +988,7 @@ def show_badge(tier, source):
 # =============================================================================
 with st.sidebar:
     st.markdown(
-        f"<div class='welcome-card'>👋 Welcome! Grade {st.session_state.grade}</div>",
+        f"<div class='welcome-card'>👋 Welcome to SmartLoop Grade {st.session_state.grade}!</div>",
         unsafe_allow_html=True
     )
     st.divider()
@@ -1025,11 +1025,6 @@ with st.sidebar:
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                 st.rerun()
 
-    st.divider()
-    st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
-    st.info(
-        f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | Google: {len(ALL_GOOGLE_KEYS)}"
-    )
     if st.button("🔄 Change Grade", use_container_width=True):
         st.session_state.grade = None
         st.cache_resource.clear()
