@@ -643,6 +643,8 @@ def answer_from_wiki(question):
             search_q + " mathematics science", results=5
         )
         academic_kw = [
-            "physics","chemistry","biology","mathematics",
-            "science","history","geography","economics",
-            "force","energy","cell","atom","equation
+            "physics", "chemistry", "biology", "mathematics",
+            "science", "history", "geography", "economics",
+            "force", "energy", "cell", "atom", "equation",
+            "decimal", "fraction", "geometry", "algebra"
+        ]
