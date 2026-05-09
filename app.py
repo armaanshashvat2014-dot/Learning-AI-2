@@ -140,53 +140,148 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# API KEYS
-# =========================
-ALL_OPENAI_KEYS = [
-    st.secrets.get(f"OPENAI_API_KEY_{i}") for i in range(1, 5)
+# =============================================================================
+# API KEYS — accepts OPENAI_API_KEY or OPENAI_API_KEY_1..5 (same for Google)
+# =============================================================================
+def _collect_keys(numbered_prefix, plain_name):
+    keys = [st.secrets.get(f"{numbered_prefix}_{i}") for i in range(1, 6)]
+    keys = [k for k in keys if k]
+    plain = st.secrets.get(plain_name)
+    if plain and plain not in keys:
+        keys.insert(0, plain)
+    return keys
+
+ALL_OPENAI_KEYS = _collect_keys("OPENAI_API_KEY", "OPENAI_API_KEY")
+ALL_GOOGLE_KEYS = _collect_keys("GOOGLE_API_KEY", "GOOGLE_API_KEY")
+
+if not ALL_OPENAI_KEYS and not ALL_GOOGLE_KEYS:
+    st.error("No API keys found. Add OPENAI_API_KEY or GOOGLE_API_KEY to Streamlit secrets.")
+    st.stop()
+
+_openai_cycle = itertools.cycle(ALL_OPENAI_KEYS) if ALL_OPENAI_KEYS else None
+_google_cycle = itertools.cycle(ALL_GOOGLE_KEYS) if ALL_GOOGLE_KEYS else None
+
+# Phrases that mean the LLM refused — we detect and discard these
+REFUSAL_PHRASES = [
+    "i cannot", "i can't", "i am unable", "i'm unable",
+    "i don't have", "i do not have", "not able to",
+    "cannot provide", "unable to provide", "cannot answer",
+    "no information", "not found in", "not covered",
+    "beyond my", "outside my", "i'm sorry, but",
+    "i am sorry", "as an ai", "as a language model",
+    "i lack", "i cannot find",
 ]
-ALL_OPENAI_KEYS = [k for k in ALL_OPENAI_KEYS if k]
 
-ALL_GOOGLE_KEYS = [
-    st.secrets.get(f"GOOGLE_API_KEY_{i}") for i in range(1, 5)
-]
-ALL_GOOGLE_KEYS = [k for k in ALL_GOOGLE_KEYS if k]
+def is_refusal(text):
+    low = text.lower()
+    return any(p in low for p in REFUSAL_PHRASES)
 
-PDF_JUDGE_KEYS   = ALL_OPENAI_KEYS.copy()
-PRIMARY_ANS_KEYS = [k for i,k in enumerate(ALL_OPENAI_KEYS) if i in [1,2]]
-EXTRA_ANS_KEYS   = [k for i,k in enumerate(ALL_OPENAI_KEYS) if i == 3]
+def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
+    """
+    Unified LLM caller. Tries Gemini first, then all OpenAI keys.
+    Detects refusal responses and retries with a stronger prompt.
+    Never raises — returns str or None.
+    """
+    # ── Gemini ──
+    if _google_cycle:
+        for _ in range(min(2, len(ALL_GOOGLE_KEYS))):
+            try:
+                client = genai.Client(api_key=next(_google_cycle))
+                prompt = "\n\n".join(
+                    f"[{m['role'].upper()}]: {m['content']}" for m in messages
+                )
+                r = client.models.generate_content(
+                    model="gemini-2.0-flash", contents=prompt
+                )
+                txt = (r.text or "").strip()
+                if len(txt) > 15 and not is_refusal(txt):
+                    if stream_ph:
+                        stream_ph.markdown(txt)
+                    return txt
+            except Exception as e:
+                print(f"Gemini error: {e}")
+                time.sleep(0.3)
 
-pdf_judge_cycle   = itertools.cycle(PDF_JUDGE_KEYS)   if PDF_JUDGE_KEYS   else None
-primary_ans_cycle = itertools.cycle(PRIMARY_ANS_KEYS) if PRIMARY_ANS_KEYS else None
-extra_ans_cycle   = itertools.cycle(EXTRA_ANS_KEYS)   if EXTRA_ANS_KEYS   else None
-google_cycle      = itertools.cycle(ALL_GOOGLE_KEYS)  if ALL_GOOGLE_KEYS  else None
+    # ── OpenAI — try every key ──
+    if _openai_cycle:
+        for _ in range(len(ALL_OPENAI_KEYS)):
+            try:
+                client = OpenAI(api_key=next(_openai_cycle))
+                if stream_ph:
+                    stream = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        stream=True,
+                    )
+                    ans = ""
+                    for chunk in stream:
+                        piece = chunk.choices[0].delta.content or ""
+                        ans += piece
+                        stream_ph.markdown(ans + "▌")
+                    stream_ph.markdown(ans)
+                    if len(ans) > 15 and not is_refusal(ans):
+                        return ans
+                    if stream_ph:
+                        stream_ph.empty()   # wipe refusal, retry
+                else:
+                    r = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                    ans = r.choices[0].message.content.strip()
+                    if len(ans) > 15 and not is_refusal(ans):
+                        return ans
+            except Exception as e:
+                print(f"OpenAI error: {e}")
+                time.sleep(0.3)
 
-# Collect errors for debug panel
-if "api_errors" not in st.session_state:
-    st.session_state.api_errors = []
+    # ── Second pass: strip system prompt, add hard "never refuse" directive ──
+    fallback_msgs = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful tutor. You MUST always give a complete answer. "
+                "NEVER say you cannot help or cannot find information. "
+                "If unsure, give your best explanation. Silence or refusal is not acceptable."
+            )
+        }
+    ] + [m for m in messages if m["role"] != "system"]
 
-def log_error(source, error):
-    msg = f"[{source}] {str(error)[:120]}"
-    st.session_state.api_errors.append(msg)
-    print(msg)
+    if _openai_cycle:
+        for _ in range(len(ALL_OPENAI_KEYS)):
+            try:
+                client = OpenAI(api_key=next(_openai_cycle))
+                r = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=fallback_msgs,
+                    max_tokens=max_tokens,
+                    temperature=0.5,
+                )
+                ans = r.choices[0].message.content.strip()
+                if len(ans) > 15:
+                    if stream_ph:
+                        stream_ph.markdown(ans)
+                    return ans
+            except Exception as e:
+                print(f"OpenAI fallback error: {e}")
+                time.sleep(0.3)
 
-def get_primary():
-    if primary_ans_cycle:
-        return OpenAI(api_key=next(primary_ans_cycle))
-    if pdf_judge_cycle:
-        return OpenAI(api_key=next(pdf_judge_cycle))
     return None
 
-def get_extra():
-    return OpenAI(api_key=next(extra_ans_cycle)) if extra_ans_cycle else None
+def call_llm_short(prompt, max_tokens=60):
+    """Quick single-turn call, no streaming."""
+    return call_llm(
+        [{"role": "user", "content": prompt}],
+        max_tokens=max_tokens, temperature=0
+    )
 
-def get_google():
-    return genai.Client(api_key=next(google_cycle)) if google_cycle else None
-
-# =========================
+# =============================================================================
 # GRADE SELECTION
-# =========================
+# =============================================================================
 if "grade" not in st.session_state:
     st.session_state.grade = None
 
@@ -214,23 +309,19 @@ if st.session_state.grade is None:
             index=5,
             label_visibility="collapsed"
         )
-        if st.button(
-            "Get Started →",
-            use_container_width=True,
-            type="primary"
-        ):
+        if st.button("Get Started →", use_container_width=True, type="primary"):
             st.session_state.grade = int(grade.split()[1])
             st.rerun()
     st.stop()
 
-# =========================
+# =============================================================================
 # PDF LOADING
-# =========================
+# =============================================================================
 def get_allowed_grades(grade):
-    return {6:[6,7], 7:[7,8], 8:[8,9]}.get(grade, [grade])
+    return {6: [6, 7], 7: [7, 8], 8: [8, 9]}.get(grade, [grade])
 
 def grade_matches_file(fname, allowed_grades):
-    name = fname.lower().replace(".pdf","")
+    name = fname.lower().replace(".pdf", "")
     for g in allowed_grades:
         patterns = [
             str(g), f"grade{g}", f"grade_{g}",
@@ -248,9 +339,7 @@ def extract_pdf(fname):
         for page_num, page in enumerate(doc):
             text = page.get_text().strip()
             if len(text) > 60:
-                words = set(
-                    re.sub(r'[^a-z0-9 ]',' ',text.lower()).split()
-                )
+                words = set(re.sub(r'[^a-z0-9 ]', ' ', text.lower()).split())
                 chunks.append({
                     "text":  text[:1500],
                     "words": words,
@@ -259,17 +348,15 @@ def extract_pdf(fname):
                 })
         doc.close()
     except Exception as e:
-        log_error("PDF", e)
+        print(f"PDF error {fname}: {e}")
     return chunks
 
 @st.cache_resource(show_spinner=False)
 def load_all_pdfs(grade):
-    all_chunks  = []
-    allowed     = get_allowed_grades(grade)
-    pdf_files   = [f for f in os.listdir(".") if f.endswith(".pdf")]
-    grade_files = [
-        f for f in pdf_files if grade_matches_file(f, allowed)
-    ]
+    all_chunks = []
+    allowed    = get_allowed_grades(grade)
+    pdf_files  = [f for f in os.listdir(".") if f.endswith(".pdf")]
+    grade_files = [f for f in pdf_files if grade_matches_file(f, allowed)]
     if not grade_files:
         grade_files = pdf_files
     with ThreadPoolExecutor(max_workers=4) as ex:
@@ -281,44 +368,44 @@ def load_all_pdfs(grade):
 with st.spinner("📚 Loading library..."):
     PDF_CHUNKS = load_all_pdfs(st.session_state.grade)
 
-# =========================
+# =============================================================================
 # SESSION STATE
-# =========================
+# =============================================================================
 if "chats" not in st.session_state:
     st.session_state.chats = {"Chat 1": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Chat 1"
 
-# =========================
+# =============================================================================
 # MATH SOLVER
-# =========================
+# =============================================================================
 def is_pure_calc(q):
     return bool(re.fullmatch(r"[\d\.\+\-\*\/\(\)\s\^%]+", q.strip()))
 
 def solve_math(q):
     try:
-        expr   = q.strip().replace("^","**").replace(" ","")
-        result = eval(expr, {"__builtins__": None}, {})
+        result = eval(
+            q.strip().replace("^", "**").replace(" ", ""),
+            {"__builtins__": None}, {}
+        )
         return f"**= {round(result, 8)}**", "calc"
     except:
         return None, None
 
-# =========================
+# =============================================================================
 # PDF KEYWORD SEARCH
-# =========================
+# =============================================================================
 STOPWORDS = {
-    "what","is","are","how","why","when","who","the","a","an",
-    "of","in","to","and","does","do","explain","define","me",
-    "about","give","please","describe","tell","example",
-    "examples","find","solve","calculate","show","write"
+    "what", "is", "are", "how", "why", "when", "who", "the", "a", "an",
+    "of", "in", "to", "and", "does", "do", "explain", "define", "me",
+    "about", "give", "please", "describe", "tell", "example",
+    "examples", "find", "solve", "calculate", "show", "write"
 }
 
 def keyword_search(q):
     if not PDF_CHUNKS:
         return []
-    q_words = set(
-        re.sub(r'[^a-z0-9 ]',' ',q.lower()).split()
-    ) - STOPWORDS
+    q_words = set(re.sub(r'[^a-z0-9 ]', ' ', q.lower()).split()) - STOPWORDS
     if not q_words:
         return []
     scored = []
@@ -329,38 +416,35 @@ def keyword_search(q):
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored[:8]
 
-# =========================
+# =============================================================================
 # AI JUDGE — parallel
-# =========================
+# =============================================================================
 def judge_single(args):
     chunk, question, key = args
     prompt = (
         f"Question: {question}\n\n"
         f"Excerpt:\n{chunk['text'][:500]}\n\n"
-        f"Does this excerpt directly help answer "
-        f"the academic question? Reply ONLY: YES or NO"
+        f"Does this excerpt directly help answer the academic question? "
+        f"Reply ONLY: YES or NO"
     )
     try:
         client = OpenAI(api_key=key)
         r = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role":"user","content":prompt}],
+            messages=[{"role": "user", "content": prompt}],
             max_tokens=3, temperature=0
         )
         return "YES" in r.choices[0].message.content.upper(), chunk
-    except Exception as e:
-        log_error("Judge", e)
-        # If judging fails, include the chunk anyway
-        # so we don't lose good content
-        return True, chunk
+    except:
+        return True, chunk   # on error, include the chunk rather than lose it
 
 def parallel_judge(candidates, question):
     if not candidates:
-        return [c for _, c in candidates[:4]]
-    if not PDF_JUDGE_KEYS:
+        return []
+    if not ALL_OPENAI_KEYS:
         return [c for _, c in candidates[:4]]
     key_list = list(itertools.islice(
-        itertools.cycle(PDF_JUDGE_KEYS), len(candidates)
+        itertools.cycle(ALL_OPENAI_KEYS), len(candidates)
     ))
     tasks = [
         (chunk, question, key_list[i])
@@ -376,14 +460,61 @@ def parallel_judge(candidates, question):
                     good.append(chunk)
             except:
                 pass
-    # If nothing passed judging, return top candidates anyway
+    # If judge eliminated everything, fall back to top BM25 results
     if not good:
         good = [c for _, c in candidates[:3]]
     return good
 
-# =========================
+# =============================================================================
+# ZERO-API TEXT EXTRACTION
+# Directly extracts the best sentences from PDF text — no API needed.
+# Used as final fallback when all LLM calls fail.
+# =============================================================================
+def extract_answer_from_text(question, chunks, grade):
+    q_words = set(
+        w for w in re.sub(r'[^a-z0-9 ]', ' ', question.lower()).split()
+        if w not in STOPWORDS and len(w) > 1
+    )
+    sentence_scores = []
+    for chunk in chunks[:6]:
+        for sent in re.split(r'(?<=[.!?])\s+', chunk["text"]):
+            if len(sent.split()) < 6:
+                continue
+            sent_words = set(
+                w for w in re.sub(r'[^a-z0-9 ]', ' ', sent.lower()).split()
+                if len(w) > 1
+            )
+            overlap = len(q_words & sent_words)
+            if overlap > 0:
+                sentence_scores.append((overlap, sent.strip()))
+
+    sentence_scores.sort(key=lambda x: x[0], reverse=True)
+    seen, top = set(), []
+    for _, sent in sentence_scores:
+        key = sent[:40]
+        if key not in seen:
+            seen.add(key)
+            top.append(sent)
+        if len(top) >= 7:
+            break
+
+    if not top and chunks:
+        top = [chunks[0]["text"][:800]]
+    if not top:
+        return None
+
+    src    = chunks[0]["file"]
+    joined = " ".join(top)
+    prefix = (
+        "Here's what your textbook says:\n\n" if grade <= 4 else
+        "Your textbook explains:\n\n"         if grade <= 7 else
+        "According to your textbook:\n\n"
+    )
+    return f"{prefix}{joined}\n\n*📖 Source: {src}*"
+
+# =============================================================================
 # GRADE STYLE
-# =========================
+# =============================================================================
 def grade_style(g):
     if g <= 3:
         return "Use very simple words, short sentences, fun examples. Like explaining to a young child."
@@ -394,9 +525,9 @@ def grade_style(g):
     else:
         return "Use detailed academic language suitable for high school."
 
-# =========================
-# THINKING PHASES
-# =========================
+# =============================================================================
+# THINKING ANIMATION
+# =============================================================================
 def update_phase(ph, text):
     ph.markdown(f"""
 <div class="thinking-container">
@@ -409,10 +540,10 @@ def update_phase(ph, text):
 </div>
 """, unsafe_allow_html=True)
 
-# =========================
+# =============================================================================
 # TIER 1: PDF ANSWER
-# =========================
-def answer_from_pdf(question, chunks, grade, history):
+# =============================================================================
+def answer_from_pdf(question, chunks, grade, history, stream_ph=None):
     context = "\n\n---\n\n".join([
         f"[{c['file']} p.{c['page']}]\n{c['text']}"
         for c in chunks[:4]
@@ -420,146 +551,75 @@ def answer_from_pdf(question, chunks, grade, history):
     src   = chunks[0]["file"]
     style = grade_style(grade)
     hist  = "".join([
-        f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
-        f"{m.get('content','')}\n"
+        f"{'Student' if m['role']=='user' else 'SmartLoop'}: {m.get('content','')}\n"
         for m in history[-4:]
     ])
-    prompt = f"""You are SmartLoop AI, expert tutor for Grade {grade}.
-{style}
-Use the textbook excerpts to answer accurately.
-If excerpts don't fully cover it, supplement with your knowledge.
 
-TEXTBOOK:
-{context}
-
-CONVERSATION:
-{hist}
-
-QUESTION: {question}
-Answer:"""
-
-    for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
-        try:
-            c = get_primary()
-            if c:
-                r = c.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role":"user","content":prompt}],
-                    max_tokens=800
-                )
-                ans = r.choices[0].message.content.strip()
-                if ans and len(ans) > 20:
-                    return ans, "pdf", src
-        except Exception as e:
-            log_error("PDF-Primary", e)
-            time.sleep(1)
-
-    try:
-        c = get_extra()
-        if c:
-            r = c.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":prompt}],
-                max_tokens=800
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"You are SmartLoop AI, expert tutor for Grade {grade}. {style}\n"
+                "You MUST always give a complete, helpful answer.\n"
+                "Use the textbook excerpts below as your primary source.\n"
+                "If excerpts don't fully cover the question, supplement from your own knowledge.\n"
+                "NEVER say you cannot answer, cannot find information, or refuse to help."
             )
-            ans = r.choices[0].message.content.strip()
-            if ans and len(ans) > 20:
-                return ans, "pdf", src
-    except Exception as e:
-        log_error("PDF-Extra", e)
+        },
+        {
+            "role": "user",
+            "content": (
+                f"TEXTBOOK EXCERPTS:\n{context}\n\n"
+                f"CONVERSATION:\n{hist}\n\n"
+                f"QUESTION: {question}\nAnswer:"
+            )
+        }
+    ]
+
+    ans = call_llm(messages, max_tokens=800, temperature=0.3, stream_ph=stream_ph)
+    if ans and len(ans) > 20:
+        return ans, "pdf", src
+
+    # Zero-API fallback — extract directly from PDF text
+    fallback = extract_answer_from_text(question, chunks, grade)
+    if fallback:
+        if stream_ph:
+            stream_ph.markdown(fallback)
+        return fallback, "pdf", src
 
     return None, None, None
 
-# =========================
+# =============================================================================
 # TIER 2: AI ANSWER
-# =========================
-def answer_from_ai(question, grade, history):
+# =============================================================================
+def answer_from_ai(question, grade, history, stream_ph=None):
     style = grade_style(grade)
-    hist  = "".join([
-        f"{'Student' if m['role']=='user' else 'SmartLoop'}: "
-        f"{m.get('content','')}\n"
-        for m in history[-4:]
-    ])
-    prompt = f"""You are SmartLoop AI, expert academic tutor for Grade {grade}.
-{style}
-Answer completely and accurately. Never refuse.
-
-CONVERSATION:
-{hist}
-
-QUESTION: {question}
-Answer:"""
-
-    # Google Gemini first
-    for _ in range(min(2, max(1, len(ALL_GOOGLE_KEYS)))):
-        try:
-            c = get_google()
-            if c:
-                r = c.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=prompt
-                )
-                if r.text and len(r.text.strip()) > 20:
-                    return r.text.strip(), "ai", None
-        except Exception as e:
-            log_error("Gemini", e)
-            time.sleep(1)
-
-    # Primary OpenAI
-    for _ in range(max(1, len(PRIMARY_ANS_KEYS))):
-        try:
-            c = get_primary()
-            if c:
-                msgs = [{
-                    "role": "system",
-                    "content": (
-                        f"You are SmartLoop AI, expert academic tutor "
-                        f"for Grade {grade}. {style} "
-                        f"Always give complete accurate answers."
-                    )
-                }]
-                for m in history[-4:]:
-                    msgs.append({
-                        "role": m["role"],
-                        "content": m.get("content","")
-                    })
-                msgs.append({"role":"user","content":question})
-                r = c.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=msgs,
-                    max_tokens=800
-                )
-                ans = r.choices[0].message.content.strip()
-                if ans and len(ans) > 20:
-                    return ans, "ai", None
-        except Exception as e:
-            log_error("OpenAI-Primary", e)
-            time.sleep(1)
-
-    # Extra OpenAI key
-    try:
-        c = get_extra()
-        if c:
-            r = c.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":prompt}],
-                max_tokens=800
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"You are SmartLoop AI, expert academic tutor for Grade {grade}. {style}\n"
+                "Always give complete, accurate answers.\n"
+                "NEVER say you cannot answer or refuse any academic question."
             )
-            ans = r.choices[0].message.content.strip()
-            if ans and len(ans) > 20:
-                return ans, "ai", None
-    except Exception as e:
-        log_error("OpenAI-Extra", e)
+        }
+    ]
+    for m in history[-4:]:
+        messages.append({"role": m["role"], "content": m.get("content", "")})
+    messages.append({"role": "user", "content": question})
 
+    ans = call_llm(messages, max_tokens=800, temperature=0.4, stream_ph=stream_ph)
+    if ans and len(ans) > 20:
+        return ans, "ai", None
     return None, None, None
 
-# =========================
+# =============================================================================
 # TIER 3: DUCKDUCKGO
-# =========================
+# =============================================================================
 BAD_CONTENT = [
-    "comic","marvel","dc comics","film","movie",
-    "tv series","television","album","song","band",
-    "actor","actress","footballer","celebrity"
+    "comic", "marvel", "dc comics", "film", "movie",
+    "tv series", "television", "album", "song", "band",
+    "actor", "actress", "footballer", "celebrity"
 ]
 
 def answer_from_duckduckgo(question):
@@ -572,79 +632,337 @@ def answer_from_duckduckgo(question):
             )
         }
         search_q = re.sub(
-            r"(what is|what are|explain|define|"
-            r"how does|tell me about|describe)",
+            r"(what is|what are|explain|define|how does|tell me about|describe)",
             "", question.lower()
         ).strip()
 
-        api_url = (
-            f"https://api.duckduckgo.com/?q="
-            f"{requests.utils.quote(search_q + ' school definition')}"
-            f"&format=json&no_html=1&skip_disambig=1"
+        data = requests.get(
+            f"https://api.duckduckgo.com/?q={requests.utils.quote(search_q + ' school definition')}"
+            "&format=json&no_html=1&skip_disambig=1",
+            headers=headers, timeout=8
+        ).json()
+
+        result_text = (
+            data.get("AbstractText") or
+            data.get("Answer") or
+            data.get("Definition") or ""
         )
-        resp = requests.get(api_url, headers=headers, timeout=8)
-        data = resp.json()
+        if not result_text and data.get("RelatedTopics"):
+            result_text = " ".join(
+                t["Text"] for t in data["RelatedTopics"][:3]
+                if isinstance(t, dict) and t.get("Text")
+            )
 
-        result_text = ""
-        if data.get("AbstractText") and len(data["AbstractText"]) > 50:
-            result_text = data["AbstractText"]
-        elif data.get("Answer") and len(data["Answer"]) > 10:
-            result_text = data["Answer"]
-        elif data.get("Definition") and len(data["Definition"]) > 20:
-            result_text = data["Definition"]
-        elif data.get("RelatedTopics"):
-            snippets = []
-            for topic in data["RelatedTopics"][:3]:
-                if isinstance(topic, dict) and topic.get("Text"):
-                    snippets.append(topic["Text"])
-            if snippets:
-                result_text = " ".join(snippets[:2])
-
-        if result_text and len(result_text) > 40:
-            if not any(b in result_text.lower() for b in BAD_CONTENT):
-                return result_text, "ddg", None
+        if len(result_text) > 40 and not any(b in result_text.lower() for b in BAD_CONTENT):
+            return result_text, "ddg", None
 
         # HTML scrape fallback
-        search_url = (
-            f"https://html.duckduckgo.com/html/?q="
-            f"{requests.utils.quote(search_q + ' academic definition school')}"
+        soup = BeautifulSoup(
+            requests.get(
+                f"https://html.duckduckgo.com/html/?q="
+                f"{requests.utils.quote(search_q + ' academic definition school')}",
+                headers=headers, timeout=8
+            ).text,
+            "html.parser"
         )
-        resp2    = requests.get(search_url, headers=headers, timeout=8)
-        soup     = BeautifulSoup(resp2.text, "html.parser")
-        snippets = []
-        for result in soup.select(".result__snippet")[:5]:
-            text = result.get_text(strip=True)
-            if len(text) > 40 and not any(
-                b in text.lower() for b in BAD_CONTENT
-            ):
-                snippets.append(text)
+        snippets = [
+            r.get_text(strip=True) for r in soup.select(".result__snippet")[:5]
+            if len(r.get_text(strip=True)) > 40
+            and not any(b in r.get_text(strip=True).lower() for b in BAD_CONTENT)
+        ]
         if snippets:
             combined = " ".join(snippets[:2])
             if len(combined) > 50:
                 return combined, "ddg", None
 
     except Exception as e:
-        log_error("DuckDuckGo", e)
+        print(f"DDG error: {e}")
 
     return None, None, None
 
-# =========================
+# =============================================================================
 # TIER 4: WIKIPEDIA
-# =========================
+# =============================================================================
 def answer_from_wiki(question):
     try:
         search_q = re.sub(
-            r"(what is|what are|explain|define|"
-            r"how does|tell me about|describe)",
+            r"(what is|what are|explain|define|how does|tell me about|describe)",
             "", question.lower()
         ).strip()
 
-        search_results = wikipedia.search(
-            search_q + " mathematics science", results=5
-        )
+        results = wikipedia.search(search_q + " mathematics science", results=5)
         academic_kw = [
             "physics", "chemistry", "biology", "mathematics",
             "science", "history", "geography", "economics",
             "force", "energy", "cell", "atom", "equation",
             "decimal", "fraction", "geometry", "algebra"
         ]
+        best = next(
+            (r for r in results if any(k in r.lower() for k in academic_kw)),
+            results[0] if results else None
+        )
+        if not best:
+            return None, None, None
+
+        summary = wikipedia.summary(best, sentences=3)
+        if any(b in summary.lower() for b in BAD_CONTENT + [
+            "may refer to", "disambiguation", "is a list"
+        ]):
+            return None, None, None
+
+        return summary, "wiki", None
+
+    except wikipedia.exceptions.DisambiguationError as e:
+        try:
+            bad = ["film", "comic", "song", "album", "band", "tv"]
+            best = next(
+                (o for o in e.options if not any(b in o.lower() for b in bad)),
+                e.options[0] if e.options else None
+            )
+            if not best:
+                return None, None, None
+            summary = wikipedia.summary(best, sentences=3)
+            if any(b in summary.lower() for b in ["comic", "marvel", "film"]):
+                return None, None, None
+            return summary, "wiki", None
+        except:
+            return None, None, None
+    except:
+        return None, None, None
+
+# =============================================================================
+# MAIN PIPELINE
+# calc → pdf → ai → ddg → wiki → text_extract (zero-API)
+# =============================================================================
+def smartloop(question, grade, history, thinking_ph, stream_ph=None):
+
+    # Step 0: Math shortcut
+    if is_pure_calc(question):
+        update_phase(thinking_ph, "Calculating")
+        ans, tier = solve_math(question)
+        if ans:
+            if stream_ph:
+                stream_ph.markdown(ans)
+            return ans, tier, None
+
+    # Step 1: PDF keyword search
+    update_phase(thinking_ph, "Reading")
+    candidates = keyword_search(question)
+
+    # Step 2: AI judge
+    update_phase(thinking_ph, "Defining")
+    good_chunks = []
+    if candidates:
+        good_chunks = parallel_judge(candidates, question)
+
+    update_phase(thinking_ph, "Processing")
+
+    # Step 3: Answer from PDF (LLM + zero-API fallback built in)
+    if good_chunks:
+        ans, tier, src = answer_from_pdf(question, good_chunks, grade, history, stream_ph)
+        if ans:
+            return ans, tier, src
+
+    # Step 4: General AI answer
+    ans, tier, src = answer_from_ai(question, grade, history, stream_ph)
+    if ans:
+        return ans, tier, src
+
+    # Step 5: Web sources
+    update_phase(thinking_ph, "Searching web")
+    for fn in [answer_from_duckduckgo, answer_from_wiki]:
+        ans, tier, src = fn(question)
+        if ans:
+            if stream_ph:
+                stream_ph.markdown(ans)
+            return ans, tier, src
+
+    # Step 6: Zero-API text extraction (always works if PDFs loaded)
+    if good_chunks:
+        fallback = extract_answer_from_text(question, good_chunks, grade)
+        if fallback:
+            if stream_ph:
+                stream_ph.markdown(fallback)
+            return fallback, "pdf", good_chunks[0]["file"]
+
+    # Ultimate fallback — should never be reached if PDFs are loaded
+    msg = "I couldn't find a good answer right now. Try rephrasing your question!"
+    if stream_ph:
+        stream_ph.markdown(msg)
+    return msg, "", None
+
+# =============================================================================
+# BADGE HELPER
+# =============================================================================
+def show_badge(tier, source):
+    badges = {
+        "pdf":  ("src-pdf",  f"📖 {source}"),
+        "ai":   ("src-ai",   "💡 AI knowledge"),
+        "ddg":  ("src-ddg",  "🦆 DuckDuckGo"),
+        "wiki": ("src-wiki", "🌐 Wikipedia"),
+        "calc": ("src-calc", "🧮 Calculator"),
+    }
+    if tier in badges:
+        cls, label = badges[tier]
+        if tier == "pdf" and not source:
+            return
+        st.markdown(
+            f'<span class="source-badge {cls}">{label}</span>',
+            unsafe_allow_html=True
+        )
+
+# =============================================================================
+# SIDEBAR
+# =============================================================================
+with st.sidebar:
+    st.markdown(
+        f"<div class='welcome-card'>👋 Welcome! Grade {st.session_state.grade}</div>",
+        unsafe_allow_html=True
+    )
+    st.divider()
+
+    st.markdown("<div class='section-label'>🎯 Active Grade</div>", unsafe_allow_html=True)
+    new_grade = st.selectbox(
+        "Grade",
+        [f"Grade {i}" for i in range(1, 11)],
+        index=st.session_state.grade - 1,
+        label_visibility="collapsed"
+    )
+    if int(new_grade.split()[1]) != st.session_state.grade:
+        st.session_state.grade = int(new_grade.split()[1])
+        st.cache_resource.clear()
+        st.rerun()
+
+    st.divider()
+
+    if st.button("➕ New Chat", use_container_width=True, type="primary"):
+        name = f"Chat {len(st.session_state.chats) + 1}"
+        st.session_state.chats[name] = []
+        st.session_state.current_chat = name
+        st.rerun()
+
+    st.markdown("<div class='section-label'>💬 Chats</div>", unsafe_allow_html=True)
+
+    for chat_name in list(reversed(list(st.session_state.chats.keys()))):
+        is_active = (chat_name == st.session_state.current_chat)
+        col1, col2 = st.columns([0.82, 0.18], vertical_alignment="center")
+        msgs       = st.session_state.chats.get(chat_name, [])
+        first_user = next(
+            (m["content"] for m in msgs if m["role"] == "user"), chat_name
+        )
+        title = first_user[:22] + "..." if len(first_user) > 22 else first_user
+        label = f"{'🟢' if is_active else '💬'} {title}"
+
+        if col1.button(label, key=f"ch_{chat_name}", use_container_width=True):
+            st.session_state.current_chat = chat_name
+            st.rerun()
+        if col2.button("🗑", key=f"dl_{chat_name}", use_container_width=True):
+            if len(st.session_state.chats) > 1:
+                del st.session_state.chats[chat_name]
+                if st.session_state.current_chat == chat_name:
+                    st.session_state.current_chat = list(
+                        st.session_state.chats.keys()
+                    )[0]
+                st.rerun()
+
+    st.divider()
+    n_oa = len(ALL_OPENAI_KEYS)
+    n_go = len(ALL_GOOGLE_KEYS)
+    st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
+    st.info(
+        f"🔑 OpenAI: {n_oa} key{'s' if n_oa != 1 else ''} | "
+        f"Google: {n_go} key{'s' if n_go != 1 else ''}"
+    )
+
+    if st.button("🔄 Change Grade", use_container_width=True):
+        st.session_state.grade = None
+        st.cache_resource.clear()
+        st.rerun()
+
+    with st.expander("🏫 Are you a Teacher?"):
+        code = st.text_input(
+            "Code", type="password",
+            placeholder="Enter school code...",
+            label_visibility="collapsed"
+        )
+        if st.button("Verify", use_container_width=True):
+            if code == st.secrets.get("TEACHER_CODE", ""):
+                st.success("✅ Teacher access granted!")
+            else:
+                st.error("Invalid code.")
+
+# =============================================================================
+# MAIN CHAT UI
+# =============================================================================
+st.markdown(f"""
+<div style='text-align:center; padding:20px 0 8px;'>
+    <span style='font-size:44px; font-weight:800; color:#00d4ff;
+        letter-spacing:-2px;
+        text-shadow:0 0 16px rgba(0,212,255,0.45);'>
+        🧠 SmartLoop AI
+    </span>
+    <span class='beta-badge'>BETA</span>
+</div>
+<div style='text-align:center; color:rgba(255,255,255,0.4);
+    font-size:15px; margin-bottom:24px;'>
+    Grade {st.session_state.grade} Tutor
+</div>
+""", unsafe_allow_html=True)
+
+messages = st.session_state.chats.get(st.session_state.current_chat, [])
+
+if not messages:
+    with st.chat_message("assistant"):
+        st.markdown(
+            f"👋 **Hey! I'm SmartLoop AI!**\n\n"
+            f"I'm your Grade {st.session_state.grade} tutor.\n\n"
+            f"- 📖 Searches your **textbooks first**\n"
+            f"- 🤖 Falls back to **AI knowledge**\n"
+            f"- 🦆 Then tries **DuckDuckGo**\n"
+            f"- 🌐 Last resort → **Wikipedia**\n"
+            f"- 🧮 Solves **maths step-by-step**\n\n"
+            f"*What would you like to learn today?*"
+        )
+
+for msg in messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg.get("content", ""))
+        show_badge(msg.get("tier", ""), msg.get("source", ""))
+
+# =============================================================================
+# CHAT INPUT
+# =============================================================================
+q = st.chat_input("Ask SmartLoop...")
+
+if q:
+    messages = st.session_state.chats[st.session_state.current_chat]
+    messages.append({"role": "user", "content": q})
+
+    with st.chat_message("user"):
+        st.markdown(q)
+
+    with st.chat_message("assistant"):
+        thinking_ph = st.empty()
+        stream_ph   = st.empty()
+
+        ans, tier, source = smartloop(
+            q,
+            st.session_state.grade,
+            messages[:-1],
+            thinking_ph,
+            stream_ph,
+        )
+
+        thinking_ph.empty()
+
+        if not ans:
+            ans = "Sorry, something went wrong. Please try again."
+        stream_ph.markdown(ans)
+        show_badge(tier, source)
+
+    messages.append({
+        "role":    "assistant",
+        "content": ans,
+        "tier":    tier,
+        "source":  source,
+    })
