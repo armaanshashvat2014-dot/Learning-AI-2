@@ -119,120 +119,336 @@ st.markdown("""
 # =============================================================================
 # API KEYS
 # =============================================================================
-def _collect_keys(prefix, plain):
-    keys = [st.secrets.get(f"{prefix}_{i}") for i in range(1, 6)]
-    keys = [k for k in keys if k]
-    p = st.secrets.get(plain)
-    if p and p not in keys:
-        keys.insert(0, p)
+def _collect_keys(prefix):
+
+    keys = []
+
+    for i in range(1, 6):
+
+        k = st.secrets.get(f"{prefix}_{i}")
+
+        if k:
+            keys.append(k)
+
     return keys
 
-ALL_OPENAI_KEYS = _collect_keys("OPENAI_API_KEY", "OPENAI_API_KEY")
-ALL_GOOGLE_KEYS = _collect_keys("GOOGLE_API_KEY", "GOOGLE_API_KEY")
 
-if not ALL_OPENAI_KEYS and not ALL_GOOGLE_KEYS:
-    st.error("No API keys found. Add OPENAI_API_KEY or GOOGLE_API_KEY to Streamlit secrets.")
+# OPENAI KEYS
+ALL_OPENAI_KEYS = _collect_keys("OPEN_AI_API")
+
+# GOOGLE / GEMINI KEYS
+ALL_GOOGLE_KEYS = _collect_keys("GOOGLE_API_KEY")
+
+# YOUR LOVABLE API
+MY_API_KEY = st.secrets.get("MY_API_KEY")
+
+
+if (
+    not ALL_OPENAI_KEYS
+    and not ALL_GOOGLE_KEYS
+    and not MY_API_KEY
+):
+    st.error("No API keys found.")
     st.stop()
 
-_openai_cycle = itertools.cycle(ALL_OPENAI_KEYS) if ALL_OPENAI_KEYS else None
-_google_cycle = itertools.cycle(ALL_GOOGLE_KEYS) if ALL_GOOGLE_KEYS else None
 
+_openai_cycle = (
+    itertools.cycle(ALL_OPENAI_KEYS)
+    if ALL_OPENAI_KEYS else None
+)
+
+_google_cycle = (
+    itertools.cycle(ALL_GOOGLE_KEYS)
+    if ALL_GOOGLE_KEYS else None
+)
+
+
+# =============================================================================
+# REFUSAL DETECTOR
+# =============================================================================
 REFUSAL_PHRASES = [
-    "i cannot", "i can't", "i am unable", "i'm unable",
-    "i don't have", "i do not have", "not able to",
-    "cannot provide", "unable to provide", "cannot answer",
-    "no information", "not found in", "not covered",
-    "beyond my", "outside my", "i'm sorry, but", "i am sorry",
-    "as an ai", "as a language model", "i lack", "i cannot find",
+    "i cannot",
+    "i can't",
+    "i am unable",
+    "i'm unable",
+    "i don't have",
+    "i do not have",
+    "not able to",
+    "cannot provide",
+    "unable to provide",
+    "cannot answer",
+    "no information",
+    "not found in",
+    "not covered",
+    "beyond my",
+    "outside my",
+    "i'm sorry, but",
+    "i am sorry",
+    "as an ai",
+    "as a language model",
+    "i lack",
+    "i cannot find",
 ]
 
+
 def is_refusal(text):
+
     low = text.lower()
-    return any(p in low for p in REFUSAL_PHRASES)
 
+    return any(
+        p in low
+        for p in REFUSAL_PHRASES
+    )
+
+
+# =============================================================================
+# LOVABLE / SUPABASE API
+# =============================================================================
+def call_my_api(messages):
+
+    if not MY_API_KEY:
+        return None
+
+    try:
+
+        headers = {
+            "Authorization": f"Bearer {MY_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "messages": messages
+        }
+
+        response = requests.post(
+            "https://raujzsawwpmixwlcgcgs.supabase.co/functions/v1/public-ai-api",
+            headers=headers,
+            json=payload,
+            timeout=45
+        )
+
+        data = response.json()
+
+        print("MY API RESPONSE:", data)
+
+        text = ""
+
+        if isinstance(data, dict):
+
+            if "response" in data:
+                text = data["response"]
+
+            elif "content" in data:
+                text = data["content"]
+
+            elif "message" in data:
+                text = data["message"]
+
+            elif "choices" in data:
+                text = data["choices"][0]["message"]["content"]
+
+            elif "reply" in data:
+                text = data["reply"]
+
+        elif isinstance(data, str):
+            text = data
+
+        text = str(text).strip()
+
+        if len(text) > 10 and not is_refusal(text):
+            return text
+
+    except Exception as e:
+        print(f"My API error: {e}")
+
+    return None
+
+
+# =============================================================================
+# MAIN LLM CALLER
+# =============================================================================
 def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
-    """Unified LLM caller. Gemini first, then all OpenAI keys. Never raises."""
 
-    # Gemini
+    # =========================================================
+    # GOOGLE / GEMINI FIRST
+    # =========================================================
     if _google_cycle:
-        for _ in range(min(2, len(ALL_GOOGLE_KEYS))):
+
+        for _ in range(len(ALL_GOOGLE_KEYS)):
+
             try:
-                client = genai.Client(api_key=next(_google_cycle))
-                prompt = "\n\n".join(
-                    f"[{m['role'].upper()}]: {m['content']}" for m in messages
+
+                client = genai.Client(
+                    api_key=next(_google_cycle)
                 )
-                r = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+
+                prompt = "\n\n".join(
+                    f"[{m['role'].upper()}]: {m['content']}"
+                    for m in messages
+                )
+
+                r = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt
+                )
+
                 txt = (r.text or "").strip()
+
                 if len(txt) > 15 and not is_refusal(txt):
+
                     if stream_ph:
                         stream_ph.markdown(txt)
+
                     return txt
+
             except Exception as e:
                 print(f"Gemini error: {e}")
                 time.sleep(0.3)
 
-    # OpenAI — try every key
+
+    # =========================================================
+    # OPENAI SECOND
+    # =========================================================
     if _openai_cycle:
+
         for _ in range(len(ALL_OPENAI_KEYS)):
+
             try:
-                client = OpenAI(api_key=next(_openai_cycle))
+
+                client = OpenAI(
+                    api_key=next(_openai_cycle)
+                )
+
                 if stream_ph:
+
                     stream = client.chat.completions.create(
-                        model="gpt-3.5-turbo", messages=messages,
-                        max_tokens=max_tokens, temperature=temperature, stream=True,
+                        model="gpt-3.5-turbo",
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        stream=True,
                     )
+
                     ans = ""
+
                     for chunk in stream:
-                        piece = chunk.choices[0].delta.content or ""
+
+                        piece = (
+                            chunk.choices[0]
+                            .delta.content or ""
+                        )
+
                         ans += piece
+
                         stream_ph.markdown(ans + "▌")
+
                     stream_ph.markdown(ans)
+
                     if len(ans) > 15 and not is_refusal(ans):
                         return ans
+
                     if stream_ph:
                         stream_ph.empty()
+
                 else:
+
                     r = client.chat.completions.create(
-                        model="gpt-3.5-turbo", messages=messages,
-                        max_tokens=max_tokens, temperature=temperature,
+                        model="gpt-3.5-turbo",
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
                     )
-                    ans = r.choices[0].message.content.strip()
+
+                    ans = (
+                        r.choices[0]
+                        .message.content.strip()
+                    )
+
                     if len(ans) > 15 and not is_refusal(ans):
                         return ans
+
             except Exception as e:
                 print(f"OpenAI error: {e}")
                 time.sleep(0.3)
 
-    # Second pass — hard "never refuse" directive
+
+    # =========================================================
+    # YOUR LOVABLE AI API THIRD
+    # =========================================================
+    try:
+
+        ans = call_my_api(messages)
+
+        if ans:
+
+            if stream_ph:
+                stream_ph.markdown(ans)
+
+            return ans
+
+    except Exception as e:
+        print(f"My API failed: {e}")
+
+
+    # =========================================================
+    # FINAL FALLBACK
+    # =========================================================
     fallback_msgs = [{
         "role": "system",
         "content": (
-            "You are a helpful tutor. ALWAYS give a complete answer. "
-            "NEVER say you cannot help. Give your best explanation regardless."
+            "You are a helpful tutor. "
+            "Always answer completely."
         )
-    }] + [m for m in messages if m["role"] != "system"]
+    }] + [
+        m for m in messages
+        if m["role"] != "system"
+    ]
+
 
     if _openai_cycle:
+
         for _ in range(len(ALL_OPENAI_KEYS)):
+
             try:
-                client = OpenAI(api_key=next(_openai_cycle))
-                r = client.chat.completions.create(
-                    model="gpt-3.5-turbo", messages=fallback_msgs,
-                    max_tokens=max_tokens, temperature=0.5,
+
+                client = OpenAI(
+                    api_key=next(_openai_cycle)
                 )
-                ans = r.choices[0].message.content.strip()
+
+                r = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=fallback_msgs,
+                    max_tokens=max_tokens,
+                    temperature=0.5,
+                )
+
+                ans = (
+                    r.choices[0]
+                    .message.content.strip()
+                )
+
                 if len(ans) > 15:
+
                     if stream_ph:
                         stream_ph.markdown(ans)
+
                     return ans
+
             except Exception as e:
-                print(f"OpenAI fallback error: {e}")
+                print(f"Fallback error: {e}")
                 time.sleep(0.3)
 
     return None
 
+
 def call_llm_short(prompt, max_tokens=60):
-    return call_llm([{"role": "user", "content": prompt}], max_tokens=max_tokens, temperature=0)
+
+    return call_llm(
+        [{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+        temperature=0
+    )
+
 
 # =============================================================================
 # GRADE SELECTION
