@@ -134,7 +134,7 @@ def _collect_keys(prefix):
 
 
 # OPENAI KEYS
-ALL_OPENAI_KEYS = _collect_keys("OPEN_AI_API")
+ALL_OPENAI_KEYS = _collect_keys("OPENAI_API_KEY")
 
 # GOOGLE / GEMINI KEYS
 ALL_GOOGLE_KEYS = _collect_keys("GOOGLE_API_KEY")
@@ -448,7 +448,6 @@ def call_llm_short(prompt, max_tokens=60):
         max_tokens=max_tokens,
         temperature=0
     )
-
 
 # =============================================================================
 # GRADE SELECTION
