@@ -670,3 +670,364 @@ def answer_from_pdf(question, intent, chunks, grade, history, stream_ph=None):
             "role": "system",
             "content": (
                 f"You are SmartLoop AI, expert tutor for Grade {grade}. {style}\n\n"
+                f"The student wants to: {intent}\n\n"
+                "RULES:\n"
+                "- Use the textbook content as your knowledge source.\n"
+                "- Write a clear, friendly EXPLANATION in your own words.\n"
+                "- Structure: definition → real-world example → how it works.\n"
+                "- Do NOT copy raw text, exercise lists, page numbers, or file names.\n"
+                "- Do NOT output answer keys or table of contents.\n"
+                "- NEVER refuse or say you cannot answer."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                f"TEXTBOOK CONTENT:\n{context}\n\n"
+                f"CONVERSATION:\n{hist}\n\n"
+                f"QUESTION: {question}\nAnswer:"
+            )
+        }
+    ]
+    ans = call_llm(messages, max_tokens=800, temperature=0.3, stream_ph=stream_ph)
+    if ans and len(ans) > 20:
+        return ans, "pdf", src
+    fallback = extract_answer_from_text(question, chunks, grade)
+    if fallback:
+        if stream_ph:
+            stream_ph.markdown(fallback)
+        return fallback, "pdf", src
+    return None, None, None
+
+# =============================================================================
+# TIER 2 — AI ANSWER
+# =============================================================================
+def answer_from_ai(question, intent, grade, history, stream_ph=None):
+    style    = grade_style(grade)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"You are SmartLoop AI, expert academic tutor for Grade {grade}. {style}\n\n"
+                f"The student wants to: {intent}\n\n"
+                "Give a clear, complete, friendly explanation.\n"
+                "Structure: definition → real-world example → how it works.\n"
+                "NEVER refuse or say you cannot answer."
+            )
+        }
+    ]
+    for m in history[-4:]:
+        messages.append({"role": m["role"], "content": m.get("content","")})
+    messages.append({"role":"user","content":question})
+    ans = call_llm(messages, max_tokens=800, temperature=0.4, stream_ph=stream_ph)
+    if ans and len(ans) > 20:
+        return ans, "ai", None
+    return None, None, None
+
+# =============================================================================
+# TIER 3 — DUCKDUCKGO
+# =============================================================================
+BAD_CONTENT = [
+    "comic","marvel","dc comics","film","movie","tv series",
+    "television","album","song","band","actor","actress",
+    "footballer","celebrity"
+]
+
+def answer_from_duckduckgo(question):
+    try:
+        headers    = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"}
+        search_q   = re.sub(r"(what is|what are|explain|define|how does|tell me about|describe)","",question.lower()).strip()
+        data       = requests.get(
+            f"https://api.duckduckgo.com/?q={requests.utils.quote(search_q + ' school definition')}&format=json&no_html=1&skip_disambig=1",
+            headers=headers, timeout=8
+        ).json()
+        result_text = data.get("AbstractText") or data.get("Answer") or data.get("Definition") or ""
+        if not result_text and data.get("RelatedTopics"):
+            result_text = " ".join(
+                t["Text"] for t in data["RelatedTopics"][:3]
+                if isinstance(t, dict) and t.get("Text")
+            )
+        if len(result_text) > 40 and not any(b in result_text.lower() for b in BAD_CONTENT):
+            return result_text, "ddg", None
+        soup     = BeautifulSoup(
+            requests.get(
+                f"https://html.duckduckgo.com/html/?q={requests.utils.quote(search_q + ' academic definition school')}",
+                headers=headers, timeout=8
+            ).text, "html.parser"
+        )
+        snippets = [
+            r.get_text(strip=True) for r in soup.select(".result__snippet")[:5]
+            if len(r.get_text(strip=True)) > 40
+            and not any(b in r.get_text(strip=True).lower() for b in BAD_CONTENT)
+        ]
+        if snippets:
+            combined = " ".join(snippets[:2])
+            if len(combined) > 50:
+                return combined, "ddg", None
+    except Exception as e:
+        print(f"DDG error: {e}")
+    return None, None, None
+
+# =============================================================================
+# TIER 4 — WIKIPEDIA
+# =============================================================================
+def answer_from_wiki(question):
+    try:
+        search_q = re.sub(
+            r"(what is|what are|explain|define|how does|tell me about|describe)",
+            "", question.lower()
+        ).strip()
+        results = wikipedia.search(search_q + " mathematics science", results=5)
+        academic_kw = [
+            "physics","chemistry","biology","mathematics","science",
+            "history","geography","economics","force","energy","cell",
+            "atom","equation","decimal","fraction","geometry","algebra"
+        ]
+        best = next(
+            (r for r in results if any(k in r.lower() for k in academic_kw)),
+            results[0] if results else None
+        )
+        if not best:
+            return None, None, None
+        summary = wikipedia.summary(best, sentences=3)
+        if any(b in summary.lower() for b in BAD_CONTENT + [
+            "may refer to","disambiguation","is a list"
+        ]):
+            return None, None, None
+        return summary, "wiki", None
+    except wikipedia.exceptions.DisambiguationError as e:
+        try:
+            bad  = ["film","comic","song","album","band","tv"]
+            best = next(
+                (o for o in e.options if not any(b in o.lower() for b in bad)),
+                e.options[0] if e.options else None
+            )
+            if not best:
+                return None, None, None
+            summary = wikipedia.summary(best, sentences=3)
+            if any(b in summary.lower() for b in ["comic","marvel","film"]):
+                return None, None, None
+            return summary, "wiki", None
+        except:
+            return None, None, None
+    except:
+        return None, None, None
+
+# =============================================================================
+# MAIN PIPELINE
+# =============================================================================
+def smartloop(question, grade, history, thinking_ph, stream_ph=None):
+
+    # Math shortcut
+    if is_pure_calc(question):
+        update_phase(thinking_ph, "Calculating")
+        ans, tier = solve_math(question)
+        if ans:
+            if stream_ph:
+                stream_ph.markdown(ans)
+            return ans, tier, None
+
+    # Detect question generation request EARLY
+    if is_question_request(question):
+        update_phase(thinking_ph, "Finding relevant content")
+        candidates  = keyword_search(question)
+        good_chunks = parallel_judge(candidates, question) if candidates else []
+        update_phase(thinking_ph, "Generating questions")
+        ans, tier, src = generate_questions(
+            question, good_chunks, grade, history, stream_ph
+        )
+        if ans:
+            return ans, tier, src
+
+    # Normal answer flow
+    update_phase(thinking_ph, "Understanding question")
+    intent = understand_intent(question, history)
+
+    update_phase(thinking_ph, "Searching textbooks")
+    candidates  = keyword_search(question)
+    good_chunks = parallel_judge(candidates, question) if candidates else []
+
+    update_phase(thinking_ph, "Checking relevance")
+    pdf_relevant = context_is_relevant(intent, good_chunks)
+
+    update_phase(thinking_ph, "Answering")
+
+    if pdf_relevant and good_chunks:
+        ans, tier, src = answer_from_pdf(
+            question, intent, good_chunks, grade, history, stream_ph
+        )
+        if ans:
+            return ans, tier, src
+
+    ans, tier, src = answer_from_ai(question, intent, grade, history, stream_ph)
+    if ans:
+        return ans, tier, src
+
+    update_phase(thinking_ph, "Searching web")
+    for fn in [answer_from_duckduckgo, answer_from_wiki]:
+        ans, tier, src = fn(question)
+        if ans:
+            if stream_ph:
+                stream_ph.markdown(ans)
+            return ans, tier, src
+
+    msg = "I couldn't find a good answer right now. Try rephrasing your question!"
+    if stream_ph:
+        stream_ph.markdown(msg)
+    return msg, "", None
+
+# =============================================================================
+# BADGE
+# =============================================================================
+def show_badge(tier, source):
+    badges = {
+        "pdf":  ("src-pdf",  f"📖 {source}"),
+        "ai":   ("src-ai",   "💡 AI knowledge"),
+        "ddg":  ("src-ddg",  "🦆 DuckDuckGo"),
+        "wiki": ("src-wiki", "🌐 Wikipedia"),
+        "calc": ("src-calc", "🧮 Calculator"),
+    }
+    if tier in badges:
+        cls, label = badges[tier]
+        if tier == "pdf" and not source:
+            return
+        st.markdown(
+            f'<span class="source-badge {cls}">{label}</span>',
+            unsafe_allow_html=True
+        )
+
+# =============================================================================
+# SIDEBAR
+# =============================================================================
+with st.sidebar:
+    st.markdown(
+        f"<div class='welcome-card'>👋 Welcome to SmartLoop Grade {st.session_state.grade}!</div>",
+        unsafe_allow_html=True
+    )
+    st.divider()
+
+    st.markdown("<div class='section-label'>🎯 Active Grade</div>", unsafe_allow_html=True)
+    new_grade = st.selectbox(
+        "Grade", [f"Grade {i}" for i in range(1, 11)],
+        index=st.session_state.grade - 1, label_visibility="collapsed"
+    )
+    if int(new_grade.split()[1]) != st.session_state.grade:
+        st.session_state.grade = int(new_grade.split()[1])
+        st.rerun()
+
+    st.divider()
+
+    if st.button("➕ New Chat", use_container_width=True, type="primary"):
+        name = f"Chat {len(st.session_state.chats) + 1}"
+        st.session_state.chats[name] = []
+        st.session_state.current_chat = name
+        st.rerun()
+
+    st.markdown("<div class='section-label'>💬 Chats</div>", unsafe_allow_html=True)
+    for chat_name in list(reversed(list(st.session_state.chats.keys()))):
+        is_active  = (chat_name == st.session_state.current_chat)
+        col1, col2 = st.columns([0.82, 0.18], vertical_alignment="center")
+        msgs       = st.session_state.chats.get(chat_name, [])
+        first_user = next(
+            (m["content"] for m in msgs if m["role"] == "user"), chat_name
+        )
+        title = first_user[:22] + "..." if len(first_user) > 22 else first_user
+        if col1.button(
+            f"{'🟢' if is_active else '💬'} {title}",
+            key=f"ch_{chat_name}", use_container_width=True
+        ):
+            st.session_state.current_chat = chat_name
+            st.rerun()
+        if col2.button("🗑", key=f"dl_{chat_name}", use_container_width=True):
+            if len(st.session_state.chats) > 1:
+                del st.session_state.chats[chat_name]
+                if st.session_state.current_chat == chat_name:
+                    st.session_state.current_chat = list(
+                        st.session_state.chats.keys()
+                    )[0]
+                st.rerun()
+
+    st.divider()
+    st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
+    st.info(
+        f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | "
+        f"Google: {len(ALL_GOOGLE_KEYS)}"
+    )
+
+    if st.button("🔄 Change Grade", use_container_width=True):
+        st.session_state.grade = None
+        st.rerun()
+
+    with st.expander("🏫 Are you a Teacher?"):
+        code = st.text_input(
+            "Code", type="password",
+            placeholder="Enter school code...",
+            label_visibility="collapsed"
+        )
+        if st.button("Verify", use_container_width=True):
+            if code == st.secrets.get("TEACHER_CODE",""):
+                st.success("✅ Teacher access granted!")
+            else:
+                st.error("Invalid code.")
+
+# =============================================================================
+# MAIN CHAT UI
+# =============================================================================
+st.markdown(f"""
+<div style='text-align:center;padding:20px 0 8px;'>
+    <span style='font-size:44px;font-weight:800;color:#00d4ff;
+        letter-spacing:-2px;text-shadow:0 0 16px rgba(0,212,255,0.45);'>
+        🧠 SmartLoop AI
+    </span>
+    <span class='beta-badge'>BETA</span>
+</div>
+<div style='text-align:center;color:rgba(255,255,255,0.4);font-size:15px;margin-bottom:24px;'>
+    Grade {st.session_state.grade} Tutor
+</div>
+""", unsafe_allow_html=True)
+
+messages = st.session_state.chats.get(st.session_state.current_chat, [])
+
+if not messages:
+    with st.chat_message("assistant"):
+        st.markdown(
+            f"👋 **Hey! I'm SmartLoop AI!**\n\n"
+            f"I'm your Grade {st.session_state.grade} tutor.\n\n"
+            f"- 📖 Searches your **textbooks first**\n"
+            f"- 🤖 Falls back to **AI knowledge**\n"
+            f"- ❓ Can **generate practice questions** on any topic\n"
+            f"- 🦆 Web only as **last resort**\n"
+            f"- 🧮 Solves **maths step-by-step**\n\n"
+            f"*What would you like to learn today?*"
+        )
+
+for msg in messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg.get("content",""))
+        show_badge(msg.get("tier",""), msg.get("source",""))
+
+# =============================================================================
+# CHAT INPUT
+# =============================================================================
+q = st.chat_input("Ask SmartLoop...")
+
+if q:
+    messages = st.session_state.chats[st.session_state.current_chat]
+    messages.append({"role":"user","content":q})
+    with st.chat_message("user"):
+        st.markdown(q)
+    with st.chat_message("assistant"):
+        thinking_ph = st.empty()
+        stream_ph   = st.empty()
+        ans, tier, source = smartloop(
+            q, st.session_state.grade, messages[:-1],
+            thinking_ph, stream_ph
+        )
+        thinking_ph.empty()
+        if not ans:
+            ans = "Sorry, something went wrong. Please try again."
+        stream_ph.markdown(ans)
+        show_badge(tier, source)
+    messages.append({
+        "role":"assistant","content":ans,"tier":tier,"source":source
+    })
