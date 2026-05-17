@@ -142,13 +142,13 @@ _google_cycle = itertools.cycle(ALL_GOOGLE_KEYS) if ALL_GOOGLE_KEYS else None
 # REFUSAL DETECTOR
 # =============================================================================
 REFUSAL_PHRASES = [
-    "i cannot", "i can't", "i am unable", "i'm unable",
-    "i don't have", "i do not have", "not able to",
-    "cannot provide", "unable to provide", "cannot answer",
-    "no information", "not found in", "not covered",
-    "beyond my", "outside my", "i'm sorry, but",
-    "i am sorry", "as an ai", "as a language model",
-    "i lack", "i cannot find",
+    "i cannot","i can't","i am unable","i'm unable",
+    "i don't have","i do not have","not able to",
+    "cannot provide","unable to provide","cannot answer",
+    "no information","not found in","not covered",
+    "beyond my","outside my","i'm sorry, but",
+    "i am sorry","as an ai","as a language model",
+    "i lack","i cannot find",
 ]
 
 def is_refusal(text):
@@ -162,15 +162,13 @@ def call_my_api(messages):
     if not MY_API_KEY:
         return None
     try:
-        headers = {
+        headers  = {
             "Authorization": f"Bearer {MY_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type":  "application/json"
         }
         response = requests.post(
             "https://raujzsawwpmixwlcgcgs.supabase.co/functions/v1/public-ai-api",
-            headers=headers,
-            json={"messages": messages},
-            timeout=45
+            headers=headers, json={"messages": messages}, timeout=45
         )
         data = response.json()
         text = ""
@@ -202,7 +200,9 @@ def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
                 prompt = "\n\n".join(
                     f"[{m['role'].upper()}]: {m['content']}" for m in messages
                 )
-                r   = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+                r   = client.models.generate_content(
+                    model="gemini-2.0-flash", contents=prompt
+                )
                 txt = (r.text or "").strip()
                 if len(txt) > 15 and not is_refusal(txt):
                     if stream_ph:
@@ -217,7 +217,7 @@ def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
             try:
                 client = OpenAI(api_key=next(_openai_cycle))
                 if stream_ph:
-                    stream = client.chat.completions.create(
+                    stream  = client.chat.completions.create(
                         model="gpt-3.5-turbo", messages=messages,
                         max_tokens=max_tokens, temperature=temperature, stream=True,
                     )
@@ -251,8 +251,10 @@ def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
     except Exception as e:
         print(f"My API failed: {e}")
 
-    fallback_msgs = [{"role":"system","content":"You are a helpful tutor. Always answer completely."}]
-    fallback_msgs += [m for m in messages if m["role"] != "system"]
+    fallback_msgs = [
+        {"role":"system","content":"You are a helpful tutor. Always answer completely."}
+    ] + [m for m in messages if m["role"] != "system"]
+
     if _openai_cycle:
         for _ in range(len(ALL_OPENAI_KEYS)):
             try:
@@ -305,28 +307,39 @@ Select your grade to get started</div></div>
     st.stop()
 
 # =============================================================================
-# PDF LOADING — all PDFs loaded for all grades
-# spacing fixed using dict-based extraction
+# PDF LOADING
+# Grade X loads grade X and X+1 books
 # =============================================================================
+def get_allowed_grades(grade):
+    return [grade, grade + 1] if grade < 10 else [grade]
+
+def grade_matches_file(fname, allowed_grades):
+    name = fname.lower().replace(".pdf", "")
+    for g in allowed_grades:
+        if any(p in name for p in [
+            str(g), f"grade{g}", f"grade_{g}", f"class{g}",
+            f"std{g}", f"g{g}", f"{g}th", f"{g}st", f"{g}nd", f"{g}rd"
+        ]):
+            return True
+    return False
+
 def extract_pdf(fname):
     chunks = []
     try:
         doc = fitz.open(fname)
         for page_num, page in enumerate(doc):
             try:
-                # Dict-based extraction preserves word spacing
                 blocks = page.get_text("dict")["blocks"]
                 lines  = []
                 for block in blocks:
                     if block.get("type") == 0:
                         for line in block.get("lines", []):
-                            words = []
-                            prev_x1 = None
+                            words    = []
+                            prev_x1  = None
                             for span in line.get("spans", []):
-                                span_text = span.get("text", "").strip()
+                                span_text = span.get("text","").strip()
                                 if not span_text:
                                     continue
-                                # Insert space if gap between spans
                                 if prev_x1 is not None:
                                     gap = span["origin"][0] - prev_x1
                                     if gap > 2:
@@ -338,17 +351,12 @@ def extract_pdf(fname):
                                 lines.append(line_text)
                 text = "\n".join(lines).strip()
             except Exception:
-                # Fallback to plain text if dict fails
                 text = page.get_text().strip()
 
             if len(text) > 60:
-                # Fix run-together words with a simple regex
-                # e.g. "Adecimal" → "A decimal"
-                text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
-                # Fix missing space after punctuation
-                text = re.sub(r'([.!?,;:])([A-Za-z])', r'\1 \2', text)
-
-                words = set(re.sub(r'[^a-z0-9 ]', ' ', text.lower()).split())
+                text  = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+                text  = re.sub(r'([.!?,;:])([A-Za-z])', r'\1 \2', text)
+                words = set(re.sub(r'[^a-z0-9 ]',' ',text.lower()).split())
                 chunks.append({
                     "text":  text[:1500],
                     "words": words,
@@ -361,18 +369,35 @@ def extract_pdf(fname):
     return chunks
 
 @st.cache_resource(show_spinner=False)
-def load_all_pdfs():
-    # Load ALL pdfs regardless of grade
+def load_all_pdfs(grade):
+    allowed     = get_allowed_grades(grade)
+    pdf_files   = [f for f in os.listdir(".") if f.endswith(".pdf")]
+    grade_files = [f for f in pdf_files if grade_matches_file(f, allowed)]
+    if not grade_files:
+        grade_files = pdf_files
     all_chunks = []
-    pdf_files  = [f for f in os.listdir(".") if f.endswith(".pdf")]
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(extract_pdf, f): f for f in pdf_files}
+        futures = {ex.submit(extract_pdf, f): f for f in grade_files}
         for future in as_completed(futures):
             all_chunks.extend(future.result())
     return all_chunks
 
-with st.spinner("📚 Loading library..."):
-    PDF_CHUNKS = load_all_pdfs()
+# Load PDFs while showing AI knowledge message
+load_col = st.columns([1, 2, 1])[1]
+with st.spinner(""):
+    thinking_load = st.empty()
+    thinking_load.markdown("""
+<div class="thinking-container" style="max-width:500px;margin:0 auto;">
+    <span class="thinking-text">📚 Loading your textbooks using AI knowledge</span>
+    <div class="thinking-dots">
+        <div class="thinking-dot"></div>
+        <div class="thinking-dot"></div>
+        <div class="thinking-dot"></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+    PDF_CHUNKS = load_all_pdfs(st.session_state.grade)
+    thinking_load.empty()
 
 # =============================================================================
 # SESSION STATE
@@ -428,12 +453,12 @@ def keyword_search(q):
 # QUESTION REQUEST DETECTOR
 # =============================================================================
 QUESTION_REQUEST_WORDS = [
-    "give me questions", "give questions", "make questions",
-    "create questions", "generate questions", "write questions",
-    "some questions", "practice questions", "exam questions",
-    "test questions", "quiz", "questions on", "questions about",
-    "questions from", "give me some", "create a test",
-    "make a test", "make a quiz", "create a quiz",
+    "give me questions","give questions","make questions",
+    "create questions","generate questions","write questions",
+    "some questions","practice questions","exam questions",
+    "test questions","quiz","questions on","questions about",
+    "questions from","give me some","create a test",
+    "make a test","make a quiz","create a quiz",
 ]
 
 def is_question_request(q):
@@ -569,6 +594,41 @@ def understand_intent(question, history):
     return result.strip() if result else question
 
 # =============================================================================
+# SAFETY — detect bad intent
+# =============================================================================
+BAD_INTENT_KEYWORDS = [
+    "hack","weapon","bomb","kill","drug","poison","suicide",
+    "self harm","self-harm","violence","explicit","adult content",
+    "sexual","illegal","steal","cheat","plagiarize","explosives",
+    "hurt","attack","abuse","racism","racist","terrorism",
+    "extremist","murder","assault","trafficking","pornograph",
+]
+
+def is_bad_intent(question, intent):
+    combined = (question + " " + (intent or "")).lower()
+    # Fast keyword check first
+    if any(b in combined for b in BAD_INTENT_KEYWORDS):
+        return True
+    # AI judge for edge cases
+    prompt = (
+        f"A student asked: \"{question}\"\n"
+        f"Detected intent: {intent}\n\n"
+        "Is this question harmful, dangerous, inappropriate, "
+        "or completely unrelated to education?\n"
+        "Answer ONLY: YES or NO"
+    )
+    result = call_llm_short(prompt, max_tokens=3)
+    return bool(result and "YES" in result.upper())
+
+def bad_intent_response(grade):
+    if grade <= 4:
+        return "I can only help with school subjects! Ask me about maths, science, or anything from your textbooks. 😊"
+    elif grade <= 7:
+        return "I'm an educational tutor and can only help with school topics. Please ask me about your subjects!"
+    else:
+        return "I can only assist with academic and educational content. Please keep questions related to your studies."
+
+# =============================================================================
 # CONTEXT RELEVANCE CHECK
 # =============================================================================
 def context_is_relevant(intent, chunks):
@@ -585,20 +645,18 @@ def context_is_relevant(intent, chunks):
     prompt = (
         f"Student intent: {intent}\n\n"
         f"Textbook excerpts:\n{sample}\n\n"
-        "Do these excerpts contain actual teaching content — definitions, explanations, "
-        "or worked examples — that directly teaches this topic?\n"
+        "Do these excerpts contain actual teaching content — definitions, "
+        "explanations, or worked examples — that directly teaches this topic?\n"
         "Answer ONLY: YES or NO"
     )
     result = call_llm_short(prompt, max_tokens=3)
     return bool(result and "YES" in result.upper())
 
 # =============================================================================
-# GENERATE QUESTIONS — called when student asks for questions
-# Uses PDF context if available, otherwise generates from AI knowledge
+# GENERATE QUESTIONS
 # =============================================================================
 def generate_questions(question, chunks, grade, history, stream_ph=None):
-    style  = grade_style(grade)
-    # Extract topic/chapter from the question
+    style      = grade_style(grade)
     topic_prompt = (
         f"The student asked: \"{question}\"\n"
         "What subject and topic/chapter are they asking questions about? "
@@ -607,18 +665,16 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
     )
     topic_info = call_llm_short(topic_prompt, max_tokens=30) or "General"
 
-    # Build context from PDFs if available
     if chunks:
         context = "\n\n---\n\n".join(c["text"] for c in chunks[:4])
         context_instruction = (
             f"Use the following textbook content as the basis for your questions:\n\n"
-            f"{context}\n\n"
-            "Generate questions that test understanding of this content."
+            f"{context}\n\nGenerate questions that test understanding of this content."
         )
         src = chunks[0]["file"]
     else:
         context_instruction = (
-            f"No specific textbook content is available for this topic. "
+            f"No specific textbook content is available. "
             f"Generate realistic, curriculum-appropriate questions based on your knowledge of: {topic_info}"
         )
         src = None
@@ -630,11 +686,11 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
                 f"You are SmartLoop AI, expert tutor for Grade {grade}. {style}\n\n"
                 "Generate practice questions when asked.\n"
                 "RULES:\n"
-                "- Generate exactly what the student asked for (number of questions, type, topic)\n"
+                "- Generate exactly what the student asked for\n"
                 "- Include a mix of question types: short answer, fill in the blank, MCQ\n"
                 "- Number each question clearly\n"
                 "- Add answers at the end under '## Answers'\n"
-                "- Make questions appropriate for Grade " + str(grade) + "\n"
+                f"- Make questions appropriate for Grade {grade}\n"
                 "- NEVER refuse"
             )
         },
@@ -643,12 +699,10 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
             "content": (
                 f"Topic info: {topic_info}\n\n"
                 f"{context_instruction}\n\n"
-                f"Student request: {question}\n\n"
-                "Generate the questions now:"
+                f"Student request: {question}\n\nGenerate the questions now:"
             )
         }
     ]
-
     ans = call_llm(messages, max_tokens=1000, temperature=0.5, stream_ph=stream_ph)
     if ans and len(ans) > 20:
         return ans, "pdf" if src else "ai", src
@@ -658,9 +712,9 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
 # TIER 1 — PDF ANSWER
 # =============================================================================
 def answer_from_pdf(question, intent, chunks, grade, history, stream_ph=None):
-    src    = chunks[0]["file"]
-    style  = grade_style(grade)
-    hist   = "".join([
+    src     = chunks[0]["file"]
+    style   = grade_style(grade)
+    hist    = "".join([
         f"{'Student' if m['role']=='user' else 'SmartLoop'}: {m.get('content','')}\n"
         for m in history[-4:]
     ])
@@ -735,9 +789,12 @@ BAD_CONTENT = [
 
 def answer_from_duckduckgo(question):
     try:
-        headers    = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"}
-        search_q   = re.sub(r"(what is|what are|explain|define|how does|tell me about|describe)","",question.lower()).strip()
-        data       = requests.get(
+        headers  = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"}
+        search_q = re.sub(
+            r"(what is|what are|explain|define|how does|tell me about|describe)",
+            "", question.lower()
+        ).strip()
+        data = requests.get(
             f"https://api.duckduckgo.com/?q={requests.utils.quote(search_q + ' school definition')}&format=json&no_html=1&skip_disambig=1",
             headers=headers, timeout=8
         ).json()
@@ -827,7 +884,19 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
                 stream_ph.markdown(ans)
             return ans, tier, None
 
-    # Detect question generation request EARLY
+    # Step 1: Understand intent
+    update_phase(thinking_ph, "Understanding question")
+    intent = understand_intent(question, history)
+
+    # Step 2: Safety check
+    update_phase(thinking_ph, "Checking safety")
+    if is_bad_intent(question, intent):
+        msg = bad_intent_response(grade)
+        if stream_ph:
+            stream_ph.markdown(msg)
+        return msg, "", None
+
+    # Step 3: Question generation request
     if is_question_request(question):
         update_phase(thinking_ph, "Finding relevant content")
         candidates  = keyword_search(question)
@@ -839,14 +908,12 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
         if ans:
             return ans, tier, src
 
-    # Normal answer flow
-    update_phase(thinking_ph, "Understanding question")
-    intent = understand_intent(question, history)
-
+    # Step 4: Search PDFs
     update_phase(thinking_ph, "Searching textbooks")
     candidates  = keyword_search(question)
     good_chunks = parallel_judge(candidates, question) if candidates else []
 
+    # Step 5: Relevance check
     update_phase(thinking_ph, "Checking relevance")
     pdf_relevant = context_is_relevant(intent, good_chunks)
 
@@ -859,10 +926,12 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
         if ans:
             return ans, tier, src
 
+    # AI knowledge
     ans, tier, src = answer_from_ai(question, intent, grade, history, stream_ph)
     if ans:
         return ans, tier, src
 
+    # Web fallback
     update_phase(thinking_ph, "Searching web")
     for fn in [answer_from_duckduckgo, answer_from_wiki]:
         ans, tier, src = fn(question)
@@ -900,8 +969,14 @@ def show_badge(tier, source):
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
+    allowed = get_allowed_grades(st.session_state.grade)
     st.markdown(
-        f"<div class='welcome-card'>👋 Welcome to SmartLoop Grade {st.session_state.grade}!</div>",
+        f"<div class='welcome-card'>"
+        f"👋 Welcome! Grade {st.session_state.grade}"
+        f"<br><span style='font-size:11px;opacity:0.8;'>"
+        f"📚 Using Grade {allowed[0]}"
+        f"{' & ' + str(allowed[1]) if len(allowed) > 1 else ''} books"
+        f"</span></div>",
         unsafe_allow_html=True
     )
     st.divider()
@@ -913,6 +988,7 @@ with st.sidebar:
     )
     if int(new_grade.split()[1]) != st.session_state.grade:
         st.session_state.grade = int(new_grade.split()[1])
+        st.cache_resource.clear()
         st.rerun()
 
     st.divider()
@@ -956,6 +1032,7 @@ with st.sidebar:
 
     if st.button("🔄 Change Grade", use_container_width=True):
         st.session_state.grade = None
+        st.cache_resource.clear()
         st.rerun()
 
     with st.expander("🏫 Are you a Teacher?"):
