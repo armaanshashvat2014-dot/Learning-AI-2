@@ -12,21 +12,60 @@ from google import genai
 warnings.filterwarnings("ignore")
 logging.getLogger("pymupdf").setLevel(logging.ERROR)
 
-st.set_page_config(page_title="SmartLoop AI", page_icon="🧠", layout="wide")
+st.set_page_config(
+    page_title="SmartLoop AI",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={}          # removes the hamburger ⋮ menu items
+)
 
 st.markdown("""
 <style>
+/* ── Force dark mode regardless of OS/browser preference ── */
+:root {
+    color-scheme: dark !important;
+}
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+    color-scheme: dark !important;
+}
+
+/* ── Hide GitHub icon, deploy button, toolbar share/fork buttons ── */
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+#MainMenu,
+.stDeployButton,
+button[title="View source on GitHub"],
+button[title="Fork this app"],
+button[aria-label="View source on GitHub"],
+button[aria-label="Fork this app"],
+a[href*="github.com"],
+[data-testid="baseButton-header"],
+footer { display: none !important; visibility: hidden !important; }
+
+/* ── Remove the top-right header action buttons (share/star/fork) ── */
+[data-testid="stHeader"] {
+    background: transparent !important;
+}
+[data-testid="stHeader"] button { display: none !important; }
+
+/* ── App background ── */
 .stApp {
     background: radial-gradient(800px circle at 50% 0%,
         rgba(0,212,255,0.10), rgba(0,212,255,0.00) 60%), #0a0a1a !important;
     color: #f5f5f7 !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
+
+/* ── Sidebar ── */
 [data-testid="stSidebar"] {
-    background: rgba(12,12,22,0.92) !important;
+    background: rgba(12,12,22,0.97) !important;
     backdrop-filter: blur(40px) !important;
     border-right: 1px solid rgba(255,255,255,0.08) !important;
 }
+
+/* ── Chat messages ── */
 [data-testid="stChatMessage"] {
     background: rgba(255,255,255,0.05) !important;
     backdrop-filter: blur(24px) !important;
@@ -43,32 +82,79 @@ st.markdown("""
 [data-testid="stChatMessage"] pre, [data-testid="stChatMessage"] code {
     white-space: pre-wrap !important; word-break: break-word !important;
 }
-.stChatInputContainer {
-    background: rgba(20,20,35,0.85) !important;
+
+/* ── Chat input ── */
+.stChatInputContainer, [data-testid="stChatInputContainer"] {
+    background: rgba(20,20,35,0.90) !important;
     backdrop-filter: blur(20px) !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
     border-radius: 20px !important;
 }
-.stTextInput>div>div>input, .stTextArea>div>textarea, .stSelectbox>div>div>div {
-    background: rgba(255,255,255,0.05) !important;
+
+/* ── Form inputs ── */
+.stTextInput>div>div>input,
+.stTextArea>div>textarea,
+.stSelectbox>div>div>div {
+    background: rgba(255,255,255,0.06) !important;
     border: 1px solid rgba(255,255,255,0.15) !important;
-    border-radius: 12px !important; color: #fff !important;
+    border-radius: 12px !important;
+    color: #f5f5f7 !important;
 }
+
+/* ── Selectbox dropdown ── */
+[data-baseweb="select"] *, [data-baseweb="menu"] * {
+    background-color: #12122a !important;
+    color: #f5f5f7 !important;
+}
+
+/* ── Buttons ── */
 .stButton>button {
-    background: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 100%) !important;
+    background: linear-gradient(180deg,
+        rgba(255,255,255,0.10) 0%,
+        rgba(255,255,255,0.02) 100%) !important;
     border: 1px solid rgba(255,255,255,0.18) !important;
-    border-radius: 18px !important; backdrop-filter: blur(20px) !important;
-    color: #fff !important; font-weight: 600 !important; transition: all 0.25s !important;
+    border-radius: 18px !important;
+    backdrop-filter: blur(20px) !important;
+    color: #f5f5f7 !important;
+    font-weight: 600 !important;
+    transition: all 0.25s !important;
 }
 @media (hover: hover) and (pointer: fine) {
     .stButton>button:hover {
-        background: linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 100%) !important;
+        background: linear-gradient(180deg,
+            rgba(255,255,255,0.20) 0%,
+            rgba(255,255,255,0.05) 100%) !important;
         border-color: rgba(255,255,255,0.35) !important;
         transform: translateY(-2px) !important;
         box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important;
     }
 }
 .stButton>button:active { transform: translateY(1px) !important; }
+
+/* ── Spinner / status ── */
+[data-testid="stSpinner"] * { color: #00d4ff !important; }
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 12px !important;
+}
+[data-testid="stExpander"] summary { color: #f5f5f7 !important; }
+
+/* ── st.success / st.info ── */
+[data-testid="stAlert"] {
+    background: rgba(255,255,255,0.04) !important;
+    border-radius: 10px !important;
+    color: #f5f5f7 !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+/* ── Custom components ── */
 .thinking-container {
     display: flex; align-items: center; gap: 8px; padding: 12px 16px;
     background: rgba(255,255,255,0.04); border-radius: 14px; margin: 8px 0;
@@ -156,7 +242,7 @@ def is_refusal(text):
     return any(p in low for p in REFUSAL_PHRASES)
 
 # =============================================================================
-# LOVABLE API
+# LOVABLE / CUSTOM API
 # =============================================================================
 def call_my_api(messages):
     if not MY_API_KEY:
@@ -193,6 +279,7 @@ def call_my_api(messages):
 # =============================================================================
 def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
 
+    # Gemini
     if _google_cycle:
         for _ in range(len(ALL_GOOGLE_KEYS)):
             try:
@@ -212,6 +299,7 @@ def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
                 print(f"Gemini error: {e}")
                 time.sleep(0.3)
 
+    # OpenAI
     if _openai_cycle:
         for _ in range(len(ALL_OPENAI_KEYS)):
             try:
@@ -242,6 +330,7 @@ def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
                 print(f"OpenAI error: {e}")
                 time.sleep(0.3)
 
+    # Custom API fallback
     try:
         ans = call_my_api(messages)
         if ans:
@@ -251,6 +340,7 @@ def call_llm(messages, max_tokens=900, temperature=0.3, stream_ph=None):
     except Exception as e:
         print(f"My API failed: {e}")
 
+    # Hard "never refuse" retry
     fallback_msgs = [
         {"role":"system","content":"You are a helpful tutor. Always answer completely."}
     ] + [m for m in messages if m["role"] != "system"]
@@ -308,7 +398,6 @@ Select your grade to get started</div></div>
 
 # =============================================================================
 # PDF LOADING
-# Grade X loads grade X and X+1 books
 # =============================================================================
 def get_allowed_grades(grade):
     return [grade, grade + 1] if grade < 10 else [grade]
@@ -334,8 +423,8 @@ def extract_pdf(fname):
                 for block in blocks:
                     if block.get("type") == 0:
                         for line in block.get("lines", []):
-                            words    = []
-                            prev_x1  = None
+                            words   = []
+                            prev_x1 = None
                             for span in line.get("spans", []):
                                 span_text = span.get("text","").strip()
                                 if not span_text:
@@ -382,13 +471,11 @@ def load_all_pdfs(grade):
             all_chunks.extend(future.result())
     return all_chunks
 
-# Load PDFs while showing AI knowledge message
-load_col = st.columns([1, 2, 1])[1]
 with st.spinner(""):
     thinking_load = st.empty()
     thinking_load.markdown("""
 <div class="thinking-container" style="max-width:500px;margin:0 auto;">
-    <span class="thinking-text">📚 Loading your textbooks using AI knowledge</span>
+    <span class="thinking-text">📚 Loading your textbooks</span>
     <div class="thinking-dots">
         <div class="thinking-dot"></div>
         <div class="thinking-dot"></div>
@@ -594,7 +681,7 @@ def understand_intent(question, history):
     return result.strip() if result else question
 
 # =============================================================================
-# SAFETY — detect bad intent
+# SAFETY CHECK
 # =============================================================================
 BAD_INTENT_KEYWORDS = [
     "hack","weapon","bomb","kill","drug","poison","suicide",
@@ -606,10 +693,8 @@ BAD_INTENT_KEYWORDS = [
 
 def is_bad_intent(question, intent):
     combined = (question + " " + (intent or "")).lower()
-    # Fast keyword check first
     if any(b in combined for b in BAD_INTENT_KEYWORDS):
         return True
-    # AI judge for edge cases
     prompt = (
         f"A student asked: \"{question}\"\n"
         f"Detected intent: {intent}\n\n"
@@ -687,7 +772,7 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
                 "Generate practice questions when asked.\n"
                 "RULES:\n"
                 "- Generate exactly what the student asked for\n"
-                "- Include a mix of question types: short answer, fill in the blank, MCQ\n"
+                "- Include a mix: short answer, fill in the blank, MCQ\n"
                 "- Number each question clearly\n"
                 "- Add answers at the end under '## Answers'\n"
                 f"- Make questions appropriate for Grade {grade}\n"
@@ -746,6 +831,7 @@ def answer_from_pdf(question, intent, chunks, grade, history, stream_ph=None):
     ans = call_llm(messages, max_tokens=800, temperature=0.3, stream_ph=stream_ph)
     if ans and len(ans) > 20:
         return ans, "pdf", src
+    # Zero-API fallback
     fallback = extract_answer_from_text(question, chunks, grade)
     if fallback:
         if stream_ph:
@@ -806,7 +892,7 @@ def answer_from_duckduckgo(question):
             )
         if len(result_text) > 40 and not any(b in result_text.lower() for b in BAD_CONTENT):
             return result_text, "ddg", None
-        soup     = BeautifulSoup(
+        soup = BeautifulSoup(
             requests.get(
                 f"https://html.duckduckgo.com/html/?q={requests.utils.quote(search_q + ' academic definition school')}",
                 headers=headers, timeout=8
@@ -875,7 +961,6 @@ def answer_from_wiki(question):
 # =============================================================================
 def smartloop(question, grade, history, thinking_ph, stream_ph=None):
 
-    # Math shortcut
     if is_pure_calc(question):
         update_phase(thinking_ph, "Calculating")
         ans, tier = solve_math(question)
@@ -884,11 +969,9 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
                 stream_ph.markdown(ans)
             return ans, tier, None
 
-    # Step 1: Understand intent
     update_phase(thinking_ph, "Understanding question")
     intent = understand_intent(question, history)
 
-    # Step 2: Safety check
     update_phase(thinking_ph, "Checking safety")
     if is_bad_intent(question, intent):
         msg = bad_intent_response(grade)
@@ -896,42 +979,33 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
             stream_ph.markdown(msg)
         return msg, "", None
 
-    # Step 3: Question generation request
     if is_question_request(question):
         update_phase(thinking_ph, "Finding relevant content")
         candidates  = keyword_search(question)
         good_chunks = parallel_judge(candidates, question) if candidates else []
         update_phase(thinking_ph, "Generating questions")
-        ans, tier, src = generate_questions(
-            question, good_chunks, grade, history, stream_ph
-        )
+        ans, tier, src = generate_questions(question, good_chunks, grade, history, stream_ph)
         if ans:
             return ans, tier, src
 
-    # Step 4: Search PDFs
     update_phase(thinking_ph, "Searching textbooks")
     candidates  = keyword_search(question)
     good_chunks = parallel_judge(candidates, question) if candidates else []
 
-    # Step 5: Relevance check
     update_phase(thinking_ph, "Checking relevance")
     pdf_relevant = context_is_relevant(intent, good_chunks)
 
     update_phase(thinking_ph, "Answering")
 
     if pdf_relevant and good_chunks:
-        ans, tier, src = answer_from_pdf(
-            question, intent, good_chunks, grade, history, stream_ph
-        )
+        ans, tier, src = answer_from_pdf(question, intent, good_chunks, grade, history, stream_ph)
         if ans:
             return ans, tier, src
 
-    # AI knowledge
     ans, tier, src = answer_from_ai(question, intent, grade, history, stream_ph)
     if ans:
         return ans, tier, src
 
-    # Web fallback
     update_phase(thinking_ph, "Searching web")
     for fn in [answer_from_duckduckgo, answer_from_wiki]:
         ans, tier, src = fn(question)
@@ -1025,10 +1099,7 @@ with st.sidebar:
 
     st.divider()
     st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
-    st.info(
-        f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | "
-        f"Google: {len(ALL_GOOGLE_KEYS)}"
-    )
+    st.info(f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | Google: {len(ALL_GOOGLE_KEYS)}")
 
     if st.button("🔄 Change Grade", use_container_width=True):
         st.session_state.grade = None
