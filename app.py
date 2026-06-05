@@ -374,8 +374,38 @@ def call_llm_short(prompt, max_tokens=60):
 # =============================================================================
 if "grade" not in st.session_state:
     st.session_state.grade = None
+if "grade_loading" not in st.session_state:
+    st.session_state.grade_loading = False
 
 if st.session_state.grade is None:
+
+    # ── Locked loading screen — shown after button click, blocks all interaction ──
+    if st.session_state.grade_loading:
+        st.markdown(f"""
+<div style='max-width:400px;margin:100px auto;background:rgba(255,255,255,0.05);
+border:1px solid rgba(255,255,255,0.15);border-radius:28px;padding:40px;
+text-align:center;backdrop-filter:blur(40px);'>
+<div style='font-size:40px;margin-bottom:16px;'>🧠</div>
+<div style='font-size:24px;font-weight:800;color:#00d4ff;margin-bottom:20px;'>
+SmartLoop AI</div>
+<div class='thinking-container' style='justify-content:center;'>
+    <span class='thinking-text'>Setting up your Grade {st.session_state._pending_grade} experience</span>
+    <div class='thinking-dots'>
+        <div class='thinking-dot'></div>
+        <div class='thinking-dot'></div>
+        <div class='thinking-dot'></div>
+    </div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+        # Commit the grade and rerun into the main app
+        st.session_state.grade = st.session_state._pending_grade
+        st.session_state.grade_loading = False
+        time.sleep(0.3)
+        st.rerun()
+        st.stop()
+
+    # ── Normal selection screen ──
     st.markdown("""
 <div style='max-width:400px;margin:100px auto;background:rgba(255,255,255,0.05);
 border:1px solid rgba(255,255,255,0.15);border-radius:28px;padding:40px;
@@ -392,7 +422,9 @@ Select your grade to get started</div></div>
             index=5, label_visibility="collapsed"
         )
         if st.button("Get Started →", use_container_width=True, type="primary"):
-            st.session_state.grade = int(grade.split()[1])
+            # Store pending grade and flip to loading screen — no selectbox shown
+            st.session_state._pending_grade = int(grade.split()[1])
+            st.session_state.grade_loading  = True
             st.rerun()
     st.stop()
 
