@@ -14,7 +14,7 @@ logging.getLogger("pymupdf").setLevel(logging.ERROR)
 
 st.set_page_config(
     page_title="SmartLoop AI",
-    page_icon="🧠",
+    page_icon="🗒️",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={}          # removes the hamburger ⋮ menu items
@@ -22,12 +22,31 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* ── Force dark mode regardless of OS/browser preference ── */
+/* =========================================================================
+   GOOGLE KEEP INSPIRED THEME
+   Light, paper-white surfaces, soft note-card shadows, Google Sans/Roboto
+   ========================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
+
 :root {
-    color-scheme: dark !important;
+    color-scheme: light !important;
+    --keep-bg:        #f6f8fc;
+    --keep-surface:    #ffffff;
+    --keep-border:     #e0e0e0;
+    --keep-border-hov: #c6c6c6;
+    --keep-text:       #202124;
+    --keep-text-dim:   #5f6368;
+    --keep-yellow:     #fff8b8;
+    --keep-yellow-brd: #e6d97a;
+    --keep-blue:       #1a73e8;
+    --keep-blue-dim:   #e8f0fe;
+    --keep-green:      #ccff90;
+    --keep-shadow:     0 1px 2px 0 rgba(60,64,67,.10), 0 1px 3px 1px rgba(60,64,67,.10);
+    --keep-shadow-hov: 0 1px 3px 0 rgba(60,64,67,.30), 0 4px 8px 3px rgba(60,64,67,.15);
 }
 html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-    color-scheme: dark !important;
+    color-scheme: light !important;
 }
 
 /* ── Hide GitHub icon, deploy button, toolbar share/fork buttons ── */
@@ -44,127 +63,172 @@ a[href*="github.com"],
 [data-testid="baseButton-header"],
 footer { display: none !important; visibility: hidden !important; }
 
-/* ── Remove the top-right header action buttons (share/star/fork) ── */
+/* ── App background — Keep's soft off-white ── */
+.stApp {
+    background: var(--keep-bg) !important;
+    color: var(--keep-text) !important;
+    font-family: "Google Sans", "Roboto", -apple-system, BlinkMacSystemFont, Arial, sans-serif !important;
+}
 [data-testid="stHeader"] {
-    background: transparent !important;
+    background: var(--keep-bg) !important;
+    box-shadow: none !important;
 }
 [data-testid="stHeader"] button { display: none !important; }
 
-/* ── App background ── */
-.stApp {
-    background: radial-gradient(800px circle at 50% 0%,
-        rgba(0,212,255,0.10), rgba(0,212,255,0.00) 60%), #0a0a1a !important;
-    color: #f5f5f7 !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+h1, h2, h3, h4, h5, h6, p, span, div, label {
+    color: var(--keep-text);
 }
 
-/* ── Sidebar ── */
+/* ── Sidebar — Keep's left rail ── */
 [data-testid="stSidebar"] {
-    background: rgba(12,12,22,0.97) !important;
-    backdrop-filter: blur(40px) !important;
-    border-right: 1px solid rgba(255,255,255,0.08) !important;
+    background: var(--keep-surface) !important;
+    border-right: 1px solid var(--keep-border) !important;
+    box-shadow: 1px 0 2px 0 rgba(60,64,67,.06);
 }
+[data-testid="stSidebar"] * { color: var(--keep-text) !important; }
 
-/* ── Chat messages ── */
+/* ── Chat messages → styled as Keep note cards ── */
 [data-testid="stChatMessage"] {
-    background: rgba(255,255,255,0.05) !important;
-    backdrop-filter: blur(24px) !important;
-    border: 1px solid rgba(255,255,255,0.10) !important;
-    border-radius: 24px !important;
-    padding: 18px !important;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.2) !important;
-    color: #fff !important;
-    margin-bottom: 12px;
+    background: var(--keep-surface) !important;
+    border: 1px solid var(--keep-border) !important;
+    border-radius: 8px !important;
+    padding: 16px 18px !important;
+    box-shadow: var(--keep-shadow) !important;
+    color: var(--keep-text) !important;
+    margin-bottom: 14px;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
-[data-testid="stChatMessage"] * { color: #f5f5f7 !important; }
+[data-testid="stChatMessage"]:hover {
+    box-shadow: var(--keep-shadow-hov) !important;
+    border-color: var(--keep-border-hov) !important;
+}
+[data-testid="stChatMessage"] * { color: var(--keep-text) !important; }
 [data-testid="stChatMessage"] pre, [data-testid="stChatMessage"] code {
-    white-space: pre-wrap !important; word-break: break-word !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    background: #f1f3f4 !important;
+    border-radius: 6px !important;
+    color: #202124 !important;
+}
+/* Assistant notes get Keep's signature soft-yellow tint */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    background: var(--keep-yellow) !important;
+    border-color: var(--keep-yellow-brd) !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) * {
+    color: #3c3f00 !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) code {
+    background: rgba(0,0,0,0.06) !important;
+    color: #3c3f00 !important;
 }
 
-/* ── Chat input ── */
+/* ── Chat input — Keep's pill-shaped "Take a note..." bar ── */
 .stChatInputContainer, [data-testid="stChatInputContainer"] {
-    background: rgba(20,20,35,0.90) !important;
-    backdrop-filter: blur(20px) !important;
-    border: 1px solid rgba(255,255,255,0.12) !important;
-    border-radius: 20px !important;
+    background: var(--keep-surface) !important;
+    border: 1px solid var(--keep-border) !important;
+    border-radius: 24px !important;
+    box-shadow: var(--keep-shadow) !important;
+}
+[data-testid="stChatInputContainer"] textarea {
+    color: var(--keep-text) !important;
 }
 
 /* ── Form inputs ── */
 .stTextInput>div>div>input,
 .stTextArea>div>textarea,
 .stSelectbox>div>div>div {
-    background: rgba(255,255,255,0.06) !important;
-    border: 1px solid rgba(255,255,255,0.15) !important;
-    border-radius: 12px !important;
-    color: #f5f5f7 !important;
+    background: var(--keep-surface) !important;
+    border: 1px solid var(--keep-border) !important;
+    border-radius: 8px !important;
+    color: var(--keep-text) !important;
+}
+.stTextInput>div>div>input:focus,
+.stSelectbox>div>div>div:focus-within {
+    border-color: var(--keep-blue) !important;
+    box-shadow: 0 0 0 1px var(--keep-blue) !important;
 }
 
 /* ── Selectbox dropdown ── */
 [data-baseweb="select"] *, [data-baseweb="menu"] * {
-    background-color: #12122a !important;
-    color: #f5f5f7 !important;
+    background-color: var(--keep-surface) !important;
+    color: var(--keep-text) !important;
 }
+[data-baseweb="menu"] li:hover { background-color: var(--keep-blue-dim) !important; }
 
-/* ── Buttons ── */
+/* ── Buttons — Keep's flat, rounded pill buttons ── */
 .stButton>button {
-    background: linear-gradient(180deg,
-        rgba(255,255,255,0.10) 0%,
-        rgba(255,255,255,0.02) 100%) !important;
-    border: 1px solid rgba(255,255,255,0.18) !important;
-    border-radius: 18px !important;
-    backdrop-filter: blur(20px) !important;
-    color: #f5f5f7 !important;
-    font-weight: 600 !important;
-    transition: all 0.25s !important;
+    background: var(--keep-surface) !important;
+    border: 1px solid var(--keep-border) !important;
+    border-radius: 20px !important;
+    color: var(--keep-text) !important;
+    font-weight: 500 !important;
+    font-family: "Google Sans","Roboto",sans-serif !important;
+    transition: all 0.15s ease !important;
 }
 @media (hover: hover) and (pointer: fine) {
     .stButton>button:hover {
-        background: linear-gradient(180deg,
-            rgba(255,255,255,0.20) 0%,
-            rgba(255,255,255,0.05) 100%) !important;
-        border-color: rgba(255,255,255,0.35) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important;
+        background: var(--keep-blue-dim) !important;
+        border-color: var(--keep-blue) !important;
+        color: var(--keep-blue) !important;
+        box-shadow: none !important;
+        transform: none !important;
     }
 }
-.stButton>button:active { transform: translateY(1px) !important; }
+.stButton>button:active { transform: scale(0.98) !important; }
+
+/* Primary CTA buttons — solid Keep/Google blue */
+.stButton>button[kind="primary"] {
+    background: var(--keep-blue) !important;
+    border: 1px solid var(--keep-blue) !important;
+    color: #ffffff !important;
+}
+.stButton>button[kind="primary"]:hover {
+    background: #1765cc !important;
+    border-color: #1765cc !important;
+    color: #ffffff !important;
+}
 
 /* ── Spinner / status ── */
-[data-testid="stSpinner"] * { color: #00d4ff !important; }
+[data-testid="stSpinner"] * { color: var(--keep-blue) !important; }
 
 /* ── Expander ── */
 [data-testid="stExpander"] {
-    background: rgba(255,255,255,0.03) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    border-radius: 12px !important;
+    background: var(--keep-surface) !important;
+    border: 1px solid var(--keep-border) !important;
+    border-radius: 8px !important;
 }
-[data-testid="stExpander"] summary { color: #f5f5f7 !important; }
+[data-testid="stExpander"] summary { color: var(--keep-text) !important; }
 
 /* ── st.success / st.info ── */
 [data-testid="stAlert"] {
-    background: rgba(255,255,255,0.04) !important;
-    border-radius: 10px !important;
-    color: #f5f5f7 !important;
+    background: var(--keep-blue-dim) !important;
+    border-radius: 8px !important;
+    color: var(--keep-text) !important;
+    border: 1px solid #d2e3fc !important;
 }
 
 /* ── Scrollbar ── */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #dadce0; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #bdc1c6; }
 
 /* ── Custom components ── */
 .thinking-container {
-    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-    background: rgba(255,255,255,0.04); border-radius: 14px; margin: 8px 0;
-    border-left: 3px solid #00d4ff;
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+    background: var(--keep-surface); border-radius: 20px; margin: 8px 0;
+    border: 1px solid var(--keep-border);
+    box-shadow: var(--keep-shadow);
+    width: fit-content;
 }
-.thinking-text { color: #00d4ff; font-size: 14px; font-weight: 600; }
+.thinking-text { color: var(--keep-blue); font-size: 13px; font-weight: 500; font-family: "Google Sans","Roboto",sans-serif; }
 .thinking-dots { display: flex; gap: 4px; }
 .thinking-dot {
     width: 6px; height: 6px; border-radius: 50%;
-    background: #00d4ff; animation: tp 1.4s infinite;
+    background: var(--keep-blue); animation: tp 1.4s infinite;
 }
 .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
 .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
@@ -174,31 +238,34 @@ footer { display: none !important; visibility: hidden !important; }
 }
 .beta-badge {
     display: inline-block;
-    background: linear-gradient(135deg, #ff4d6d, #7b2ff7);
-    color: white; padding: 4px 12px; border-radius: 999px;
-    font-size: 13px; font-weight: 700;
-    box-shadow: 0 0 12px rgba(255,77,109,0.5);
+    background: var(--keep-blue-dim);
+    color: var(--keep-blue); padding: 3px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 700;
+    border: 1px solid #d2e3fc;
     vertical-align: middle; margin-left: 10px;
 }
 .section-label {
-    color: #00d4ff; font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 6px;
+    color: var(--keep-text-dim); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px; margin: 14px 0 6px;
+    font-family: "Google Sans","Roboto",sans-serif;
 }
 .welcome-card {
-    background: linear-gradient(135deg, rgba(0,212,255,0.12), rgba(123,47,247,0.08));
-    border: 1px solid rgba(0,212,255,0.2); border-radius: 16px;
-    padding: 12px 16px; margin-bottom: 8px; font-weight: 600;
-    color: #2ecc71; font-size: 14px;
+    background: var(--keep-yellow);
+    border: 1px solid var(--keep-yellow-brd); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 8px; font-weight: 500;
+    color: #3c3f00; font-size: 14px;
+    box-shadow: var(--keep-shadow);
 }
 .source-badge {
     display: inline-block; padding: 3px 10px; border-radius: 20px;
-    font-size: 11px; font-weight: 600; margin-top: 6px;
+    font-size: 11px; font-weight: 600; margin-top: 8px;
+    font-family: "Google Sans","Roboto",sans-serif;
 }
-.src-pdf  { background:rgba(0,212,255,0.15); color:#00d4ff; border:1px solid rgba(0,212,255,0.3); }
-.src-ai   { background:rgba(252,132,4,0.15); color:#fc8404; border:1px solid rgba(252,132,4,0.3); }
-.src-ddg  { background:rgba(255,69,0,0.15);  color:#ff6b35; border:1px solid rgba(255,69,0,0.3); }
-.src-wiki { background:rgba(52,152,219,0.15); color:#3498db; border:1px solid rgba(52,152,219,0.3); }
-.src-calc { background:rgba(155,89,182,0.2);  color:#9b59b6; border:1px solid rgba(155,89,182,0.4); }
+.src-pdf  { background:#e8f0fe; color:#1a73e8; border:1px solid #d2e3fc; }
+.src-ai   { background:#fef7e0; color:#b06000; border:1px solid #feefc3; }
+.src-ddg  { background:#fce8e6; color:#c5221f; border:1px solid #fad2cf; }
+.src-wiki { background:#e6f4ea; color:#188038; border:1px solid #ceead6; }
+.src-calc { background:#f3e8fd; color:#8430ce; border:1px solid #e9d2fd; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -382,13 +449,14 @@ if st.session_state.grade is None:
     # ── Locked loading screen — shown after button click, blocks all interaction ──
     if st.session_state.grade_loading:
         st.markdown(f"""
-<div style='max-width:400px;margin:100px auto;background:rgba(255,255,255,0.05);
-border:1px solid rgba(255,255,255,0.15);border-radius:28px;padding:40px;
-text-align:center;backdrop-filter:blur(40px);'>
-<div style='font-size:40px;margin-bottom:16px;'>🧠</div>
-<div style='font-size:24px;font-weight:800;color:#00d4ff;margin-bottom:20px;'>
+<div style='max-width:400px;margin:100px auto;background:#ffffff;
+border:1px solid #e0e0e0;border-radius:16px;padding:40px;
+text-align:center;box-shadow:0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);'>
+<div style='font-size:40px;margin-bottom:16px;'>🗒️</div>
+<div style='font-size:24px;font-weight:700;color:#1a73e8;margin-bottom:20px;
+font-family:"Google Sans",Roboto,sans-serif;'>
 SmartLoop AI</div>
-<div class='thinking-container' style='justify-content:center;'>
+<div class='thinking-container' style='justify-content:center;margin:0 auto;'>
     <span class='thinking-text'>Setting up your Grade {st.session_state._pending_grade} experience</span>
     <div class='thinking-dots'>
         <div class='thinking-dot'></div>
@@ -407,12 +475,13 @@ SmartLoop AI</div>
 
     # ── Normal selection screen ──
     st.markdown("""
-<div style='max-width:400px;margin:100px auto;background:rgba(255,255,255,0.05);
-border:1px solid rgba(255,255,255,0.15);border-radius:28px;padding:40px;
-text-align:center;backdrop-filter:blur(40px);'>
-<div style='font-size:40px;margin-bottom:12px;'>🧠</div>
-<div style='font-size:28px;font-weight:800;color:#00d4ff;margin-bottom:6px;'>SmartLoop AI</div>
-<div style='color:rgba(255,255,255,0.5);margin-bottom:28px;font-size:15px;'>
+<div style='max-width:400px;margin:100px auto;background:#ffffff;
+border:1px solid #e0e0e0;border-radius:16px;padding:40px;
+text-align:center;box-shadow:0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);'>
+<div style='font-size:40px;margin-bottom:12px;'>🗒️</div>
+<div style='font-size:28px;font-weight:700;color:#1a73e8;margin-bottom:6px;
+font-family:"Google Sans",Roboto,sans-serif;'>SmartLoop AI</div>
+<div style='color:#5f6368;margin-bottom:28px;font-size:15px;'>
 Select your grade to get started</div></div>
 """, unsafe_allow_html=True)
     col = st.columns([1, 2, 1])[1]
@@ -1072,7 +1141,7 @@ def show_badge(tier, source):
         )
 
 # =============================================================================
-# SIDEBAR
+# SIDEBAR — styled like Keep's left navigation rail
 # =============================================================================
 with st.sidebar:
     allowed = get_allowed_grades(st.session_state.grade)
@@ -1099,13 +1168,13 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("➕ New Chat", use_container_width=True, type="primary"):
+    if st.button("➕ New Note", use_container_width=True, type="primary"):
         name = f"Chat {len(st.session_state.chats) + 1}"
         st.session_state.chats[name] = []
         st.session_state.current_chat = name
         st.rerun()
 
-    st.markdown("<div class='section-label'>💬 Chats</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-label'>🗒️ Notes</div>", unsafe_allow_html=True)
     for chat_name in list(reversed(list(st.session_state.chats.keys()))):
         is_active  = (chat_name == st.session_state.current_chat)
         col1, col2 = st.columns([0.82, 0.18], vertical_alignment="center")
@@ -1115,7 +1184,7 @@ with st.sidebar:
         )
         title = first_user[:22] + "..." if len(first_user) > 22 else first_user
         if col1.button(
-            f"{'🟢' if is_active else '💬'} {title}",
+            f"{'🟡' if is_active else '🗒️'} {title}",
             key=f"ch_{chat_name}", use_container_width=True
         ):
             st.session_state.current_chat = chat_name
@@ -1151,17 +1220,18 @@ with st.sidebar:
                 st.error("Invalid code.")
 
 # =============================================================================
-# MAIN CHAT UI
+# MAIN CHAT UI — Keep-style header
 # =============================================================================
 st.markdown(f"""
 <div style='text-align:center;padding:20px 0 8px;'>
-    <span style='font-size:44px;font-weight:800;color:#00d4ff;
-        letter-spacing:-2px;text-shadow:0 0 16px rgba(0,212,255,0.45);'>
-        🧠 SmartLoop AI
+    <span style='font-size:38px;font-weight:700;color:#202124;
+        letter-spacing:-1px;font-family:"Google Sans",Roboto,sans-serif;'>
+        🗒️ SmartLoop AI
     </span>
     <span class='beta-badge'>BETA</span>
 </div>
-<div style='text-align:center;color:rgba(255,255,255,0.4);font-size:15px;margin-bottom:24px;'>
+<div style='text-align:center;color:#5f6368;font-size:15px;margin-bottom:24px;
+font-family:"Google Sans",Roboto,sans-serif;'>
     Grade {st.session_state.grade} Tutor
 </div>
 """, unsafe_allow_html=True)
@@ -1189,7 +1259,7 @@ for msg in messages:
 # =============================================================================
 # CHAT INPUT
 # =============================================================================
-q = st.chat_input("Ask SmartLoop...")
+q = st.chat_input("Take a note... ask SmartLoop anything")
 
 if q:
     messages = st.session_state.chats[st.session_state.current_chat]
