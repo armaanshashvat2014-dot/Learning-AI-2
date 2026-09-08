@@ -132,23 +132,59 @@ h1, h2, h3, h4, h5, h6, p, span, div, label {
     border-radius: 24px !important;
     box-shadow: var(--keep-shadow) !important;
 }
-[data-testid="stChatInputContainer"] textarea {
+/* Force readable text — target every wrapper level Streamlit renders the
+   chat textarea in, since a background-only override left white-on-white text */
+[data-testid="stChatInputContainer"],
+[data-testid="stChatInputContainer"] div,
+[data-testid="stChatInput"],
+[data-testid="stChatInput"] textarea,
+[data-testid="stChatInputContainer"] textarea,
+[data-baseweb="textarea"] textarea {
+    background: transparent !important;
     color: var(--keep-text) !important;
+    caret-color: var(--keep-text) !important;
+    -webkit-text-fill-color: var(--keep-text) !important;
+}
+[data-testid="stChatInput"] textarea::placeholder,
+[data-testid="stChatInputContainer"] textarea::placeholder {
+    color: var(--keep-text-dim) !important;
+    -webkit-text-fill-color: var(--keep-text-dim) !important;
+    opacity: 1 !important;
 }
 
-/* ── Form inputs ── */
+/* ── Form inputs (also covers quiz-topic text box etc.) ── */
 .stTextInput>div>div>input,
 .stTextArea>div>textarea,
-.stSelectbox>div>div>div {
+.stSelectbox>div>div>div,
+[data-baseweb="input"] input,
+[data-baseweb="base-input"] input {
     background: var(--keep-surface) !important;
     border: 1px solid var(--keep-border) !important;
     border-radius: 8px !important;
     color: var(--keep-text) !important;
+    -webkit-text-fill-color: var(--keep-text) !important;
+}
+.stTextInput>div>div>input::placeholder,
+.stTextArea>div>textarea::placeholder {
+    color: var(--keep-text-dim) !important;
+    -webkit-text-fill-color: var(--keep-text-dim) !important;
+    opacity: 1 !important;
 }
 .stTextInput>div>div>input:focus,
 .stSelectbox>div>div>div:focus-within {
     border-color: var(--keep-blue) !important;
     box-shadow: 0 0 0 1px var(--keep-blue) !important;
+}
+
+/* ── Radio / quiz options ── */
+.stRadio label, .stRadio p, .stRadio span { color: var(--keep-text) !important; }
+
+/* ── Bordered containers (used by Quiz Mode cards) ── */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--keep-surface) !important;
+    border: 1px solid var(--keep-border) !important;
+    border-radius: 10px !important;
+    box-shadow: var(--keep-shadow) !important;
 }
 
 /* ── Selectbox dropdown ── */
