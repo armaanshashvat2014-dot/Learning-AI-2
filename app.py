@@ -20,6 +20,10 @@ st.set_page_config(
     menu_items={}          # removes the hamburger ⋮ menu items
 )
 
+# One simple colour controls the entire interface.
+if "accent_color" not in st.session_state:
+    st.session_state.accent_color = "#fbbc04"
+
 st.markdown("""
 <style>
 /* ── Force dark mode regardless of OS/browser preference ── */
@@ -199,6 +203,146 @@ footer { display: none !important; visibility: hidden !important; }
 .src-ddg  { background:rgba(255,69,0,0.15);  color:#ff6b35; border:1px solid rgba(255,69,0,0.3); }
 .src-wiki { background:rgba(52,152,219,0.15); color:#3498db; border:1px solid rgba(52,152,219,0.3); }
 .src-calc { background:rgba(155,89,182,0.2);  color:#9b59b6; border:1px solid rgba(155,89,182,0.4); }
+</style>
+""", unsafe_allow_html=True)
+
+# =============================================================================
+# GOOGLE KEEP-INSPIRED LIGHT THEME
+# =============================================================================
+ACCENT = st.session_state.accent_color
+st.markdown(f"""
+<style>
+:root {{
+    color-scheme: light !important;
+    --accent: {ACCENT};
+    --ink: #202124;
+    --muted: #5f6368;
+    --line: #e0e0e0;
+    --surface: #ffffff;
+    --canvas: #ffffff;
+    --soft: color-mix(in srgb, var(--accent) 16%, white);
+}}
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
+    color-scheme: light !important;
+}}
+.stApp {{
+    background: var(--canvas) !important;
+    color: var(--ink) !important;
+    font-family: Arial, Roboto, sans-serif !important;
+}}
+[data-testid="stHeader"] {{
+    background: rgba(255,255,255,.94) !important;
+    border-bottom: 1px solid var(--line) !important;
+}}
+[data-testid="stSidebar"] {{
+    background: #fff !important;
+    border-right: 1px solid var(--line) !important;
+    box-shadow: none !important;
+}}
+[data-testid="stSidebar"] * {{ color: var(--ink) !important; }}
+
+/* Notes-like message cards */
+[data-testid="stChatMessage"] {{
+    background: var(--surface) !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 1px 2px rgba(60,64,67,.10) !important;
+    padding: 18px !important;
+    margin-bottom: 14px !important;
+}}
+[data-testid="stChatMessage"]:hover {{
+    box-shadow: 0 2px 8px rgba(60,64,67,.18) !important;
+}}
+[data-testid="stChatMessage"] * {{ color: var(--ink) !important; }}
+
+/* Keep-style input tray */
+.stChatInputContainer, [data-testid="stChatInputContainer"] {{
+    background: #fff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 3px 10px rgba(60,64,67,.18) !important;
+}}
+[data-testid="stChatInputContainer"] textarea {{ color: var(--ink) !important; }}
+
+.stTextInput>div>div>input,
+.stTextArea>div>textarea,
+.stSelectbox>div>div>div {{
+    background: #fff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 10px !important;
+    color: var(--ink) !important;
+}}
+[data-baseweb="select"] *, [data-baseweb="menu"] * {{
+    background-color: #fff !important;
+    color: var(--ink) !important;
+}}
+.stButton>button {{
+    background: #fff !important;
+    border: 1px solid transparent !important;
+    border-radius: 999px !important;
+    color: var(--ink) !important;
+    box-shadow: none !important;
+}}
+.stButton>button:hover {{
+    background: var(--soft) !important;
+    border-color: transparent !important;
+    color: var(--ink) !important;
+    transform: none !important;
+    box-shadow: none !important;
+}}
+.stButton>button[kind="primary"], button[kind="primary"] {{
+    background: var(--accent) !important;
+    color: #202124 !important;
+    font-weight: 700 !important;
+}}
+[data-testid="stSpinner"] * {{ color: var(--accent) !important; }}
+[data-testid="stExpander"] {{
+    background: #fff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 12px !important;
+}}
+[data-testid="stExpander"] summary,
+[data-testid="stAlert"] * {{ color: var(--ink) !important; }}
+[data-testid="stAlert"] {{
+    background: var(--soft) !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+}}
+.thinking-container {{
+    background: var(--soft) !important;
+    border: 0 !important;
+    border-left: 4px solid var(--accent) !important;
+}}
+.thinking-text {{ color: var(--ink) !important; }}
+.thinking-dot {{ background: var(--accent) !important; }}
+.beta-badge {{
+    background: var(--accent) !important;
+    color: #202124 !important;
+    box-shadow: none !important;
+}}
+.section-label {{ color: var(--muted) !important; }}
+.welcome-card {{
+    background: var(--soft) !important;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, white) !important;
+    color: var(--ink) !important;
+}}
+.source-badge {{
+    background: var(--soft) !important;
+    color: var(--ink) !important;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, white) !important;
+}}
+.stApp [style*="color:#00d4ff"] {{ color: var(--ink) !important; }}
+.stApp [style*="color:rgba(255,255,255"] {{ color: var(--muted) !important; }}
+.stApp [style*="background:rgba(255,255,255,0.05)"] {{
+    background: #fff !important;
+    border-color: var(--line) !important;
+    box-shadow: 0 3px 10px rgba(60,64,67,.16) !important;
+}}
+hr {{ border-color: var(--line) !important; }}
+::-webkit-scrollbar-thumb {{ background: #dadce0 !important; }}
+@media (max-width: 700px) {{
+    [data-testid="stChatMessage"] {{ padding: 14px !important; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1075,6 +1219,17 @@ def show_badge(tier, source):
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
+    st.markdown("<div class='section-label'>🎨 App colour</div>", unsafe_allow_html=True)
+    picked_accent = st.color_picker(
+        "App colour",
+        value=st.session_state.accent_color,
+        label_visibility="collapsed",
+        help="Choose one colour for buttons, highlights and cards."
+    )
+    if picked_accent != st.session_state.accent_color:
+        st.session_state.accent_color = picked_accent
+        st.rerun()
+
     allowed = get_allowed_grades(st.session_state.grade)
     st.markdown(
         f"<div class='welcome-card'>"
@@ -1155,8 +1310,8 @@ with st.sidebar:
 # =============================================================================
 st.markdown(f"""
 <div style='text-align:center;padding:20px 0 8px;'>
-    <span style='font-size:44px;font-weight:800;color:#00d4ff;
-        letter-spacing:-2px;text-shadow:0 0 16px rgba(0,212,255,0.45);'>
+    <span style='font-size:44px;font-weight:700;color:#202124;
+        letter-spacing:-1.5px;'>
         🧠 SmartLoop AI
     </span>
     <span class='beta-badge'>BETA</span>
