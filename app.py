@@ -384,6 +384,154 @@ hr {{ border-color: var(--line) !important; }}
 @media (max-width: 700px) {{
     [data-testid="stChatMessage"] {{ padding: 14px !important; }}
 }}
+
+/* ── 2.0 visual polish ─────────────────────────────────────────────── */
+[data-testid="stAppViewBlockContainer"] {{
+    max-width: 1040px !important;
+    padding-top: 1.5rem !important;
+    padding-bottom: 7rem !important;
+}}
+[data-testid="stSidebarContent"] {{ padding: 1.1rem .75rem 2rem !important; }}
+[data-testid="stSidebar"] {{
+    min-width: 278px !important;
+    box-shadow: 10px 0 35px rgba(32,33,36,.035) !important;
+}}
+[data-testid="stSidebar"] .stButton > button {{
+    min-height: 43px !important;
+    justify-content: flex-start !important;
+    padding: .55rem .8rem !important;
+    font-size: .91rem !important;
+    transition: background .18s ease, transform .18s ease !important;
+}}
+[data-testid="stSidebar"] .stButton > button:hover {{
+    transform: translateX(3px) !important;
+}}
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+    justify-content: center !important;
+    min-height: 46px !important;
+    box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}}
+.section-label {{
+    font-size: .68rem !important;
+    letter-spacing: .12em !important;
+    margin: 1.15rem .55rem .45rem !important;
+}}
+.welcome-card {{
+    border-radius: 18px !important;
+    padding: 15px 16px !important;
+    line-height: 1.55 !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.7) !important;
+}}
+.smartloop-hero {{
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+    padding: 30px 32px 27px;
+    margin: 6px 0 24px;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, #e8eaed);
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 92% 14%, color-mix(in srgb, var(--accent) 25%, white) 0 7%, transparent 8%),
+        linear-gradient(135deg, color-mix(in srgb, var(--accent) 15%, white), #fff 62%);
+    box-shadow: 0 14px 38px rgba(60,64,67,.10);
+}}
+.smartloop-hero::after {{
+    content: "✦";
+    position: absolute;
+    right: 34px;
+    bottom: 17px;
+    color: var(--accent);
+    font-size: 58px;
+    opacity: .55;
+    transform: rotate(12deg);
+}}
+.hero-kicker {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.78);
+    border: 1px solid rgba(32,33,36,.08);
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 750;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}}
+.hero-title {{
+    margin: 13px 0 5px;
+    color: var(--ink);
+    font-size: clamp(2rem, 5vw, 3.15rem);
+    line-height: 1.02;
+    letter-spacing: -.055em;
+    font-weight: 850;
+}}
+.hero-title span {{ color: color-mix(in srgb, var(--accent) 82%, #8a6200); }}
+.hero-copy {{ margin: 0; color: var(--muted); font-size: 1rem; }}
+.quick-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: -6px 0 22px;
+}}
+.quick-card {{
+    min-height: 96px;
+    padding: 16px;
+    border: 1px solid #e3e5e7;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 2px 7px rgba(60,64,67,.055);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}}
+.quick-card:hover {{
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--accent) 55%, #ddd);
+    box-shadow: 0 9px 22px rgba(60,64,67,.11);
+}}
+.quick-card b {{ display:block; margin: 7px 0 2px; font-size: .91rem; color: var(--ink); }}
+.quick-card span {{ color: var(--muted); font-size: .77rem; line-height: 1.35; }}
+.quick-icon {{ font-size: 1.25rem; }}
+[data-testid="stChatMessage"] {{
+    border-radius: 20px !important;
+    padding: 20px 22px !important;
+    animation: cardIn .25s ease both;
+}}
+[data-testid="stChatMessage"] p {{ line-height: 1.68 !important; }}
+[data-testid="stChatMessage"] ul,
+[data-testid="stChatMessage"] ol {{ padding-left: 1.3rem !important; }}
+[data-testid="stChatInput"] {{ max-width: 1000px !important; margin: 0 auto 10px !important; }}
+[data-testid="stChatInputContainer"] {{
+    min-height: 62px !important;
+    border-radius: 22px !important;
+    border-color: #d6d9dc !important;
+    box-shadow: 0 10px 34px rgba(60,64,67,.16) !important;
+    transition: border-color .2s ease, box-shadow .2s ease !important;
+}}
+[data-testid="stChatInputContainer"]:focus-within {{
+    border-color: var(--accent) !important;
+    box-shadow: 0 12px 38px rgba(60,64,67,.16), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent) !important;
+}}
+[data-testid="stChatInputContainer"] textarea {{ font-size: .98rem !important; }}
+[data-testid="stExpander"] {{ border-radius: 16px !important; overflow: hidden !important; }}
+.beta-badge {{
+    vertical-align: 6px !important;
+    padding: 5px 9px !important;
+    font-size: .63rem !important;
+    letter-spacing: .08em !important;
+}}
+.source-badge {{ border-radius: 999px !important; padding: 4px 10px !important; }}
+@keyframes cardIn {{
+    from {{ opacity: 0; transform: translateY(7px); }}
+    to {{ opacity: 1; transform: translateY(0); }}
+}}
+@media (max-width: 700px) {{
+    [data-testid="stAppViewBlockContainer"] {{ padding: .8rem .7rem 6rem !important; }}
+    .smartloop-hero {{ padding: 23px 20px; border-radius: 22px; }}
+    .smartloop-hero::after {{ display:none; }}
+    .quick-grid {{ grid-template-columns: 1fr; }}
+    .quick-card {{ min-height: auto; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1350,31 +1498,29 @@ with st.sidebar:
 # MAIN CHAT UI
 # =============================================================================
 st.markdown(f"""
-<div style='text-align:center;padding:20px 0 8px;'>
-    <span style='font-size:44px;font-weight:700;color:#202124;
-        letter-spacing:-1.5px;'>
-        🧠 SmartLoop AI
-    </span>
-    <span class='beta-badge'>BETA</span>
-</div>
-<div style='text-align:center;color:rgba(255,255,255,0.4);font-size:15px;margin-bottom:24px;'>
-    Grade {st.session_state.grade} Tutor
-</div>
+<section class="smartloop-hero">
+    <div class="hero-kicker">✦ Grade {st.session_state.grade} learning space</div>
+    <h1 class="hero-title">Learn smarter with <span>SmartLoop</span><span class="beta-badge">BETA</span></h1>
+    <p class="hero-copy">Your textbooks, clear explanations and practice—all in one focused workspace.</p>
+</section>
 """, unsafe_allow_html=True)
 
 messages = st.session_state.chats.get(st.session_state.current_chat, [])
 
 if not messages:
+    st.markdown("""
+<div class="quick-grid">
+    <div class="quick-card"><div class="quick-icon">📖</div><b>Explain a topic</b><span>Turn difficult textbook ideas into clear notes.</span></div>
+    <div class="quick-card"><div class="quick-icon">✍️</div><b>Build a practice set</b><span>Generate questions matched to your grade.</span></div>
+    <div class="quick-card"><div class="quick-icon">🧮</div><b>Solve step by step</b><span>Work through maths with proper reasoning.</span></div>
+</div>
+""", unsafe_allow_html=True)
     with st.chat_message("assistant"):
         st.markdown(
-            f"👋 **Hey! I'm SmartLoop AI!**\n\n"
-            f"I'm your Grade {st.session_state.grade} tutor.\n\n"
-            f"- 📖 Searches your **textbooks first**\n"
-            f"- 🤖 Falls back to **AI knowledge**\n"
-            f"- ❓ Can **generate practice questions** on any topic\n"
-            f"- 🦆 Web only as **last resort**\n"
-            f"- 🧮 Solves **maths step-by-step**\n\n"
-            f"*What would you like to learn today?*"
+            f"### Ready when you are 👋\n\n"
+            f"Ask me to explain a Grade {st.session_state.grade} topic, turn a chapter into proper notes, "
+            f"make a challenging worksheet, or solve a maths problem step by step.\n\n"
+            f"**What are we learning today?**"
         )
 
 for msg in messages:
