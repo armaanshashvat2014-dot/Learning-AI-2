@@ -1644,4 +1644,4 @@ if q:
         show_badge(tier, source)
     messages.append({
         "role":"assistant","content":ans,"tier":tier,"source":source
-    }) 
+    })
