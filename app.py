@@ -492,6 +492,54 @@ hr {{ border-color: var(--line) !important; }}
 .quick-card b {{ display:block; margin: 7px 0 2px; font-size: .91rem; color: var(--ink); }}
 .quick-card span {{ color: var(--muted); font-size: .77rem; line-height: 1.35; }}
 .quick-icon {{ font-size: 1.25rem; }}
+/* Real interactive quick-prompt buttons */
+.st-key-quick_actions {{ margin: -7px 0 22px !important; }}
+.st-key-quick_actions [data-testid="stHorizontalBlock"] {{ gap: 12px !important; }}
+.st-key-quick_actions .stButton > button {{
+    position: relative !important;
+    min-height: 118px !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+    padding: 18px 17px !important;
+    white-space: pre-line !important;
+    text-align: left !important;
+    line-height: 1.48 !important;
+    border: 1px solid #e4e6e8 !important;
+    border-radius: 20px !important;
+    background:
+        radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--accent) 19%, white) 0 11%, transparent 12%),
+        linear-gradient(145deg, #fff 35%, color-mix(in srgb, var(--accent) 6%, white)) !important;
+    box-shadow: 0 3px 10px rgba(60,64,67,.07), inset 0 1px 0 rgba(255,255,255,.9) !important;
+    font-size: .84rem !important;
+    font-weight: 650 !important;
+    color: var(--ink) !important;
+    overflow: hidden !important;
+    transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, border-color .2s ease !important;
+}}
+.st-key-quick_actions .stButton > button::after {{
+    content: "Try it  →";
+    position: absolute;
+    left: 17px;
+    bottom: 13px;
+    color: color-mix(in srgb, var(--accent) 72%, #403000);
+    font-size: .69rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    opacity: .78;
+}}
+.st-key-quick_actions .stButton > button:hover {{
+    transform: translateY(-5px) scale(1.012) !important;
+    border-color: color-mix(in srgb, var(--accent) 62%, #ddd) !important;
+    background:
+        radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--accent) 30%, white) 0 13%, transparent 14%),
+        linear-gradient(145deg, #fff 20%, color-mix(in srgb, var(--accent) 11%, white)) !important;
+    box-shadow: 0 15px 32px rgba(60,64,67,.13), 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent) !important;
+}}
+.st-key-quick_actions .stButton > button:active {{
+    transform: translateY(-1px) scale(.985) !important;
+    box-shadow: 0 5px 14px rgba(60,64,67,.12) !important;
+}}
 [data-testid="stChatMessage"] {{
     border-radius: 20px !important;
     padding: 20px 22px !important;
@@ -521,6 +569,23 @@ hr {{ border-color: var(--line) !important; }}
     letter-spacing: .08em !important;
 }}
 .source-badge {{ border-radius: 999px !important; padding: 4px 10px !important; }}
+.smartloop-hero {{ animation: heroIn .45s cubic-bezier(.2,.8,.2,1) both; }}
+.smartloop-hero::before {{
+    content: "";
+    position: absolute;
+    width: 180px;
+    height: 180px;
+    left: -90px;
+    bottom: -120px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: .09;
+    filter: blur(4px);
+}}
+@keyframes heroIn {{
+    from {{ opacity: 0; transform: translateY(-9px) scale(.99); }}
+    to {{ opacity: 1; transform: translateY(0) scale(1); }}
+}}
 @keyframes cardIn {{
     from {{ opacity: 0; transform: translateY(7px); }}
     to {{ opacity: 1; transform: translateY(0); }}
@@ -531,6 +596,9 @@ hr {{ border-color: var(--line) !important; }}
     .smartloop-hero::after {{ display:none; }}
     .quick-grid {{ grid-template-columns: 1fr; }}
     .quick-card {{ min-height: auto; }}
+    .st-key-quick_actions [data-testid="stHorizontalBlock"] {{ flex-direction: column !important; }}
+    .st-key-quick_actions [data-testid="column"] {{ width: 100% !important; }}
+    .st-key-quick_actions .stButton > button {{ min-height: 105px !important; }}
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -1506,15 +1574,38 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 messages = st.session_state.chats.get(st.session_state.current_chat, [])
+suggested_q = None
 
 if not messages:
-    st.markdown("""
-<div class="quick-grid">
-    <div class="quick-card"><div class="quick-icon">📖</div><b>Explain a topic</b><span>Turn difficult textbook ideas into clear notes.</span></div>
-    <div class="quick-card"><div class="quick-icon">✍️</div><b>Build a practice set</b><span>Generate questions matched to your grade.</span></div>
-    <div class="quick-card"><div class="quick-icon">🧮</div><b>Solve step by step</b><span>Work through maths with proper reasoning.</span></div>
-</div>
-""", unsafe_allow_html=True)
+    with st.container(key="quick_actions"):
+        qa1, qa2, qa3 = st.columns(3)
+        if qa1.button(
+            "📖  EXPLAIN A TOPIC\nTeach me a difficult topic clearly with examples",
+            use_container_width=True,
+            key="quick_explain"
+        ):
+            suggested_q = (
+                f"Explain a challenging Grade {st.session_state.grade} topic from my textbooks. "
+                "Use proper academic detail, key terms, a real-world example, and a short recap."
+            )
+        if qa2.button(
+            "✍️  PRACTICE MODE\nCreate a challenging mixed question set",
+            use_container_width=True,
+            key="quick_practice"
+        ):
+            suggested_q = (
+                f"Create a challenging Grade {st.session_state.grade} practice set from a suitable topic. "
+                "Include mixed question types and put the answer key at the end."
+            )
+        if qa3.button(
+            "🧮  SOLVE WITH ME\nShow a worked problem step by step",
+            use_container_width=True,
+            key="quick_solve"
+        ):
+            suggested_q = (
+                f"Give me a challenging Grade {st.session_state.grade} maths problem and solve it "
+                "carefully step by step, explaining the reason for every step."
+            )
     with st.chat_message("assistant"):
         st.markdown(
             f"### Ready when you are 👋\n\n"
@@ -1531,7 +1622,8 @@ for msg in messages:
 # =============================================================================
 # CHAT INPUT
 # =============================================================================
-q = st.chat_input("Ask SmartLoop...")
+typed_q = st.chat_input("Ask SmartLoop anything…")
+q = suggested_q or typed_q
 
 if q:
     messages = st.session_state.chats[st.session_state.current_chat]
