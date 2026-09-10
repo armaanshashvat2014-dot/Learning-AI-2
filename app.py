@@ -24,7 +24,7 @@ st.set_page_config(
 if "accent_color" not in st.session_state:
     st.session_state.accent_color = "#fbbc04"
 
-st.markdown("""
+st.markdown("""<!-- LEGACY DARK THEME DISABLED
 <style>
 /* ── Force dark mode regardless of OS/browser preference ── */
 :root {
@@ -204,6 +204,7 @@ footer { display: none !important; visibility: hidden !important; }
 .src-wiki { background:rgba(52,152,219,0.15); color:#3498db; border:1px solid rgba(52,152,219,0.3); }
 .src-calc { background:rgba(155,89,182,0.2);  color:#9b59b6; border:1px solid rgba(155,89,182,0.4); }
 </style>
+LEGACY DARK THEME DISABLED -->
 """, unsafe_allow_html=True)
 
 # =============================================================================
@@ -224,7 +225,19 @@ st.markdown(f"""
 }}
 html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
     color-scheme: light !important;
+    background: #ffffff !important;
+    color: var(--ink) !important;
 }}
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+#MainMenu,
+.stDeployButton,
+button[title="View source on GitHub"],
+button[title="Fork this app"],
+a[href*="github.com"],
+[data-testid="baseButton-header"],
+footer {{ display: none !important; visibility: hidden !important; }}
 .stApp {{
     background: var(--canvas) !important;
     color: var(--ink) !important;
@@ -240,6 +253,29 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
     box-shadow: none !important;
 }}
 [data-testid="stSidebar"] * {{ color: var(--ink) !important; }}
+
+/* Force every native and BaseWeb field back to a readable light surface. */
+input, textarea, [contenteditable="true"],
+[data-baseweb="input"], [data-baseweb="textarea"],
+[data-baseweb="select"] > div,
+[data-baseweb="base-input"] {{
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: var(--ink) !important;
+    -webkit-text-fill-color: var(--ink) !important;
+    caret-color: var(--ink) !important;
+}}
+input::placeholder, textarea::placeholder {{
+    color: #80868b !important;
+    -webkit-text-fill-color: #80868b !important;
+    opacity: 1 !important;
+}}
+[data-baseweb="popover"], [data-baseweb="menu"],
+[role="listbox"], [role="option"] {{
+    background: #ffffff !important;
+    color: var(--ink) !important;
+    -webkit-text-fill-color: var(--ink) !important;
+}}
 
 /* Notes-like message cards */
 [data-testid="stChatMessage"] {{
@@ -261,6 +297,11 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
     border: 1px solid var(--line) !important;
     border-radius: 14px !important;
     box-shadow: 0 3px 10px rgba(60,64,67,.18) !important;
+}}
+[data-testid="stChatInputContainer"] > div,
+[data-testid="stChatInputContainer"] form,
+[data-testid="stChatInputContainer"] div[data-baseweb="textarea"] {{
+    background: #ffffff !important;
 }}
 [data-testid="stChatInputContainer"] textarea {{ color: var(--ink) !important; }}
 
