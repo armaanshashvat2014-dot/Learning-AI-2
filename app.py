@@ -220,12 +220,15 @@ st.markdown(f"""
     --muted: #5f6368;
     --line: #e0e0e0;
     --surface: #ffffff;
-    --canvas: #ffffff;
+    --canvas: #f8f9fa;
     --soft: color-mix(in srgb, var(--accent) 16%, white);
+    --accent-strong: color-mix(in srgb, var(--accent) 78%, #5f4300);
+    --shadow-1: 0 1px 2px rgba(60,64,67,.12), 0 1px 3px 1px rgba(60,64,67,.06);
+    --shadow-2: 0 6px 18px rgba(60,64,67,.14);
 }}
 html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
     color-scheme: light !important;
-    background: #ffffff !important;
+    background: var(--canvas) !important;
     color: var(--ink) !important;
 }}
 [data-testid="stToolbar"],
@@ -241,11 +244,12 @@ footer {{ display: none !important; visibility: hidden !important; }}
 .stApp {{
     background: var(--canvas) !important;
     color: var(--ink) !important;
-    font-family: Arial, Roboto, sans-serif !important;
+    font-family: Inter, Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }}
 [data-testid="stHeader"] {{
     background: rgba(255,255,255,.94) !important;
     border-bottom: 1px solid var(--line) !important;
+    backdrop-filter: blur(14px) saturate(1.25) !important;
 }}
 [data-testid="stSidebar"] {{
     background: #fff !important;
@@ -323,6 +327,9 @@ input::placeholder, textarea::placeholder {{
     border-radius: 999px !important;
     color: var(--ink) !important;
     box-shadow: none !important;
+    min-height: 42px !important;
+    font-weight: 650 !important;
+    transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease !important;
 }}
 .stButton>button:hover {{
     background: var(--soft) !important;
@@ -335,6 +342,14 @@ input::placeholder, textarea::placeholder {{
     background: var(--accent) !important;
     color: #202124 !important;
     font-weight: 700 !important;
+}}
+.stButton>button:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[role="combobox"]:focus-visible {{
+    outline: 3px solid color-mix(in srgb, var(--accent) 34%, transparent) !important;
+    outline-offset: 2px !important;
 }}
 [data-testid="stSpinner"] * {{ color: var(--accent) !important; }}
 [data-testid="stExpander"] {{
@@ -387,7 +402,7 @@ hr {{ border-color: var(--line) !important; }}
 
 /* ── 2.0 visual polish ─────────────────────────────────────────────── */
 [data-testid="stAppViewBlockContainer"] {{
-    max-width: 1040px !important;
+    max-width: 980px !important;
     padding-top: 1.5rem !important;
     padding-bottom: 7rem !important;
 }}
@@ -396,6 +411,7 @@ hr {{ border-color: var(--line) !important; }}
     min-width: 278px !important;
     box-shadow: 10px 0 35px rgba(32,33,36,.035) !important;
 }}
+[data-testid="stSidebar"] hr {{ margin: .75rem 0 !important; }}
 [data-testid="stSidebar"] .stButton > button {{
     min-height: 43px !important;
     justify-content: flex-start !important;
@@ -410,6 +426,11 @@ hr {{ border-color: var(--line) !important; }}
     justify-content: center !important;
     min-height: 46px !important;
     box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}}
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] input {{
+    min-height: 44px !important;
+    border-radius: 12px !important;
 }}
 .section-label {{
     font-size: .68rem !important;
@@ -545,9 +566,29 @@ hr {{ border-color: var(--line) !important; }}
     padding: 20px 22px !important;
     animation: cardIn .25s ease both;
 }}
+[data-testid="stChatMessage"]:hover {{
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--line)) !important;
+    box-shadow: var(--shadow-2) !important;
+}}
+[data-testid="stChatMessage"] h1,
+[data-testid="stChatMessage"] h2,
+[data-testid="stChatMessage"] h3 {{
+    letter-spacing: -.02em !important;
+    line-height: 1.25 !important;
+}}
 [data-testid="stChatMessage"] p {{ line-height: 1.68 !important; }}
 [data-testid="stChatMessage"] ul,
 [data-testid="stChatMessage"] ol {{ padding-left: 1.3rem !important; }}
+[data-testid="stChatMessage"] pre {{
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
+    background: #f6f8fa !important;
+    overflow-x: auto !important;
+}}
+[data-testid="stChatMessage"] code {{
+    border-radius: 6px !important;
+    font-size: .9em !important;
+}}
 [data-testid="stChatInput"] {{ max-width: 1000px !important; margin: 0 auto 10px !important; }}
 [data-testid="stChatInputContainer"] {{
     min-height: 62px !important;
@@ -562,6 +603,7 @@ hr {{ border-color: var(--line) !important; }}
 }}
 [data-testid="stChatInputContainer"] textarea {{ font-size: .98rem !important; }}
 [data-testid="stExpander"] {{ border-radius: 16px !important; overflow: hidden !important; }}
+[data-testid="stExpander"] summary {{ min-height: 46px !important; }}
 .beta-badge {{
     vertical-align: 6px !important;
     padding: 5px 9px !important;
@@ -592,13 +634,25 @@ hr {{ border-color: var(--line) !important; }}
 }}
 @media (max-width: 700px) {{
     [data-testid="stAppViewBlockContainer"] {{ padding: .8rem .7rem 6rem !important; }}
-    .smartloop-hero {{ padding: 23px 20px; border-radius: 22px; }}
+    .smartloop-hero {{ padding: 23px 20px; border-radius: 22px; margin-bottom: 18px; }}
+    .hero-title {{ font-size: clamp(1.8rem, 10vw, 2.45rem); letter-spacing: -.045em; }}
+    .hero-copy {{ font-size: .92rem; line-height: 1.5; }}
     .smartloop-hero::after {{ display:none; }}
     .quick-grid {{ grid-template-columns: 1fr; }}
     .quick-card {{ min-height: auto; }}
     .st-key-quick_actions [data-testid="stHorizontalBlock"] {{ flex-direction: column !important; }}
     .st-key-quick_actions [data-testid="column"] {{ width: 100% !important; }}
     .st-key-quick_actions .stButton > button {{ min-height: 105px !important; }}
+    [data-testid="stChatMessage"] {{ padding: 16px !important; border-radius: 16px !important; }}
+    [data-testid="stChatInputContainer"] {{ min-height: 56px !important; border-radius: 18px !important; }}
+}}
+@media (prefers-reduced-motion: reduce) {{
+    *, *::before, *::after {{
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }}
 }}
 </style>
 """, unsafe_allow_html=True)
