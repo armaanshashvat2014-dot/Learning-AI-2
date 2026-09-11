@@ -1,5 +1,5 @@
 import streamlit as st
-import re, os, time, itertools
+import re, os, time, itertools, json, hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings, logging
 import wikipedia
@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
 from google import genai
+from streamlit_js_eval import streamlit_js_eval
 
 warnings.filterwarnings("ignore")
 logging.getLogger("pymupdf").setLevel(logging.ERROR)
@@ -220,7 +221,7 @@ st.markdown(f"""
     --muted: #5f6368;
     --line: #e0e0e0;
     --surface: #ffffff;
-    --canvas: #f8f9fa;
+    --canvas: #f6f7fb;
     --soft: color-mix(in srgb, var(--accent) 16%, white);
     --accent-strong: color-mix(in srgb, var(--accent) 78%, #5f4300);
     --shadow-1: 0 1px 2px rgba(60,64,67,.12), 0 1px 3px 1px rgba(60,64,67,.06);
@@ -242,7 +243,10 @@ a[href*="github.com"],
 [data-testid="baseButton-header"],
 footer {{ display: none !important; visibility: hidden !important; }}
 .stApp {{
-    background: var(--canvas) !important;
+    background:
+        radial-gradient(700px circle at 58% -10%, rgba(120,86,255,.10), transparent 58%),
+        radial-gradient(600px circle at 90% 8%, rgba(0,183,255,.08), transparent 54%),
+        var(--canvas) !important;
     color: var(--ink) !important;
     font-family: Inter, Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }}
@@ -252,8 +256,8 @@ footer {{ display: none !important; visibility: hidden !important; }}
     backdrop-filter: blur(14px) saturate(1.25) !important;
 }}
 [data-testid="stSidebar"] {{
-    background: #fff !important;
-    border-right: 1px solid var(--line) !important;
+    background: rgba(248,249,252,.97) !important;
+    border-right: 1px solid #e7e8ee !important;
     box-shadow: none !important;
 }}
 [data-testid="stSidebar"] * {{ color: var(--ink) !important; }}
@@ -447,33 +451,24 @@ hr {{ border-color: var(--line) !important; }}
     position: relative;
     overflow: hidden;
     text-align: left;
-    padding: 30px 32px 27px;
-    margin: 6px 0 24px;
-    border: 1px solid color-mix(in srgb, var(--accent) 34%, #e8eaed);
-    border-radius: 28px;
-    background:
-        radial-gradient(circle at 92% 14%, color-mix(in srgb, var(--accent) 25%, white) 0 7%, transparent 8%),
-        linear-gradient(135deg, color-mix(in srgb, var(--accent) 15%, white), #fff 62%);
-    box-shadow: 0 14px 38px rgba(60,64,67,.10);
+    padding: 12px 4px 18px;
+    margin: 0 0 12px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
 }}
 .smartloop-hero::after {{
-    content: "✦";
-    position: absolute;
-    right: 34px;
-    bottom: 17px;
-    color: var(--accent);
-    font-size: 58px;
-    opacity: .55;
-    transform: rotate(12deg);
+    display: none;
 }}
 .hero-kicker {{
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 11px;
+    padding: 5px 10px;
     border-radius: 999px;
-    background: rgba(255,255,255,.78);
-    border: 1px solid rgba(32,33,36,.08);
+    background: rgba(255,255,255,.7);
+    border: 1px solid #e4e6ec;
     color: var(--muted);
     font-size: .72rem;
     font-weight: 750;
@@ -481,14 +476,19 @@ hr {{ border-color: var(--line) !important; }}
     text-transform: uppercase;
 }}
 .hero-title {{
-    margin: 13px 0 5px;
+    margin: 14px 0 5px;
     color: var(--ink);
-    font-size: clamp(2rem, 5vw, 3.15rem);
-    line-height: 1.02;
-    letter-spacing: -.055em;
-    font-weight: 850;
+    font-size: clamp(1.9rem, 4vw, 2.65rem);
+    line-height: 1.08;
+    letter-spacing: -.045em;
+    font-weight: 780;
 }}
-.hero-title span {{ color: color-mix(in srgb, var(--accent) 82%, #8a6200); }}
+.hero-title span {{
+    background: linear-gradient(90deg, #6d4aff, #0078d4 58%, #0097a7);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}}
 .hero-copy {{ margin: 0; color: var(--muted); font-size: 1rem; }}
 .quick-grid {{
     display: grid;
@@ -562,9 +562,19 @@ hr {{ border-color: var(--line) !important; }}
     box-shadow: 0 5px 14px rgba(60,64,67,.12) !important;
 }}
 [data-testid="stChatMessage"] {{
-    border-radius: 20px !important;
+    border-radius: 22px !important;
     padding: 20px 22px !important;
     animation: cardIn .25s ease both;
+}}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {{
+    background: #eef0f5 !important;
+    border-color: transparent !important;
+    margin-left: clamp(1rem, 10vw, 7rem) !important;
+    box-shadow: none !important;
+}}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {{
+    background: rgba(255,255,255,.94) !important;
+    border-color: #e7e8ee !important;
 }}
 [data-testid="stChatMessage"]:hover {{
     border-color: color-mix(in srgb, var(--accent) 32%, var(--line)) !important;
@@ -592,9 +602,9 @@ hr {{ border-color: var(--line) !important; }}
 [data-testid="stChatInput"] {{ max-width: 1000px !important; margin: 0 auto 10px !important; }}
 [data-testid="stChatInputContainer"] {{
     min-height: 62px !important;
-    border-radius: 22px !important;
-    border-color: #d6d9dc !important;
-    box-shadow: 0 10px 34px rgba(60,64,67,.16) !important;
+    border-radius: 24px !important;
+    border-color: #dfe1e8 !important;
+    box-shadow: 0 12px 36px rgba(48,52,64,.14), 0 0 0 1px rgba(255,255,255,.8) inset !important;
     transition: border-color .2s ease, box-shadow .2s ease !important;
 }}
 [data-testid="stChatInputContainer"]:focus-within {{
@@ -613,16 +623,7 @@ hr {{ border-color: var(--line) !important; }}
 .source-badge {{ border-radius: 999px !important; padding: 4px 10px !important; }}
 .smartloop-hero {{ animation: heroIn .45s cubic-bezier(.2,.8,.2,1) both; }}
 .smartloop-hero::before {{
-    content: "";
-    position: absolute;
-    width: 180px;
-    height: 180px;
-    left: -90px;
-    bottom: -120px;
-    border-radius: 50%;
-    background: var(--accent);
-    opacity: .09;
-    filter: blur(4px);
+    display: none;
 }}
 @keyframes heroIn {{
     from {{ opacity: 0; transform: translateY(-9px) scale(.99); }}
@@ -634,7 +635,7 @@ hr {{ border-color: var(--line) !important; }}
 }}
 @media (max-width: 700px) {{
     [data-testid="stAppViewBlockContainer"] {{ padding: .8rem .7rem 6rem !important; }}
-    .smartloop-hero {{ padding: 23px 20px; border-radius: 22px; margin-bottom: 18px; }}
+    .smartloop-hero {{ padding: 8px 2px 14px; margin-bottom: 8px; }}
     .hero-title {{ font-size: clamp(1.8rem, 10vw, 2.45rem); letter-spacing: -.045em; }}
     .hero-copy {{ font-size: .92rem; line-height: 1.5; }}
     .smartloop-hero::after {{ display:none; }}
@@ -644,6 +645,7 @@ hr {{ border-color: var(--line) !important; }}
     .st-key-quick_actions [data-testid="column"] {{ width: 100% !important; }}
     .st-key-quick_actions .stButton > button {{ min-height: 105px !important; }}
     [data-testid="stChatMessage"] {{ padding: 16px !important; border-radius: 16px !important; }}
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {{ margin-left: 1rem !important; }}
     [data-testid="stChatInputContainer"] {{ min-height: 56px !important; border-radius: 18px !important; }}
 }}
 @media (prefers-reduced-motion: reduce) {{
@@ -980,6 +982,54 @@ if "chats" not in st.session_state:
     st.session_state.chats = {"Chat 1": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Chat 1"
+
+# Restore and continuously save chats in this browser. This survives Streamlit
+# restarts and page refreshes without requiring an account.
+if "browser_chats_loaded" not in st.session_state:
+    st.session_state.browser_chats_loaded = False
+
+stored_chat_data = streamlit_js_eval(
+    js_expressions="""
+    (() => {
+        try {
+            const raw = localStorage.getItem('smartloop_chats_v1');
+            return raw ? JSON.parse(raw) : {chats: {'Chat 1': []}, current_chat: 'Chat 1'};
+        } catch (error) {
+            return {chats: {'Chat 1': []}, current_chat: 'Chat 1'};
+        }
+    })()
+    """,
+    key="load_smartloop_chats"
+)
+
+if not st.session_state.browser_chats_loaded and isinstance(stored_chat_data, dict):
+    saved_chats = stored_chat_data.get("chats")
+    saved_current = stored_chat_data.get("current_chat")
+    if isinstance(saved_chats, dict) and saved_chats:
+        st.session_state.chats = saved_chats
+        st.session_state.current_chat = (
+            saved_current if saved_current in saved_chats else next(iter(saved_chats))
+        )
+    st.session_state.browser_chats_loaded = True
+
+def save_chats_to_browser(key_prefix="save"):
+    """Queue the current chat collection for durable browser-local storage."""
+    browser_payload = json.dumps({
+        "chats": st.session_state.chats,
+        "current_chat": st.session_state.current_chat,
+    }, ensure_ascii=False)
+    payload_key = hashlib.sha256(browser_payload.encode("utf-8")).hexdigest()[:16]
+    streamlit_js_eval(
+        js_expressions=(
+            "(() => { localStorage.setItem('smartloop_chats_v1', "
+            + json.dumps(browser_payload)
+            + "); return true; })()"
+        ),
+        key=f"{key_prefix}_smartloop_chats_{payload_key}"
+    )
+
+if st.session_state.browser_chats_loaded:
+    save_chats_to_browser()
 
 # =============================================================================
 # MATH SOLVER
@@ -1699,3 +1749,4 @@ if q:
     messages.append({
         "role":"assistant","content":ans,"tier":tier,"source":source
     })
+    save_chats_to_browser("save_after_reply")
