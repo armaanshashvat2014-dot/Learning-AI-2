@@ -46,7 +46,6 @@ button[title="Fork this app"],
 button[aria-label="View source on GitHub"],
 button[aria-label="Fork this app"],
 a[href*="github.com"],
-[data-testid="baseButton-header"],
 footer { display: none !important; visibility: hidden !important; }
 
 /* ── Remove the top-right header action buttons (share/star/fork) ── */
@@ -240,8 +239,14 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
 button[title="View source on GitHub"],
 button[title="Fork this app"],
 a[href*="github.com"],
-[data-testid="baseButton-header"],
 footer {{ display: none !important; visibility: hidden !important; }}
+/* Keep Streamlit's sidebar reopen control available after collapse. */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {{
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}}
 .stApp {{
     background:
         radial-gradient(700px circle at 58% -10%, rgba(120,86,255,.10), transparent 58%),
