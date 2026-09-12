@@ -255,6 +255,40 @@ footer {{ display: none !important; visibility: hidden !important; }}
     opacity: 1 !important;
     pointer-events: auto !important;
 }}
+/* A prominent, persistent menu button when the sidebar is closed. */
+button[data-testid="stExpandSidebarButton"] {{
+    position: fixed !important;
+    top: 12px !important;
+    left: 12px !important;
+    z-index: 999999 !important;
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    color: #202124 !important;
+    background: #ffffff !important;
+    border: 1px solid #d9dce3 !important;
+    border-radius: 14px !important;
+    box-shadow: 0 5px 18px rgba(32,33,36,.18) !important;
+}}
+button[data-testid="stExpandSidebarButton"]:hover {{
+    background: #f1f3f8 !important;
+    border-color: #c9ccd4 !important;
+    box-shadow: 0 7px 22px rgba(32,33,36,.23) !important;
+}}
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {{
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    color: #202124 !important;
+    font-size: 25px !important;
+}}
 .stApp {{
     background:
         radial-gradient(700px circle at 58% -10%, rgba(120,86,255,.10), transparent 58%),
