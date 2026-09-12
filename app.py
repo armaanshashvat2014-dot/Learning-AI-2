@@ -36,7 +36,6 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
 }
 
 /* ── Hide GitHub icon, deploy button, toolbar share/fork buttons ── */
-[data-testid="stToolbar"],
 [data-testid="stDecoration"],
 [data-testid="stStatusWidget"],
 #MainMenu,
@@ -231,7 +230,6 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
     background: var(--canvas) !important;
     color: var(--ink) !important;
 }}
-[data-testid="stToolbar"],
 [data-testid="stDecoration"],
 [data-testid="stStatusWidget"],
 #MainMenu,
@@ -240,12 +238,22 @@ button[title="View source on GitHub"],
 button[title="Fork this app"],
 a[href*="github.com"],
 footer {{ display: none !important; visibility: hidden !important; }}
-/* Keep Streamlit's sidebar reopen control available after collapse. */
+/* Hide optional toolbar actions without hiding the toolbar that owns
+   Streamlit's sidebar toggle. */
+[data-testid="stToolbarActionButton"] {{
+    display: none !important;
+    visibility: hidden !important;
+}}
+/* Keep both current and older Streamlit sidebar controls usable. */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapseButton"] button,
 [data-testid="collapsedControl"],
 [data-testid="stSidebarCollapsedControl"] {{
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
+    pointer-events: auto !important;
 }}
 .stApp {{
     background:
