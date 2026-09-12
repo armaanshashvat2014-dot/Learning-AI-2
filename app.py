@@ -389,6 +389,27 @@ input::placeholder, textarea::placeholder {{
     transform: none !important;
     box-shadow: none !important;
 }}
+.stLinkButton > a,
+[data-testid="stLinkButton"] > a {{
+    background: #ffffff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 999px !important;
+    color: #202124 !important;
+    min-height: 42px !important;
+    font-weight: 700 !important;
+    text-decoration: none !important;
+    box-shadow: none !important;
+}}
+.stLinkButton > a *,
+[data-testid="stLinkButton"] > a * {{
+    color: #202124 !important;
+}}
+.stLinkButton > a:hover,
+[data-testid="stLinkButton"] > a:hover {{
+    background: var(--soft) !important;
+    border-color: var(--accent) !important;
+    color: #202124 !important;
+}}
 .stButton>button[kind="primary"], button[kind="primary"] {{
     background: var(--accent) !important;
     color: #202124 !important;
