@@ -1089,6 +1089,25 @@ def is_question_request(q):
     ql = q.lower()
     return any(phrase in ql for phrase in QUESTION_REQUEST_WORDS)
 
+def requested_grade(q):
+    """Respect an explicit grade in the prompt without changing app settings."""
+    match = re.search(r"\bgrade\s*(10|[1-9])\b|\b(10|[1-9])(?:st|nd|rd|th)[- ]grade\b", q, re.I)
+    if not match:
+        return None
+    return int(match.group(1) or match.group(2))
+
+def wants_original_content(q):
+    """Detect when the student explicitly asks us not to use a textbook."""
+    ql = q.lower()
+    original_phrases = (
+        "create your own", "make your own", "write your own",
+        "original text", "original passage", "new passage",
+        "don't use the textbook", "do not use the textbook",
+        "dont use the textbook", "not from the textbook",
+        "without the textbook", "not from my book",
+    )
+    return any(phrase in ql for phrase in original_phrases)
+
 # =============================================================================
 # AI JUDGE
 # =============================================================================
@@ -1108,7 +1127,8 @@ def judge_single(args):
         )
         return "YES" in r.choices[0].message.content.upper(), chunk
     except:
-        return True, chunk
+        # A failed relevance check must not silently approve an unrelated book.
+        return False, chunk
 
 def parallel_judge(candidates, question):
     if not candidates:
@@ -1132,7 +1152,7 @@ def parallel_judge(candidates, question):
                     good.append(chunk)
             except:
                 pass
-    return good if good else [c for _, c in candidates[:3]]
+    return good
 
 # =============================================================================
 # ZERO-API TEXT EXTRACTION
@@ -1220,27 +1240,16 @@ def understand_intent(question, history):
 # =============================================================================
 # SAFETY CHECK
 # =============================================================================
-BAD_INTENT_KEYWORDS = [
-    "hack","weapon","bomb","kill","drug","poison","suicide",
-    "self harm","self-harm","violence","explicit","adult content",
-    "sexual","illegal","steal","cheat","plagiarize","explosives",
-    "hurt","attack","abuse","racism","racist","terrorism",
-    "extremist","murder","assault","trafficking","pornograph",
+BAD_INTENT_PATTERNS = [
+    r"\b(?:build|make|create)\s+(?:a\s+)?(?:bomb|weapon|explosive)",
+    r"\bhow\s+to\s+(?:hack|steal|attack|hurt|poison)\b",
+    r"\b(?:adult content|pornograph\w*|sexual content)\b",
+    r"\b(?:suicide|self[- ]harm)\b",
 ]
 
 def is_bad_intent(question, intent):
     combined = (question + " " + (intent or "")).lower()
-    if any(b in combined for b in BAD_INTENT_KEYWORDS):
-        return True
-    prompt = (
-        f"A student asked: \"{question}\"\n"
-        f"Detected intent: {intent}\n\n"
-        "Is this question harmful, dangerous, inappropriate, "
-        "or completely unrelated to education?\n"
-        "Answer ONLY: YES or NO"
-    )
-    result = call_llm_short(prompt, max_tokens=3)
-    return bool(result and "YES" in result.upper())
+    return any(re.search(pattern, combined, re.I) for pattern in BAD_INTENT_PATTERNS)
 
 def bad_intent_response(grade):
     if grade <= 4:
@@ -1308,10 +1317,11 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
                 f"You are SmartLoop AI, expert tutor for Grade {grade}. {style}\n\n"
                 "Generate practice questions when asked.\n"
                 "RULES:\n"
-                "- Generate exactly what the student asked for\n"
-                "- Include a mix: short answer, fill in the blank, MCQ\n"
+                "- Follow every stated topic, format, source, and difficulty requirement\n"
+                "- If the student requests an original text or passage, invent one and never use textbook material\n"
+                "- Include only the question types and writing tasks the student requested\n"
                 "- Number each question clearly\n"
-                "- Add answers at the end under '## Answers'\n"
+                "- Add answers at the end unless the student asks for a test without answers\n"
                 f"- Make questions appropriate for Grade {grade}\n"
                 "- NEVER refuse"
             )
@@ -1498,6 +1508,9 @@ def answer_from_wiki(question):
 # =============================================================================
 def smartloop(question, grade, history, thinking_ph, stream_ph=None):
 
+    # A grade written in the request takes priority for that answer only.
+    target_grade = requested_grade(question) or grade
+
     if is_pure_calc(question):
         update_phase(thinking_ph, "Calculating")
         ans, tier = solve_math(question)
@@ -1511,17 +1524,17 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
 
     update_phase(thinking_ph, "Checking safety")
     if is_bad_intent(question, intent):
-        msg = bad_intent_response(grade)
+        msg = bad_intent_response(target_grade)
         if stream_ph:
             stream_ph.markdown(msg)
         return msg, "", None
 
     if is_question_request(question):
         update_phase(thinking_ph, "Finding relevant content")
-        candidates  = keyword_search(question)
+        candidates  = [] if wants_original_content(question) else keyword_search(question)
         good_chunks = parallel_judge(candidates, question) if candidates else []
         update_phase(thinking_ph, "Generating questions")
-        ans, tier, src = generate_questions(question, good_chunks, grade, history, stream_ph)
+        ans, tier, src = generate_questions(question, good_chunks, target_grade, history, stream_ph)
         if ans:
             return ans, tier, src
 
@@ -1535,11 +1548,11 @@ def smartloop(question, grade, history, thinking_ph, stream_ph=None):
     update_phase(thinking_ph, "Answering")
 
     if pdf_relevant and good_chunks:
-        ans, tier, src = answer_from_pdf(question, intent, good_chunks, grade, history, stream_ph)
+        ans, tier, src = answer_from_pdf(question, intent, good_chunks, target_grade, history, stream_ph)
         if ans:
             return ans, tier, src
 
-    ans, tier, src = answer_from_ai(question, intent, grade, history, stream_ph)
+    ans, tier, src = answer_from_ai(question, intent, target_grade, history, stream_ph)
     if ans:
         return ans, tier, src
 
