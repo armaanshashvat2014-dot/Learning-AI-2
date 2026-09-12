@@ -1732,15 +1732,16 @@ with st.sidebar:
     st.success(f"📚 {len(PDF_CHUNKS)} pages loaded")
     st.info(f"🔑 OpenAI: {len(ALL_OPENAI_KEYS)} | Google: {len(ALL_GOOGLE_KEYS)}")
 
-    if st.button("🔄 Change Grade", use_container_width=True):
-        st.session_state.grade = None
-        st.cache_resource.clear()
-        st.rerun()
+    st.link_button(
+        "⭐ Liked us? Please rate on MentorLoop EDU",
+        "https://armaanshashvat2014-dot.github.io/MentorLoop-EDU/",
+        use_container_width=True
+    )
 
-    st.markdown(
-        '<a class="mentorloop-back" href="https://armaanshashvat2014-dot.github.io/MentorLoop-EDU/" '
-        'target="_top" rel="noopener">← Back to MentorLoop EDU</a>',
-        unsafe_allow_html=True
+    st.link_button(
+        "← Back to MentorLoop EDU",
+        "https://armaanshashvat2014-dot.github.io/MentorLoop-EDU/",
+        use_container_width=True
     )
 # =============================================================================
 # MAIN CHAT UI
