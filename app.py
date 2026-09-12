@@ -428,6 +428,29 @@ textarea:focus-visible,
     box-shadow: none !important;
 }}
 .section-label {{ color: var(--muted) !important; }}
+.mentorloop-back {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+    margin-top: .75rem;
+    padding: .65rem 1rem;
+    border: 1px solid #d9dce3;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--ink) !important;
+    font-size: .9rem;
+    font-weight: 700;
+    text-decoration: none !important;
+    box-shadow: 0 2px 8px rgba(60,64,67,.08);
+    transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}}
+.mentorloop-back:hover {{
+    background: var(--soft);
+    border-color: color-mix(in srgb, var(--accent) 55%, #d9dce3);
+    transform: translateY(-1px);
+}}
 .welcome-card {{
     background: var(--soft) !important;
     border: 1px solid color-mix(in srgb, var(--accent) 45%, white) !important;
@@ -1714,18 +1737,11 @@ with st.sidebar:
         st.cache_resource.clear()
         st.rerun()
 
-    with st.expander("🏫 Are you a Teacher?"):
-        code = st.text_input(
-            "Code", type="password",
-            placeholder="Enter school code...",
-            label_visibility="collapsed"
-        )
-        if st.button("Verify", use_container_width=True):
-            if code == st.secrets.get("TEACHER_CODE",""):
-                st.success("✅ Teacher access granted!")
-            else:
-                st.error("Invalid code.")
-
+    st.markdown(
+        '<a class="mentorloop-back" href="https://armaanshashvat2014-dot.github.io/MentorLoop-EDU/" '
+        'target="_top" rel="noopener">← Back to MentorLoop EDU</a>',
+        unsafe_allow_html=True
+    )
 # =============================================================================
 # MAIN CHAT UI
 # =============================================================================
