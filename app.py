@@ -1078,6 +1078,7 @@ DEFAULT_AI_PROFILE = {
     "name": "SmartLoop AI",
     "tone": "Friendly tutor",
     "detail": "Balanced",
+    "thinking": "Balanced",
     "format": "Headings and bullet points",
     "instructions": "",
 }
@@ -1322,16 +1323,32 @@ def ai_behavior_prompt():
     name = profile.get("name", "SmartLoop AI").strip() or "SmartLoop AI"
     tone = profile.get("tone", "Friendly tutor")
     detail = profile.get("detail", "Balanced")
+    thinking = profile.get("thinking", "Balanced")
     response_format = profile.get("format", "Headings and bullet points")
     custom = profile.get("instructions", "").strip()
+    thinking_guidance = {
+        "Quick": "Answer efficiently using only the essential reasoning and checks.",
+        "Balanced": "Reason carefully, check the important details, then answer clearly.",
+        "Deep": "Analyse the problem thoroughly, check assumptions and verify the result before answering.",
+    }.get(thinking, "Reason carefully, check the important details, then answer clearly.")
     return (
         f"Your display name is {name}. "
         f"Use this tone: {tone}. "
         f"Detail level: {detail}. "
+        f"Thinking level: {thinking}. {thinking_guidance} "
         f"Preferred response format: {response_format}. "
         + (f"Additional user preferences: {custom}. " if custom else "")
         + "Follow these preferences unless they conflict with accuracy, student safety, or the current request."
     )
+
+def response_token_budget(default):
+    """Give deeper mode more room while keeping quick mode fast."""
+    thinking = st.session_state.ai_profile.get("thinking", "Balanced")
+    if thinking == "Quick":
+        return min(default, 600)
+    if thinking == "Deep":
+        return max(default, 1400)
+    return default
 
 # =============================================================================
 # THINKING ANIMATION
@@ -1463,7 +1480,7 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
             )
         }
     ]
-    ans = call_llm(messages, max_tokens=1000, temperature=0.5, stream_ph=stream_ph)
+    ans = call_llm(messages, max_tokens=response_token_budget(1000), temperature=0.5, stream_ph=stream_ph)
     if ans and len(ans) > 20:
         return ans, "pdf" if src else "ai", src
     return None, None, None
@@ -1504,7 +1521,7 @@ def answer_from_pdf(question, intent, chunks, grade, history, stream_ph=None):
             )
         }
     ]
-    ans = call_llm(messages, max_tokens=800, temperature=0.3, stream_ph=stream_ph)
+    ans = call_llm(messages, max_tokens=response_token_budget(800), temperature=0.3, stream_ph=stream_ph)
     if ans and len(ans) > 20:
         return ans, "pdf", src
     # Zero-API fallback
@@ -1536,7 +1553,7 @@ def answer_from_ai(question, intent, grade, history, stream_ph=None):
     for m in history[-4:]:
         messages.append({"role": m["role"], "content": m.get("content","")})
     messages.append({"role":"user","content":question})
-    ans = call_llm(messages, max_tokens=800, temperature=0.4, stream_ph=stream_ph)
+    ans = call_llm(messages, max_tokens=response_token_budget(800), temperature=0.4, stream_ph=stream_ph)
     if ans and len(ans) > 20:
         return ans, "ai", None
     return None, None, None
@@ -1775,6 +1792,13 @@ with st.sidebar:
                 "Detail level", detail_options,
                 index=detail_options.index(profile["detail"]) if profile["detail"] in detail_options else 1
             )
+            thinking_options = ["Quick", "Balanced", "Deep"]
+            custom_thinking = st.radio(
+                "Thinking level", thinking_options,
+                index=thinking_options.index(profile["thinking"]) if profile["thinking"] in thinking_options else 1,
+                horizontal=True,
+                help="Quick is fastest, Balanced handles everyday questions, and Deep performs extra checking for difficult work."
+            )
             format_options = ["Headings and bullet points", "Step by step", "Short paragraphs", "Exam-style notes"]
             custom_format = st.selectbox(
                 "Response format", format_options,
@@ -1791,6 +1815,7 @@ with st.sidebar:
                     "name": custom_name.strip() or "SmartLoop AI",
                     "tone": custom_tone,
                     "detail": custom_detail,
+                    "thinking": custom_thinking,
                     "format": custom_format,
                     "instructions": custom_instructions.strip(),
                 }
