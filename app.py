@@ -1074,7 +1074,17 @@ if "chats" not in st.session_state:
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Chat 1"
 
-# Restore and continuously save chats in this browser. This survives Streamlit
+DEFAULT_AI_PROFILE = {
+    "name": "SmartLoop AI",
+    "tone": "Friendly tutor",
+    "detail": "Balanced",
+    "format": "Headings and bullet points",
+    "instructions": "",
+}
+if "ai_profile" not in st.session_state:
+    st.session_state.ai_profile = DEFAULT_AI_PROFILE.copy()
+
+# Restore and continuously save chats and AI preferences in this browser. This survives Streamlit
 # restarts and page refreshes without requiring an account.
 if "browser_chats_loaded" not in st.session_state:
     st.session_state.browser_chats_loaded = False
@@ -1096,11 +1106,19 @@ stored_chat_data = streamlit_js_eval(
 if not st.session_state.browser_chats_loaded and isinstance(stored_chat_data, dict):
     saved_chats = stored_chat_data.get("chats")
     saved_current = stored_chat_data.get("current_chat")
+    saved_profile = stored_chat_data.get("ai_profile")
     if isinstance(saved_chats, dict) and saved_chats:
         st.session_state.chats = saved_chats
         st.session_state.current_chat = (
             saved_current if saved_current in saved_chats else next(iter(saved_chats))
         )
+    if isinstance(saved_profile, dict):
+        clean_profile = DEFAULT_AI_PROFILE.copy()
+        for key in clean_profile:
+            value = saved_profile.get(key)
+            if isinstance(value, str):
+                clean_profile[key] = value[:1500] if key == "instructions" else value[:80]
+        st.session_state.ai_profile = clean_profile
     st.session_state.browser_chats_loaded = True
 
 def save_chats_to_browser(key_prefix="save"):
@@ -1108,6 +1126,7 @@ def save_chats_to_browser(key_prefix="save"):
     browser_payload = json.dumps({
         "chats": st.session_state.chats,
         "current_chat": st.session_state.current_chat,
+        "ai_profile": st.session_state.ai_profile,
     }, ensure_ascii=False)
     payload_key = hashlib.sha256(browser_payload.encode("utf-8")).hexdigest()[:16]
     streamlit_js_eval(
@@ -1297,6 +1316,23 @@ def grade_style(g):
     else:
         return "Use detailed academic language suitable for high school."
 
+def ai_behavior_prompt():
+    """Convert the user's saved customization into safe model instructions."""
+    profile = st.session_state.ai_profile
+    name = profile.get("name", "SmartLoop AI").strip() or "SmartLoop AI"
+    tone = profile.get("tone", "Friendly tutor")
+    detail = profile.get("detail", "Balanced")
+    response_format = profile.get("format", "Headings and bullet points")
+    custom = profile.get("instructions", "").strip()
+    return (
+        f"Your display name is {name}. "
+        f"Use this tone: {tone}. "
+        f"Detail level: {detail}. "
+        f"Preferred response format: {response_format}. "
+        + (f"Additional user preferences: {custom}. " if custom else "")
+        + "Follow these preferences unless they conflict with accuracy, student safety, or the current request."
+    )
+
 # =============================================================================
 # THINKING ANIMATION
 # =============================================================================
@@ -1405,7 +1441,8 @@ def generate_questions(question, chunks, grade, history, stream_ph=None):
         {
             "role": "system",
             "content": (
-                f"You are SmartLoop AI, expert tutor for Grade {grade}. {style}\n\n"
+                f"You are {st.session_state.ai_profile.get('name', 'SmartLoop AI')}, expert tutor for Grade {grade}. {style}\n"
+                f"{ai_behavior_prompt()}\n\n"
                 "Generate practice questions when asked.\n"
                 "RULES:\n"
                 "- Follow every stated topic, format, source, and difficulty requirement\n"
@@ -1446,7 +1483,8 @@ def answer_from_pdf(question, intent, chunks, grade, history, stream_ph=None):
         {
             "role": "system",
             "content": (
-                f"You are SmartLoop AI, expert tutor for Grade {grade}. {style}\n\n"
+                f"You are {st.session_state.ai_profile.get('name', 'SmartLoop AI')}, expert tutor for Grade {grade}. {style}\n"
+                f"{ai_behavior_prompt()}\n\n"
                 f"The student wants to: {intent}\n\n"
                 "RULES:\n"
                 "- Use the textbook content as your knowledge source.\n"
@@ -1486,7 +1524,8 @@ def answer_from_ai(question, intent, grade, history, stream_ph=None):
         {
             "role": "system",
             "content": (
-                f"You are SmartLoop AI, expert academic tutor for Grade {grade}. {style}\n\n"
+                f"You are {st.session_state.ai_profile.get('name', 'SmartLoop AI')}, expert academic tutor for Grade {grade}. {style}\n"
+                f"{ai_behavior_prompt()}\n\n"
                 f"The student wants to: {intent}\n\n"
                 "Give a clear, complete, friendly explanation.\n"
                 "Structure: definition → real-world example → how it works.\n"
@@ -1716,6 +1755,52 @@ with st.sidebar:
         st.session_state.grade = int(new_grade.split()[1])
         st.cache_resource.clear()
         st.rerun()
+
+    st.divider()
+
+    with st.expander("🛠️ Customize SmartLoop"):
+        with st.form("ai_customization_form"):
+            profile = st.session_state.ai_profile
+            custom_name = st.text_input(
+                "AI name", value=profile["name"], max_chars=40,
+                placeholder="SmartLoop AI"
+            )
+            tone_options = ["Friendly tutor", "Professional", "Energetic", "Patient", "Direct and concise"]
+            custom_tone = st.selectbox(
+                "Tone", tone_options,
+                index=tone_options.index(profile["tone"]) if profile["tone"] in tone_options else 0
+            )
+            detail_options = ["Concise", "Balanced", "Detailed", "Deep dive"]
+            custom_detail = st.selectbox(
+                "Detail level", detail_options,
+                index=detail_options.index(profile["detail"]) if profile["detail"] in detail_options else 1
+            )
+            format_options = ["Headings and bullet points", "Step by step", "Short paragraphs", "Exam-style notes"]
+            custom_format = st.selectbox(
+                "Response format", format_options,
+                index=format_options.index(profile["format"]) if profile["format"] in format_options else 0
+            )
+            custom_instructions = st.text_area(
+                "Custom instructions",
+                value=profile["instructions"],
+                max_chars=1500,
+                placeholder="Example: Always include one worked example and finish with a quick recap."
+            )
+            if st.form_submit_button("Save behaviour", use_container_width=True, type="primary"):
+                st.session_state.ai_profile = {
+                    "name": custom_name.strip() or "SmartLoop AI",
+                    "tone": custom_tone,
+                    "detail": custom_detail,
+                    "format": custom_format,
+                    "instructions": custom_instructions.strip(),
+                }
+                save_chats_to_browser("save_ai_profile")
+                st.success("AI behaviour saved in this browser.")
+
+        if st.button("Reset AI behaviour", use_container_width=True):
+            st.session_state.ai_profile = DEFAULT_AI_PROFILE.copy()
+            save_chats_to_browser("reset_ai_profile")
+            st.rerun()
 
     st.divider()
 
