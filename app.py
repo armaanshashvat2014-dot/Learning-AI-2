@@ -1742,22 +1742,31 @@ def show_badge(tier, source):
 # INTERACTIVE LEARNING LABS + FILE EXPORTS
 # =============================================================================
 def visualization_kind(question):
-    q = question.lower()
-    if any(k in q for k in ["motion","velocity","acceleration","speed","displacement","projectile","trajectory","kinematics"]):
-        return "motion"
-    if any(k in q for k in ["atom","molecule","electron","proton","neutron","chemical bond","covalent","ionic","element","compound","chemistry"]):
-        return "chemistry"
-    if any(k in q for k in ["wave","frequency","amplitude","wavelength","oscillation","sound wave"]):
-        return "wave"
-    return None
+    """Choose a lab only when the question has a clear science intent."""
+    q = re.sub(r"[^a-z0-9]+", " ", str(question).lower()).strip()
+    patterns = {
+        "motion": [r"\bmotion\b", r"\bvelocity\b", r"\bacceleration\b", r"\bdisplacement\b",
+                   r"\bprojectile\b", r"\btrajectory\b", r"\bkinematics\b", r"\bspeed\b"],
+        "chemistry": [r"\batoms?\b", r"\bmolecules?\b", r"\belectrons?\b", r"\bprotons?\b",
+                      r"\bneutrons?\b", r"\bchemical bonds?\b", r"\bcovalent\b", r"\bionic\b",
+                      r"\bchemistry\b", r"\bions?\b"],
+        "wave": [r"\bwaves?\b", r"\bfrequency\b", r"\bamplitude\b", r"\bwavelength\b",
+                 r"\boscillations?\b", r"\bsound waves?\b"],
+    }
+    scores = {kind: sum(bool(re.search(pattern, q)) for pattern in words)
+              for kind, words in patterns.items()}
+    best = max(scores, key=scores.get)
+    if scores[best] == 0 or list(scores.values()).count(scores[best]) > 1:
+        return None
+    return best
 
 LAB_CSS = """<style>
 *{box-sizing:border-box}body{margin:0;background:#f8f9fa;color:#202124;font:14px system-ui}
 .lab{border:1px solid #dadce0;border-radius:18px;background:#fff;overflow:hidden}.top{padding:15px 18px;border-bottom:1px solid #eee}.top b{font-size:17px}
 .controls{display:grid;grid-template-columns:repeat(4,minmax(105px,1fr));gap:12px;padding:13px 18px;background:#fafafa}
 label{font-size:12px;font-weight:700;color:#5f6368}input,select{width:100%;margin-top:6px}.value{color:#1a73e8}
-.stage{padding:10px}canvas{width:100%;height:390px;border-radius:12px;background:#10131b}.hint{padding:0 18px 14px;color:#5f6368;font-size:12px}
-@media(max-width:650px){.controls{grid-template-columns:1fr 1fr}canvas{height:420px}}</style>"""
+.stage{padding:10px}canvas{display:block;width:100%;height:390px;border-radius:12px;background:#10131b;touch-action:none}.hint{padding:0 18px 14px;color:#5f6368;font-size:12px}
+@media(max-width:650px){.controls{grid-template-columns:1fr 1fr}.stage{padding:8px}canvas{height:330px}}</style>"""
 
 MOTION_LAB_HTML = LAB_CSS + """
 <div class="lab"><div class="top"><b>🏃 Interactive Motion Lab</b><div>Edit the values and watch the 3D-style model and graphs update.</div></div>
@@ -1766,64 +1775,80 @@ MOTION_LAB_HTML = LAB_CSS + """
 <label>Acceleration <span class="value" id="aa">0 m/s²</span><input id="a" type="range" min="-8" max="8" step=".5" value="0"></label>
 <label>Angle <span class="value" id="oo">30°</span><input id="o" type="range" min="0" max="80" value="30"></label>
 <label>Time <span class="value" id="tt">0 s</span><input id="t" type="range" min="0" max="8" step=".05" value="0"></label>
-</div><div class="stage"><canvas id="c"></canvas></div><div class="hint">Blue: position–time • Yellow: velocity–time • Drag any slider.</div></div>
+</div><div class="stage"><canvas id="c" role="img" aria-label="Projectile motion model with horizontal position-time and velocity-time graphs"></canvas></div><div class="hint">Blue: horizontal position–time • Yellow: horizontal velocity–time • Drag any slider.</div></div>
 <script>
-const c=document.getElementById('c'),x=c.getContext('2d'),D=devicePixelRatio||1,V=v,A=a,O=o,T=t;
+const c=document.getElementById('c'),x=c.getContext('2d'),D=devicePixelRatio||1,V=document.getElementById('v'),A=document.getElementById('a'),O=document.getElementById('o'),T=document.getElementById('t');
+const KEY='smartloop_lab_'+__LAB_KEY__;let saved={};try{saved=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){}
+[V,A,O,T].forEach(e=>{if(saved[e.id]!==undefined)e.value=saved[e.id]});
+function save(){try{localStorage.setItem(KEY,JSON.stringify(Object.fromEntries([V,A,O,T].map(e=>[e.id,e.value]))))}catch(e){}}
+function size(){let w=Math.max(1,Math.round(c.clientWidth*D)),h=Math.max(1,Math.round(c.clientHeight*D));if(c.width!==w||c.height!==h){c.width=w;c.height=h}x.setTransform(D,0,0,D,0,0)}
 function L(a,b,d,e,col,w=1){x.beginPath();x.moveTo(a,b);x.lineTo(d,e);x.strokeStyle=col;x.lineWidth=w;x.stroke()}
 function tx(s,a,b,col='#dfe5f2',z=12){x.fillStyle=col;x.font=z+'px system-ui';x.fillText(s,a,b)}
-function draw(){c.width=c.clientWidth*D;c.height=c.clientHeight*D;x.setTransform(D,0,0,D,0,0);let W=c.clientWidth,H=c.clientHeight,s=+V.value,ac=+A.value,an=+O.value*Math.PI/180,tm=+T.value,sp=W*.56,fl=H*.73;
-vv.textContent=s+' m/s';aa.textContent=ac+' m/s²';oo.textContent=O.value+'°';tt.textContent=tm.toFixed(2)+' s';x.fillStyle='#10131b';x.fillRect(0,0,W,H);
+function draw(){size();let W=c.clientWidth,H=c.clientHeight,s=+V.value,ac=+A.value,an=+O.value*Math.PI/180,tm=+T.value,sp=W*.56,fl=H*.73,vx=s*Math.cos(an),vy=s*Math.sin(an);
+document.getElementById('vv').textContent=s+' m/s';document.getElementById('aa').textContent=ac+' m/s²';document.getElementById('oo').textContent=O.value+'°';document.getElementById('tt').textContent=tm.toFixed(2)+' s';x.fillStyle='#10131b';x.fillRect(0,0,W,H);
 for(let i=0;i<10;i++)L(12,fl-i*i*1.4,sp-12,fl-i*i*1.4,'#263042');for(let i=-6;i<7;i++)L(sp/2,fl,sp/2+i*52,18,'#263042');L(12,fl,sp-12,fl,'#8995a8',2);
-let px=s*Math.cos(an)*tm+.5*ac*tm*tm,py=Math.max(0,s*Math.sin(an)*tm-4.9*tm*tm),bx=28+(Math.abs(px)%35)*(sp-56)/35,by=fl-py*7;
+let px=vx*tm+.5*ac*tm*tm,py=Math.max(0,vy*tm-4.9*tm*tm),maxX=Math.max(35,Math.abs(vx*8+.5*ac*64)),bx=28+Math.max(0,Math.min(1,(px/maxX+1)/2))*(sp-56),maxY=Math.max(12,vy*vy/19.6),by=fl-Math.min(py/maxY,1)*(fl-38);
 x.beginPath();x.ellipse(bx,fl+5,22,7,0,0,7);x.fillStyle='#0009';x.fill();let q=x.createRadialGradient(bx-8,by-9,2,bx,by,22);q.addColorStop(0,'#fff');q.addColorStop(.22,'#72b7ff');q.addColorStop(1,'#07538f');x.beginPath();x.arc(bx,by,20,0,7);x.fillStyle=q;x.fill();
 tx('3D motion model',17,25,'#fff',14);tx('x = '+px.toFixed(1)+' m',17,47);tx('y = '+py.toFixed(1)+' m',17,64);
 let gx=sp+34,gw=W-gx-16,gh=(H-62)/2;
-function graph(y0,title,col,fn,scale){tx(title,gx,y0-7,'#fff',13);L(gx,y0+gh,gx+gw,y0+gh,'#718096');L(gx,y0,gx,y0+gh,'#718096');x.beginPath();for(let i=0;i<=100;i++){let z=8*i/100,val=fn(z),xx=gx+gw*i/100,yy=y0+gh-val*scale;i?x.lineTo(xx,yy):x.moveTo(xx,yy)}x.strokeStyle=col;x.lineWidth=2;x.stroke()}
-graph(31,'Position–time','#5da9ff',z=>Math.max(0,s*z+.5*ac*z*z),gh/Math.max(20,s*8+Math.abs(ac)*32));graph(52+gh,'Velocity–time','#ffd75d',z=>s+ac*z,Math.min(4,gh/Math.max(10,s+Math.abs(ac)*8)))}
-[V,A,O,T].forEach(e=>e.oninput=draw);draw();
+function graph(y0,title,col,fn){let vals=Array.from({length:101},(_,i)=>fn(8*i/100)),mn=Math.min(0,...vals),mx=Math.max(0,...vals),span=Math.max(1,mx-mn),zero=y0+gh-(0-mn)*gh/span;tx(title,gx,y0-7,'#fff',13);L(gx,zero,gx+gw,zero,'#718096');L(gx,y0,gx,y0+gh,'#718096');x.beginPath();vals.forEach((val,i)=>{let xx=gx+gw*i/100,yy=y0+gh-(val-mn)*gh/span;i?x.lineTo(xx,yy):x.moveTo(xx,yy)});x.strokeStyle=col;x.lineWidth=2;x.stroke()}
+graph(31,'Horizontal position–time','#5da9ff',z=>vx*z+.5*ac*z*z);graph(52+gh,'Horizontal velocity–time','#ffd75d',z=>vx+ac*z)}
+[V,A,O,T].forEach(e=>e.addEventListener('input',()=>{save();draw()}));new ResizeObserver(draw).observe(c);draw();
 </script>"""
 
 CHEMISTRY_LAB_HTML = LAB_CSS + """
 <div class="lab"><div class="top"><b>⚗️ Interactive Chemistry Lab</b><div>Rotate and edit a simplified 3D molecular model.</div></div>
 <div class="controls">
-<label>Molecule<select id="mol"><option value="water">Water — H₂O</option><option value="carbon">Carbon dioxide — CO₂</option><option value="methane">Methane — CH₄</option><option value="salt">Sodium chloride — NaCl</option></select></label>
+<label>Model<select id="mol"><option value="water">Water — H₂O</option><option value="carbon">Carbon dioxide — CO₂</option><option value="methane">Methane — CH₄</option><option value="salt">Sodium chloride ion pair — NaCl</option></select></label>
 <label>Bond length <span class="value" id="ll">1×</span><input id="len" type="range" min=".6" max="1.7" step=".05" value="1"></label>
 <label>Rotation <span class="value" id="rr">1×</span><input id="rot" type="range" min="0" max="3" step=".1" value="1"></label>
 <label>Zoom<input id="zoom" type="range" min=".65" max="1.5" step=".05" value="1"></label>
-</div><div class="stage"><canvas id="c"></canvas></div><div class="hint">Drag to rotate • Models are simplified for learning.</div></div>
+</div><div class="stage"><canvas id="c" role="img" aria-label="Rotatable simplified three-dimensional chemistry model"></canvas></div><div class="hint">Drag to rotate • NaCl is shown as an ion pair; solid sodium chloride forms a lattice • Models are simplified.</div></div>
 <script>
-const c=document.getElementById('c'),g=c.getContext('2d'),D=devicePixelRatio||1;let rx=.3,ry=.4,drag=false,lx=0,ly=0;
+const c=document.getElementById('c'),g=c.getContext('2d'),D=devicePixelRatio||1,mol=document.getElementById('mol'),len=document.getElementById('len'),rot=document.getElementById('rot'),zoom=document.getElementById('zoom');let rx=.3,ry=.4,drag=false,lx=0,ly=0,running=true,last=performance.now();
+const KEY='smartloop_lab_'+__LAB_KEY__;let saved={};try{saved=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){};[mol,len,rot,zoom].forEach(e=>{if(saved[e.id]!==undefined)e.value=saved[e.id]});rx=Number.isFinite(+saved.rx)?+saved.rx:rx;ry=Number.isFinite(+saved.ry)?+saved.ry:ry;
+function save(){try{localStorage.setItem(KEY,JSON.stringify({...Object.fromEntries([mol,len,rot,zoom].map(e=>[e.id,e.value])),rx,ry}))}catch(e){}}function size(){let w=Math.max(1,Math.round(c.clientWidth*D)),h=Math.max(1,Math.round(c.clientHeight*D));if(c.width!==w||c.height!==h){c.width=w;c.height=h}g.setTransform(D,0,0,D,0,0)}
 const C={H:'#f5f5f5',O:'#ef5350',C:'#444b55',Na:'#8c7cff',Cl:'#50d890'},R={H:15,O:24,C:23,Na:28,Cl:27};
 const M={water:[['O',0,0,0],['H',-1,.55,0],['H',1,.55,0]],carbon:[['O',-1.25,0,0],['C',0,0,0],['O',1.25,0,0]],methane:[['C',0,0,0],['H',1,1,1],['H',-1,-1,1],['H',-1,1,-1],['H',1,-1,-1]],salt:[['Na',-.8,0,0],['Cl',.8,0,0]]};
 function turn(p){let[e,x,y,z]=p,L=+len.value*95;x*=L;y*=L;z*=L;let X=x*Math.cos(ry)+z*Math.sin(ry),Z=-x*Math.sin(ry)+z*Math.cos(ry);return[e,X,y*Math.cos(rx)-Z*Math.sin(rx),y*Math.sin(rx)+Z*Math.cos(rx)]}
-function draw(){c.width=c.clientWidth*D;c.height=c.clientHeight*D;g.setTransform(D,0,0,D,0,0);let W=c.clientWidth,H=c.clientHeight,cx=W/2,cy=H/2,zm=+zoom.value,P=M[mol.value].map(turn);g.fillStyle='#10131b';g.fillRect(0,0,W,H);ll.textContent=(+len.value).toFixed(2)+'×';rr.textContent=(+rot.value).toFixed(1)+'×';
+function draw(){size();let W=c.clientWidth,H=c.clientHeight,cx=W/2,cy=H/2,zm=+zoom.value,P=M[mol.value].map(turn);g.fillStyle='#10131b';g.fillRect(0,0,W,H);document.getElementById('ll').textContent=(+len.value).toFixed(2)+'×';document.getElementById('rr').textContent=(+rot.value).toFixed(1)+'×';
 for(let i=1;i<P.length;i++){g.strokeStyle='#bbc3cf';g.lineWidth=9*zm;g.beginPath();g.moveTo(cx+P[0][1]*zm,cy+P[0][2]*zm);g.lineTo(cx+P[i][1]*zm,cy+P[i][2]*zm);g.stroke()}
 P.sort((a,b)=>a[3]-b[3]).forEach(p=>{let r=R[p[0]]*zm,X=cx+p[1]*zm,Y=cy+p[2]*zm,q=g.createRadialGradient(X-r*.35,Y-r*.4,2,X,Y,r);q.addColorStop(0,'#fff');q.addColorStop(.25,C[p[0]]);q.addColorStop(1,'#111');g.beginPath();g.arc(X,Y,r,0,7);g.fillStyle=q;g.fill();g.fillStyle=p[0]=='C'?'#fff':'#15171b';g.font='bold 12px system-ui';g.textAlign='center';g.fillText(p[0],X,Y+4)});g.textAlign='left';g.fillStyle='#fff';g.font='14px system-ui';g.fillText('3D '+mol.options[mol.selectedIndex].text,18,26)}
-c.onpointerdown=e=>{drag=true;lx=e.clientX;ly=e.clientY;c.setPointerCapture(e.pointerId)};c.onpointermove=e=>{if(drag){ry+=(e.clientX-lx)*.01;rx+=(e.clientY-ly)*.01;lx=e.clientX;ly=e.clientY;draw()}};c.onpointerup=()=>drag=false;[mol,len,rot,zoom].forEach(e=>e.oninput=draw);let last=0;function tick(t){if(!drag){ry+=(t-last)*.00035*(+rot.value);draw()}last=t;requestAnimationFrame(tick)}requestAnimationFrame(tick);
+c.onpointerdown=e=>{drag=true;lx=e.clientX;ly=e.clientY;c.setPointerCapture(e.pointerId)};c.onpointermove=e=>{if(drag){ry+=(e.clientX-lx)*.01;rx+=(e.clientY-ly)*.01;lx=e.clientX;ly=e.clientY;draw()}};function stop(){drag=false;save()}c.onpointerup=stop;c.onpointercancel=stop;c.onlostpointercapture=stop;[mol,len,rot,zoom].forEach(e=>e.addEventListener('input',()=>{save();draw()}));new ResizeObserver(draw).observe(c);new IntersectionObserver(e=>{running=e[0].isIntersecting},{threshold:.01}).observe(c);function tick(t){let dt=Math.min(50,t-last);last=t;if(running&&!drag&&+rot.value>0){ry+=dt*.00035*(+rot.value);draw()}requestAnimationFrame(tick)}draw();requestAnimationFrame(tick);
 </script>"""
 
 WAVE_LAB_HTML = LAB_CSS + """
 <div class="lab"><div class="top"><b>🌊 Interactive Wave Lab</b><div>Change amplitude, frequency and wavelength.</div></div>
 <div class="controls"><label>Amplitude <span class="value" id="av"></span><input id="amp" type="range" min="5" max="80" value="40"></label><label>Frequency <span class="value" id="fv"></span><input id="freq" type="range" min=".2" max="4" step=".1" value="1"></label><label>Wavelength <span class="value" id="wv"></span><input id="wave" type="range" min="60" max="300" value="160"></label><label>Time speed<input id="spd" type="range" min="0" max="3" step=".1" value="1"></label></div>
-<div class="stage"><canvas id="c"></canvas></div><div class="hint">Particles move locally while energy travels through the wave.</div></div>
-<script>const c=document.getElementById('c'),g=c.getContext('2d'),D=devicePixelRatio||1,S=performance.now();function draw(n){c.width=c.clientWidth*D;c.height=c.clientHeight*D;g.setTransform(D,0,0,D,0,0);let W=c.clientWidth,H=c.clientHeight,A=+amp.value,F=+freq.value,L=+wave.value,t=(n-S)/1000*(+spd.value);g.fillStyle='#10131b';g.fillRect(0,0,W,H);g.strokeStyle='#5da9ff';g.lineWidth=3;g.beginPath();for(let x=0;x<W;x+=3){let y=H/2+A*Math.sin(2*Math.PI*(x/L-F*t));x?g.lineTo(x,y):g.moveTo(x,y)}g.stroke();for(let x=20;x<W;x+=28){let y=H/2+A*Math.sin(2*Math.PI*(x/L-F*t));g.beginPath();g.arc(x,y,6,0,7);g.fillStyle='#ffd75d';g.fill()}av.textContent=A;fv.textContent=F.toFixed(1)+' Hz';wv.textContent=L+' px';requestAnimationFrame(draw)}requestAnimationFrame(draw);</script>"""
+<div class="stage"><canvas id="c" role="img" aria-label="Animated transverse wave graph"></canvas></div><div class="hint">Particles move locally while energy travels through the wave.</div></div>
+<script>const c=document.getElementById('c'),g=c.getContext('2d'),D=devicePixelRatio||1,S=performance.now(),amp=document.getElementById('amp'),freq=document.getElementById('freq'),wave=document.getElementById('wave'),spd=document.getElementById('spd');let running=true;const KEY='smartloop_lab_'+__LAB_KEY__;let saved={};try{saved=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){};[amp,freq,wave,spd].forEach(e=>{if(saved[e.id]!==undefined)e.value=saved[e.id]});function save(){try{localStorage.setItem(KEY,JSON.stringify(Object.fromEntries([amp,freq,wave,spd].map(e=>[e.id,e.value]))))}catch(e){}}function size(){let w=Math.max(1,Math.round(c.clientWidth*D)),h=Math.max(1,Math.round(c.clientHeight*D));if(c.width!==w||c.height!==h){c.width=w;c.height=h}g.setTransform(D,0,0,D,0,0)}function draw(n){if(running){size();let W=c.clientWidth,H=c.clientHeight,A=+amp.value,F=+freq.value,L=+wave.value,t=(n-S)/1000*(+spd.value);g.fillStyle='#10131b';g.fillRect(0,0,W,H);g.strokeStyle='#5da9ff';g.lineWidth=3;g.beginPath();for(let x=0;x<W;x+=3){let y=H/2+A*Math.sin(2*Math.PI*(x/L-F*t));x?g.lineTo(x,y):g.moveTo(x,y)}g.stroke();for(let x=20;x<W;x+=28){let y=H/2+A*Math.sin(2*Math.PI*(x/L-F*t));g.beginPath();g.arc(x,y,6,0,7);g.fillStyle='#ffd75d';g.fill()}document.getElementById('av').textContent=A+' px';document.getElementById('fv').textContent=F.toFixed(1)+' Hz';document.getElementById('wv').textContent=L+' px'}requestAnimationFrame(draw)}[amp,freq,wave,spd].forEach(e=>e.addEventListener('input',save));new ResizeObserver(()=>size()).observe(c);new IntersectionObserver(e=>{running=e[0].isIntersecting},{threshold:.01}).observe(c);requestAnimationFrame(draw);</script>"""
 
-def render_interactive_lab(kind):
+def render_interactive_lab(kind, lab_key):
     html = {"motion": MOTION_LAB_HTML, "chemistry": CHEMISTRY_LAB_HTML, "wave": WAVE_LAB_HTML}.get(kind)
     if html:
+        safe_key = json.dumps(re.sub(r"[^a-zA-Z0-9_-]", "_", str(lab_key)))
+        html = html.replace("__LAB_KEY__", safe_key)
         st.markdown("#### 🧪 Interactive Lab")
-        components.html(html, height=575, scrolling=False)
+        components.html(html, height=640, scrolling=True)
 
 def plain_text(markdown_text):
-    text = re.sub(r"[*_#>~]", "", markdown_text)
-    return re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
+    text = str(markdown_text or "").replace("\r\n", "\n")
+    text = re.sub(r"!\[([^]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"^\s*```[^\n]*\n?|```\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"^\s{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"(?<!\w)[*_~]{1,3}|[*_~]{1,3}(?!\w)", "", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
 
-def render_answer_downloads(answer, index):
+def render_answer_downloads(answer, index, message_key):
     safe_name = f"smartloop-answer-{index + 1}"
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(message_key))
     with st.expander("📁 Download this answer"):
         col_md, col_txt = st.columns(2)
-        col_md.download_button("⬇️ Markdown file", answer, file_name=f"{safe_name}.md", mime="text/markdown", key=f"download_md_{index}", use_container_width=True)
-        col_txt.download_button("⬇️ Text file", plain_text(answer), file_name=f"{safe_name}.txt", mime="text/plain", key=f"download_txt_{index}", use_container_width=True)
+        col_md.download_button("⬇️ Markdown file", str(answer or ""), file_name=f"{safe_name}.md", mime="text/markdown; charset=utf-8", key=f"download_md_{safe_key}", use_container_width=True)
+        col_txt.download_button("⬇️ Text file", plain_text(answer), file_name=f"{safe_name}.txt", mime="text/plain; charset=utf-8", key=f"download_txt_{safe_key}", use_container_width=True)
 
 # =============================================================================
 # SIDEBAR
@@ -2016,13 +2041,19 @@ if not messages:
         )
 
 for message_index, msg in enumerate(messages):
-    with st.chat_message(msg["role"]):
-        st.markdown(msg.get("content",""))
+    if not isinstance(msg, dict):
+        continue
+    role = msg.get("role") if msg.get("role") in {"user", "assistant"} else "assistant"
+    message_key = msg.get("id") or hashlib.sha256(
+        f"{st.session_state.current_chat}:{message_index}:{msg.get('content', '')}".encode("utf-8")
+    ).hexdigest()[:16]
+    with st.chat_message(role):
+        st.markdown(str(msg.get("content", "")))
         show_badge(msg.get("tier",""), msg.get("source",""))
-        if msg["role"] == "assistant":
+        if role == "assistant":
             if msg.get("visual"):
-                render_interactive_lab(msg["visual"])
-            render_answer_downloads(msg.get("content", ""), message_index)
+                render_interactive_lab(msg["visual"], message_key)
+            render_answer_downloads(msg.get("content", ""), message_index, message_key)
 
 # =============================================================================
 # CHAT INPUT
@@ -2048,11 +2079,14 @@ if q:
         stream_ph.markdown(ans)
         show_badge(tier, source)
         visual = visualization_kind(q)
+        message_id = hashlib.sha256(
+            f"{st.session_state.current_chat}:{time.time_ns()}:{q}".encode("utf-8")
+        ).hexdigest()[:16]
         if visual:
-            render_interactive_lab(visual)
-        render_answer_downloads(ans, len(messages))
+            render_interactive_lab(visual, message_id)
+        render_answer_downloads(ans, len(messages), message_id)
     messages.append({
         "role":"assistant","content":ans,"tier":tier,"source":source,
-        "visual":visual
+        "visual":visual,"id":message_id
     })
     save_chats_to_browser("save_after_reply")
